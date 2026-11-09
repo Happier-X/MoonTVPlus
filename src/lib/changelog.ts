@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "227.0.2",
+    date: "2026-11-09",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "去广告开关明确作用范围：播放器面板为「网页播放器去广告」，工具栏为「外部播放器去广告」"
+    ],
+    fixed: [
+    "修复跳过中插广告后播放器直接跳到下一集的问题",
+    "修复服务端代理与网页播放器去广告规则不同步的问题",
+    "去广告误删全部分片时回退为原始清单，避免黑屏"
+    ]
+  },
+  {
     version: "227.0.1",
     date: "2026-10-28",
     added: [
