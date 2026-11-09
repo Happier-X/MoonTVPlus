@@ -80,6 +80,10 @@ class WatchRoomServer {
       // 创建房间
       socket.on('room:create', (data, callback) => {
         try {
+          if (String(data.roomType) === 'music') {
+            callback({ success: false, error: '一起听功能已下线' });
+            return;
+          }
           const roomId = this.generateRoomId();
           const userId = socket.id;
           const ownerToken = this.generateRoomId(); // 生成房主令牌
@@ -90,7 +94,7 @@ class WatchRoomServer {
             description: data.description,
             password: data.password,
             isPublic: data.isPublic,
-            roomType: data.roomType || 'sync',
+            roomType: data.roomType === 'screen' ? 'screen' : 'sync',
             ownerId: userId,
             ownerName: data.userName,
             ownerToken: ownerToken, // 保存房主令牌
@@ -316,78 +320,6 @@ class WatchRoomServer {
           room.currentState = state;
           this.rooms.set(roomInfo.roomId, room);
           socket.to(roomInfo.roomId).emit('live:change', state);
-        }
-      });
-
-      socket.on('music:change', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = state;
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:change', state);
-        }
-      });
-
-      socket.on('music:update', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = state;
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:update', state);
-        }
-      });
-
-      socket.on('music:queue', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = state;
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:queue', state);
-        }
-      });
-
-      socket.on('music:play', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = { ...state, isPlaying: true };
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:play', state);
-        }
-      });
-
-      socket.on('music:pause', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = { ...state, isPlaying: false };
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:pause', state);
-        }
-      });
-
-      socket.on('music:seek', (state) => {
-        const roomInfo = this.socketToRoom.get(socket.id);
-        if (!roomInfo || !roomInfo.isOwner) return;
-
-        const room = this.rooms.get(roomInfo.roomId);
-        if (room?.roomType === 'music') {
-          room.currentState = { ...state };
-          this.rooms.set(roomInfo.roomId, room);
-          socket.to(roomInfo.roomId).emit('music:seek', state);
         }
       });
 

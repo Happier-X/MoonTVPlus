@@ -10,9 +10,7 @@ export default function RouteScrollReset() {
     if (typeof window === 'undefined' || !pathname) return;
     // 漫画与小说的浏览页共用一套外壳，进入新页面时都要回到顶部；阅读页自己管滚动。
     const isBrowsePage =
-      (pathname.startsWith('/manga') || pathname.startsWith('/books')) &&
-      pathname !== '/manga/read' &&
-      pathname !== '/books/read';
+      pathname.startsWith('/manga') && pathname !== '/manga/read';
     if (!isBrowsePage) return;
 
     const reset = () => {

@@ -1,4 +1,3 @@
-import { BookListItem, BookReadRecord, BookShelfItem } from '@/lib/book.types';
 import {
   MangaReadRecord,
   MangaSearchItem,
@@ -21,9 +20,6 @@ const clampProgress = (value: number | undefined): number | undefined => {
 
 const mangaIdOf = (item: MangaSearchItem | MangaShelfItem) =>
   'id' in item ? item.id : item.mangaId;
-
-const bookIdOf = (item: BookListItem | BookShelfItem) =>
-  'id' in item ? item.id : item.bookId;
 
 export const mangaCardItem = (
   item: MangaSearchItem | MangaShelfItem
@@ -54,29 +50,6 @@ export const mangaReadRecordCardItem = (
     subtitle: [record.chapterName, pageLabel].filter(Boolean).join(' · '),
   };
 };
-
-export const bookCardItem = (
-  item: BookListItem | BookShelfItem
-): MediaCardItem => ({
-  key: `${item.sourceId}-${bookIdOf(item)}`,
-  title: item.title,
-  image: item.cover,
-  meta: item.sourceName,
-  subtitle: item.author || '未知作者',
-  progress:
-    'progressPercent' in item ? clampProgress(item.progressPercent) : undefined,
-});
-
-export const bookReadRecordCardItem = (
-  record: BookReadRecord
-): MediaCardItem => ({
-  key: `${record.sourceId}-${record.bookId}`,
-  title: record.title,
-  image: record.cover,
-  meta: record.sourceName,
-  subtitle: [record.chapterTitle, record.author].filter(Boolean).join(' · '),
-  progress: clampProgress(record.progressPercent),
-});
 
 /**
  * 漫画详情 / 阅读地址的唯一构造函数。

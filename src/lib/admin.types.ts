@@ -345,35 +345,6 @@ export interface AdminConfig {
     SourceIds?: string[]; // 限制可用源
     MaxSources?: number; // 搜索时最多查询多少个源
   };
-  OPDSConfig?: {
-    Enabled: boolean; // 是否启用电子书馆
-    Sources?: Array<{
-      id: string;
-      name: string;
-      type?: 'opds';
-      url: string;
-      enabled?: boolean;
-      authMode?: 'none' | 'basic' | 'header';
-      username?: string;
-      password?: string;
-      headerName?: string;
-      headerValue?: string;
-      searchTemplate?: string;
-      preferFormat?: Array<'epub' | 'pdf'>;
-      language?: string;
-    }>;
-    LegadoSubscriptions?: Array<{
-      id: string;
-      name: string;
-      url: string;
-      enabled?: boolean;
-      sourceCount?: number;
-      lastSyncAt?: number;
-      lastSuccessAt?: number;
-      lastError?: string;
-    }>;
-    CacheTTL?: number;
-  };
   EmailConfig?: {
     enabled: boolean; // 是否启用邮件通知
     provider: 'smtp' | 'resend'; // 邮件发送方式
@@ -404,18 +375,6 @@ export interface AdminConfig {
     registrationEnabled?: boolean; // 是否启用 Telegram 注册
     notificationsEnabled?: boolean; // 是否启用 Telegram 通知
     defaultNotifications?: boolean; // 新绑定用户默认开启通知
-  };
-  MusicConfig?: {
-    Enabled?: boolean; // 启用音乐功能
-    BaseUrl?: string; // lxserver 地址
-    Token?: string; // lxserver x-user-token
-    ProxyEnabled?: boolean; // 是否走 stream 代理
-    OpenListCacheEnabled?: boolean;
-    OpenListCacheURL?: string;
-    OpenListCacheUsername?: string;
-    OpenListCachePassword?: string;
-    OpenListCachePath?: string;
-    OpenListCacheProxyEnabled?: boolean;
   };
   AnimeSubscriptionConfig?: {
     Enabled: boolean; // 是否启用追番功能

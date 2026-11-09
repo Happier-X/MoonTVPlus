@@ -948,71 +948,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     adminConfig.SuwayomiConfig.MaxSources = 10;
   }
 
-  if (!adminConfig.OPDSConfig) {
-    adminConfig.OPDSConfig = {
-      Enabled: process.env.OPDS_ENABLED === 'true',
-      Sources: (() => {
-        const json = process.env.OPDS_SOURCES_JSON;
-        if (json) {
-          try {
-            const parsed = JSON.parse(json);
-            if (Array.isArray(parsed)) return parsed;
-          } catch {
-            // ignore invalid env json
-          }
-        }
-
-        const envUrl = process.env.OPDS_URL || process.env.NEXT_PUBLIC_OPDS_URL;
-        if (!envUrl) return [];
-
-        return [
-          {
-            id: 'default',
-            name: process.env.OPDS_NAME || '默认书源',
-            type: 'opds',
-            url: envUrl,
-            enabled: true,
-            authMode:
-              (process.env.OPDS_AUTH_MODE as
-                | 'none'
-                | 'basic'
-                | 'header'
-                | undefined) || 'none',
-            username: process.env.OPDS_USERNAME || '',
-            password: process.env.OPDS_PASSWORD || '',
-            headerName: process.env.OPDS_HEADER_NAME || '',
-            headerValue: process.env.OPDS_HEADER_VALUE || '',
-            searchTemplate: process.env.OPDS_SEARCH_TEMPLATE || '',
-          },
-        ];
-      })(),
-      CacheTTL: Number(process.env.OPDS_CACHE_TTL_MS || 10 * 60 * 1000),
-    };
-  }
-  if (adminConfig.OPDSConfig.Enabled === undefined) {
-    adminConfig.OPDSConfig.Enabled = false;
-  }
-  if (!Array.isArray(adminConfig.OPDSConfig.Sources)) {
-    adminConfig.OPDSConfig.Sources = [];
-  }
-  adminConfig.OPDSConfig.Sources = adminConfig.OPDSConfig.Sources.filter(
-    (source: any) => (source?.type || 'opds') === 'opds'
-  ).map((source: any) => {
-    const { legado: _legado, ...rest } = source || {};
-    return { ...rest, type: 'opds' };
-  });
-  if (!Array.isArray(adminConfig.OPDSConfig.LegadoSubscriptions)) {
-    adminConfig.OPDSConfig.LegadoSubscriptions = [];
-  }
-  if (
-    adminConfig.OPDSConfig.CacheTTL === undefined ||
-    Number.isNaN(adminConfig.OPDSConfig.CacheTTL)
-  ) {
-    adminConfig.OPDSConfig.CacheTTL = Number(
-      process.env.OPDS_CACHE_TTL_MS || 10 * 60 * 1000
-    );
-  }
-
   if (!adminConfig.NetDiskConfig) {
     adminConfig.NetDiskConfig = {
       Quark: {
@@ -1115,30 +1050,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     };
   }
 
-  // 确保音乐配置存在
-  if (!adminConfig.MusicConfig) {
-    adminConfig.MusicConfig = {
-      Enabled: false,
-      BaseUrl: '',
-      Token: '',
-      ProxyEnabled: true,
-    };
-  } else if (adminConfig.MusicConfig.ProxyEnabled === undefined) {
-    adminConfig.MusicConfig.ProxyEnabled = true;
-  }
-
-  if (!adminConfig.OPDSConfig) {
-    adminConfig.OPDSConfig = {
-      Enabled: false,
-      Sources: [],
-      CacheTTL: 10 * 60 * 1000,
-    };
-  } else {
-    if (adminConfig.OPDSConfig.CacheTTL === undefined) {
-      adminConfig.OPDSConfig.CacheTTL = 10 * 60 * 1000;
-    }
-  }
-
   // API Base URL 统一去尾斜杠，避免拼接路径时出现 //
   const site = adminConfig.SiteConfig;
   if (site) {
@@ -1182,12 +1093,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
           url: normalizeApiBaseUrl(s.url),
         }));
     }
-  }
-
-  if (adminConfig.MusicConfig) {
-    adminConfig.MusicConfig.BaseUrl = normalizeApiBaseUrl(
-      adminConfig.MusicConfig.BaseUrl
-    );
   }
 
   if (adminConfig.XiaoyaConfig) {
@@ -1251,7 +1156,9 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   // 同步 TMDB 图片默认地址到轻量模块，供 getTMDBImageUrl 等服务端图片拼接使用
   setServerTmdbImageBaseUrl(adminConfig.SiteConfig?.TMDBImageBaseUrl);
 
-  // 注意：OPDS source.url 是完整目录 URL，保留末尾 / 以便相对路径解析
+  // 音乐与电子书功能已移除：旧配置里的字段在下次保存配置时一并清掉
+  delete (adminConfig as unknown as Record<string, unknown>).MusicConfig;
+  delete (adminConfig as unknown as Record<string, unknown>).OPDSConfig;
 
   return adminConfig;
 }

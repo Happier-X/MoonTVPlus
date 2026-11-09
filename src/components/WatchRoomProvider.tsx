@@ -10,7 +10,7 @@ import Toast, { ToastProps } from '@/components/Toast';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 
-import type { ChatMessage, Member, MusicSyncState, Room, RoomType, ScreenState, WatchRoomConfig } from '@/types/watch-room';
+import type { ChatMessage, Member, Room, RoomType, ScreenState, WatchRoomConfig } from '@/types/watch-room';
 
 // Import type from watch-room-socket
 type WatchRoomSocket = import('@/lib/watch-room-socket').WatchRoomSocket;
@@ -64,12 +64,6 @@ interface WatchRoomContextType {
   changeLiveChannel: (state: any) => void;
   startScreenShare: (state: ScreenState) => void;
   stopScreenShare: () => void;
-  changeMusic: (state: MusicSyncState) => void;
-  updateMusicState: (state: MusicSyncState) => void;
-  updateMusicQueue: (state: MusicSyncState) => void;
-  playMusic: (state: MusicSyncState) => void;
-  pauseMusic: (state: MusicSyncState) => void;
-  seekMusic: (state: MusicSyncState) => void;
   clearRoomState: () => void;
 
   // 重连
@@ -347,12 +341,6 @@ export function WatchRoomProvider({ children }: WatchRoomProviderProps) {
     changeLiveChannel: watchRoom.changeLiveChannel,
     startScreenShare: watchRoom.startScreenShare,
     stopScreenShare: watchRoom.stopScreenShare,
-    changeMusic: watchRoom.changeMusic,
-    updateMusicState: watchRoom.updateMusicState,
-    updateMusicQueue: watchRoom.updateMusicQueue,
-    playMusic: watchRoom.playMusic,
-    pauseMusic: watchRoom.pauseMusic,
-    seekMusic: watchRoom.seekMusic,
     clearRoomState: watchRoom.clearRoomState,
     manualReconnect,
   };

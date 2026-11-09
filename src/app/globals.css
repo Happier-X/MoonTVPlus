@@ -276,31 +276,6 @@ div[data-media-provider] video {
   }
 }
 
-@keyframes reader-book-flip {
-  0%, 100% {
-    transform: perspective(120px) rotateY(0deg) translateY(0);
-  }
-  30% {
-    transform: perspective(120px) rotateY(-24deg) translateY(-2px);
-  }
-  60% {
-    transform: perspective(120px) rotateY(24deg) translateY(0);
-  }
-}
-
-.reader-book-loader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #a8611f;
-  animation: reader-book-flip 1.5s ease-in-out infinite;
-  transform-origin: center;
-}
-
-.dark .reader-book-loader {
-  color: #d9924a;
-}
-
 
 /* TV 端遥控器焦点：深色选中 + 放大，而不是细边框 */
 .tv-focusable {

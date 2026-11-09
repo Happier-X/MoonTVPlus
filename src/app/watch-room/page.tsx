@@ -59,7 +59,6 @@ function WatchRoomPageContent() {
   const watchRoom = useWatchRoomContext();
   const { getRoomList, isConnected, createRoom, joinRoom, currentRoom, isOwner, members, socket } = watchRoom;
   const [activeTab, setActiveTab] = useState<TabType>('create');
-  const [musicEnabled, setMusicEnabled] = useState(false);
 
   // 获取当前登录用户（在客户端挂载后读取，避免 hydration 错误）
   const [currentUsername, setCurrentUsername] = useState<string>('游客');
@@ -67,10 +66,6 @@ function WatchRoomPageContent() {
   useEffect(() => {
     const authInfo = getAuthInfoFromBrowserCookie();
     setCurrentUsername(authInfo?.username || '游客');
-  }, []);
-
-  useEffect(() => {
-    setMusicEnabled(Boolean((window as any).RUNTIME_CONFIG?.MUSIC_ENABLED));
   }, []);
 
   // 创建房间表单
@@ -249,11 +244,6 @@ function WatchRoomPageContent() {
       return;
     }
 
-    if (currentRoom.roomType === 'music') {
-      router.push('/watch-room/music');
-      return;
-    }
-
     // 进度同步房：房主正在播放时自动跟随
     const state = currentRoom.currentState;
     if (state?.type === 'play') {
@@ -274,7 +264,7 @@ function WatchRoomPageContent() {
   useEffect(() => {
     if (!currentRoom || isOwner) return;
 
-    if (currentRoom.roomType === 'screen' || currentRoom.roomType === 'music') return;
+    if (currentRoom.roomType === 'screen') return;
 
     const handlePlayChange = (state: any) => {
       if (state.type === 'play') {
@@ -323,8 +313,6 @@ function WatchRoomPageContent() {
   useEffect(() => {
     if (currentRoom?.roomType === 'screen') {
       router.push('/watch-room/screen');
-    } else if (currentRoom?.roomType === 'music' && !isOwner) {
-      router.push('/watch-room/music');
     }
   }, [currentRoom?.id, currentRoom?.roomType, isOwner, router]);
 
@@ -517,7 +505,7 @@ function WatchRoomPageContent() {
                         </div>
                         <div className="bg-white/10 backdrop-blur rounded-lg p-3">
                           <p className="text-blue-100 text-xs mb-1">房间类型</p>
-                          <p className="text-base font-bold">{currentRoom.roomType === 'screen' ? '屏幕共享' : currentRoom.roomType === 'music' ? '一起听' : '进度同步'}</p>
+                          <p className="text-base font-bold">{currentRoom.roomType === 'screen' ? '屏幕共享' : '进度同步'}</p>
                         </div>
                       </div>
                     </div>
@@ -554,20 +542,9 @@ function WatchRoomPageContent() {
                       <p className="text-sm text-blue-800 dark:text-blue-200">
                         💡 {currentRoom.roomType === 'screen'
                           ? '这是屏幕共享房间，创建后将进入共享页，由房主发起屏幕共享'
-                          : currentRoom.roomType === 'music'
-                            ? '进入音乐页面后，房间成员将同步收听您的播放列表'
-                            : '前往播放页面或直播页面开始观影，房间成员将自动同步您的操作'}
+                          : '前往播放页面或直播页面开始观影，房间成员将自动同步您的操作'}
                       </p>
                     </div>
-                    {currentRoom.roomType === 'music' && isOwner && (
-                      <button
-                        type="button"
-                        onClick={() => router.push('/music?watchRoom=music')}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-3 rounded-lg transition-colors"
-                      >
-                        进入音乐页面
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleCreateRoom} className="space-y-4">
@@ -638,7 +615,7 @@ function WatchRoomPageContent() {
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       房间类型
                     </label>
-                    <div className={`grid grid-cols-1 ${musicEnabled ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         type="button"
                         onClick={() => setCreateForm({ ...createForm, roomType: 'sync' })}
@@ -663,20 +640,6 @@ function WatchRoomPageContent() {
                         <div className="font-medium text-gray-900 dark:text-gray-100">屏幕共享</div>
                         <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">房员直接观看房主共享的浏览器画面（适合完全实时同步的情况）</div>
                       </button>
-                      {musicEnabled && (
-                        <button
-                          type="button"
-                          onClick={() => setCreateForm({ ...createForm, roomType: 'music' })}
-                          className={`rounded-lg border p-4 text-left transition-colors ${
-                            createForm.roomType === 'music'
-                              ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                              : 'border-gray-300 dark:border-gray-600'
-                          }`}
-                        >
-                          <div className="font-medium text-gray-900 dark:text-gray-100">一起听</div>
-                          <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">房主控制音乐播放，房员同步收听播放列表</div>
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -921,7 +884,7 @@ function WatchRoomPageContent() {
                         </div>
                         <div className="flex items-center justify-between text-gray-600 dark:text-gray-400">
                           <span>类型</span>
-                          <span>{room.roomType === 'screen' ? '屏幕共享' : room.roomType === 'music' ? '一起听' : '进度同步'}</span>
+                          <span>{room.roomType === 'screen' ? '屏幕共享' : '进度同步'}</span>
                         </div>
                         <div className="flex items-center justify-between text-gray-600 dark:text-gray-400">
                           <span>创建时间</span>
@@ -934,9 +897,7 @@ function WatchRoomPageContent() {
                                 ? `正在播放: ${room.currentState.videoName}`
                                 : room.currentState.type === 'live'
                                   ? `正在观看: ${room.currentState.channelName}`
-                                  : room.currentState.type === 'music'
-                                    ? `正在听: ${room.currentState.song.name} - ${room.currentState.song.artist}`
-                                    : '正在共享屏幕'}
+                                  : '正在共享屏幕'}
                             </p>
                           </div>
                         )}

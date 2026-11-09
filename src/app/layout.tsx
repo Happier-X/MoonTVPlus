@@ -133,12 +133,7 @@ export default async function RootLayout({
   let analyticsScriptUrl = '';
   let analyticsWebsiteId = '';
   let analyticsCustomScript = '';
-  let musicFeatureEnabled = false;
   let suwayomiEnabled = false;
-  let booksEnabled =
-    process.env.OPDS_ENABLED === 'true' ||
-    process.env.LEGADO_ENABLED === 'true';
-  let musicProxyEnabled = true;
   let advancedRecommendationEnabled = false;
   let localSettingsSyncMode: 'off' | 'manual' | 'auto' = 'off';
   // 特殊源名单：供客户端按入口隔离收藏与播放记录。
@@ -247,18 +242,10 @@ export default async function RootLayout({
     analyticsScriptUrl = config.SiteConfig?.AnalyticsScriptUrl || '';
     analyticsWebsiteId = config.SiteConfig?.AnalyticsWebsiteId || '';
     analyticsCustomScript = config.SiteConfig?.AnalyticsCustomScript || '';
-    // 音乐功能配置
-    musicFeatureEnabled = config.MusicConfig?.Enabled || false;
-    musicProxyEnabled = config.MusicConfig?.ProxyEnabled ?? true;
     // 漫画功能配置
     suwayomiEnabled = !!(
       config.SuwayomiConfig?.Enabled && config.SuwayomiConfig?.ServerURL
     );
-    // 电子书功能配置
-    const opdsConfig = config.OPDSConfig;
-    // 电子书馆同时支持 OPDS 与 Legado。Legado 源通过订阅单独配置，
-    // 不一定会出现在 OPDS Sources 中；入口应由“启用电子书馆”开关控制。
-    booksEnabled = !!opdsConfig?.Enabled;
     // 高级推荐功能配置：存在已启用视频源脚本时显示
     advancedRecommendationEnabled =
       (await listEnabledSourceScripts()).length > 0;
@@ -357,10 +344,7 @@ export default async function RootLayout({
     WEB_LIVE_ENABLED: webLiveEnabled && userFeatureAccess.web_live,
     ADVANCED_RECOMMENDATION_ENABLED: advancedRecommendationEnabled,
     CUSTOM_AD_FILTER_VERSION: customAdFilterVersion,
-    MUSIC_ENABLED: musicFeatureEnabled && userFeatureAccess.music,
-    MUSIC_PROXY_ENABLED: musicProxyEnabled,
     SUWAYOMI_ENABLED: suwayomiEnabled && userFeatureAccess.manga,
-    BOOKS_ENABLED: booksEnabled && userFeatureAccess.books,
     NETDISK_SEARCH_ENABLED: userFeatureAccess.netdisk_search,
     MAGNET_SEARCH_ENABLED: userFeatureAccess.magnet_search,
     MAGNET_SAVE_PRIVATE_LIBRARY_ENABLED:

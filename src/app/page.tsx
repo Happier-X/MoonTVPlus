@@ -3,13 +3,11 @@
 'use client';
 
 import {
-  BookMarked,
   BookOpen,
   Bot,
   ChevronRight,
   Link as LinkIcon,
   ListVideo,
-  Music,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
@@ -75,9 +73,7 @@ function HomeClient() {
     '你好！我是MoonTVPlus的AI影视助手。想看什么电影或剧集？需要推荐吗？'
   );
   const [sourceSearchEnabled, setSourceSearchEnabled] = useState(true);
-  const [musicEnabled, setMusicEnabled] = useState(false);
   const [mangaEnabled, setMangaEnabled] = useState(false);
-  const [booksEnabled, setBooksEnabled] = useState(false);
   const [netdiskTempPlayEnabled, setNetdiskTempPlayEnabled] = useState(false);
   const [showDirectPlayDialog, setShowDirectPlayDialog] = useState(false);
   const [directPlayUrl, setDirectPlayUrl] = useState('');
@@ -326,27 +322,11 @@ function HomeClient() {
     }
   }, []);
 
-  // 检查音乐功能是否启用
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const enabled = !!(window as any).RUNTIME_CONFIG?.MUSIC_ENABLED;
-      setMusicEnabled(enabled);
-    }
-  }, []);
-
   // 检查漫画功能是否启用
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const enabled = !!(window as any).RUNTIME_CONFIG?.SUWAYOMI_ENABLED;
       setMangaEnabled(enabled);
-    }
-  }, []);
-
-  // 检查电子书功能是否启用
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const enabled = !!(window as any).RUNTIME_CONFIG?.BOOKS_ENABLED;
-      setBooksEnabled(enabled);
     }
   }, []);
 
@@ -908,17 +888,6 @@ function HomeClient() {
                 <LinkIcon size={18} />
               </button>
 
-              {musicEnabled && (
-                <Link href='/music' prefetch={false}>
-                  <button
-                    className='p-1.5 rounded-lg text-green-500 hover:text-green-600 transition-colors'
-                    title='音乐视听'
-                  >
-                    <Music size={18} />
-                  </button>
-                </Link>
-              )}
-
               {mangaEnabled && (
                 <Link href='/manga' prefetch={false}>
                   <button
@@ -926,17 +895,6 @@ function HomeClient() {
                     title='漫画展馆'
                   >
                     <BookOpen size={18} />
-                  </button>
-                </Link>
-              )}
-
-              {booksEnabled && (
-                <Link href='/books' prefetch={false}>
-                  <button
-                    className='p-1.5 rounded-lg text-amber-500 hover:text-amber-600 transition-colors'
-                    title='电子书馆'
-                  >
-                    <BookMarked size={18} />
                   </button>
                 </Link>
               )}

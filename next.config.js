@@ -237,6 +237,22 @@ const createNextConfig = (phase) => {
 
     return config;
   },
+
+  // 音乐与电子书功能已下线：老书签、已安装 PWA 的缓存入口统一回首页，
+  // 避免落到 404。等一段时间后可以删掉这段。
+  async redirects() {
+    return [
+      { source: '/music', destination: '/', permanent: false },
+      { source: '/music/:path*', destination: '/', permanent: false },
+      { source: '/books', destination: '/', permanent: false },
+      { source: '/books/:path*', destination: '/', permanent: false },
+      {
+        source: '/watch-room/music',
+        destination: '/watch-room',
+        permanent: false,
+      },
+    ];
+  },
 };
 
   // next-pwa runs an additional webpack pass that is not needed for the

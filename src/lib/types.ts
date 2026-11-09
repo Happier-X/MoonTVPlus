@@ -1,6 +1,5 @@
 import { AdminConfig } from './admin.types';
 import { MangaReadRecord, MangaShelfItem } from './manga.types';
-import { BookReadRecord, BookShelfItem } from './book.types';
 
 // 播放记录数据结构
 export interface PlayRecord {
@@ -62,17 +61,6 @@ export interface IStorage {
   // 迁移收藏
   migrateFavorites(userName: string): Promise<void>;
 
-  // 音乐播放记录相关
-  getMusicPlayRecord(userName: string, key: string): Promise<any | null>;
-  setMusicPlayRecord(userName: string, key: string, record: any): Promise<void>;
-  batchSetMusicPlayRecords(
-    userName: string,
-    records: { key: string; record: any }[]
-  ): Promise<void>;
-  getAllMusicPlayRecords(userName: string): Promise<{ [key: string]: any }>;
-  deleteMusicPlayRecord(userName: string, key: string): Promise<void>;
-  clearAllMusicPlayRecords(userName: string): Promise<void>;
-
   // 用户相关
   verifyUser(userName: string, password: string): Promise<boolean>;
   // 检查用户是否存在（无需密码）
@@ -114,32 +102,6 @@ export interface IStorage {
   ): Promise<{ [key: string]: MangaReadRecord }>;
   deleteMangaReadRecord(userName: string, key: string): Promise<void>;
   cleanupOldMangaReadRecords?(userName: string): Promise<void>;
-
-  // 电子书书架相关
-  getBookShelf(userName: string, key: string): Promise<BookShelfItem | null>;
-  setBookShelf(
-    userName: string,
-    key: string,
-    item: BookShelfItem
-  ): Promise<void>;
-  getAllBookShelf(userName: string): Promise<{ [key: string]: BookShelfItem }>;
-  deleteBookShelf(userName: string, key: string): Promise<void>;
-
-  // 电子书阅读历史相关
-  getBookReadRecord(
-    userName: string,
-    key: string
-  ): Promise<BookReadRecord | null>;
-  setBookReadRecord(
-    userName: string,
-    key: string,
-    record: BookReadRecord
-  ): Promise<void>;
-  getAllBookReadRecords(
-    userName: string
-  ): Promise<{ [key: string]: BookReadRecord }>;
-  deleteBookReadRecord(userName: string, key: string): Promise<void>;
-  cleanupOldBookReadRecords?(userName: string): Promise<void>;
 
   // 用户列表
   getAllUsers(): Promise<string[]>;

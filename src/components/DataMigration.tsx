@@ -143,7 +143,6 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
   const [importPassword, setImportPassword] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [includeMangaExport, setIncludeMangaExport] = useState(true);
-  const [includeBooksExport, setIncludeBooksExport] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<{
@@ -219,7 +218,6 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
         body: JSON.stringify({
           password: exportPassword,
           includeMangaData: includeMangaExport,
-          includeBookData: includeBooksExport,
         }),
       });
 
@@ -341,7 +339,6 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
             <p>备份时间: ${new Date(result.timestamp).toLocaleString('zh-CN')}</p>
             <p>服务器版本: ${result.serverVersion || '未知版本'}</p>
             <p>漫画数据: ${result.importedMangaData ? '已导入' : '未导入'}</p>
-            <p>电子书数据: ${result.importedBookData ? '已导入' : '未导入'}</p>
             <p class="mt-3 text-orange-600">请刷新页面以查看最新数据。</p>
           </div>
         `,
@@ -437,16 +434,6 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
                     />
                     漫画数据（书架 + 阅读记录）
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <input
-                      type="checkbox"
-                      checked={includeBooksExport}
-                      onChange={(e) => setIncludeBooksExport(e.target.checked)}
-                      disabled={isExporting}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    电子书数据（书架 + 阅读记录）
-                  </label>
                 </div>
 
                 {/* 备份内容列表 */}
@@ -458,7 +445,7 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
                     <div>• 播放记录</div>
                     <div>• 收藏夹</div>
                     <div>• 搜索历史</div>
-                    <div>• 音乐数据</div>
+                    <div>• 漫画数据</div>
                   </div>
                 </div>
               </div>

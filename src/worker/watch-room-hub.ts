@@ -198,6 +198,10 @@ export class WatchRoomHub {
     switch (event) {
       case 'room:create': {
         const data = (args[0] || {}) as ClientCreateData;
+        if (String(data.roomType) === 'music') {
+          ack({ success: false, error: '一起听功能已下线' });
+          break;
+        }
         const roomId = generateRoomId();
         const room: Room = {
           id: roomId,
@@ -205,7 +209,7 @@ export class WatchRoomHub {
           description: data.description,
           password: data.password,
           isPublic: data.isPublic,
-          roomType: data.roomType || 'sync',
+          roomType: data.roomType === 'screen' ? 'screen' : 'sync',
           ownerId: socketId,
           ownerName: data.userName,
           ownerToken: generateRoomId(),
@@ -349,25 +353,6 @@ export class WatchRoomHub {
         if (!info?.isOwner) return;
         this.applyState(info.roomId, args[0] as Room['currentState']);
         this.toRoom(info.roomId, 'live:change', [args[0]], socketId);
-        break;
-      }
-
-      case 'music:change':
-      case 'music:update':
-      case 'music:queue':
-      case 'music:play':
-      case 'music:pause':
-      case 'music:seek': {
-        if (!info?.isOwner) return;
-        const room = this.rooms.get(info.roomId);
-        if (room?.roomType !== 'music') return;
-
-        // 只有 play/pause 会在 currentState 里翻转 isPlaying，但广播出去的始终是原始 state
-        let state = (args[0] || {}) as Record<string, unknown>;
-        if (event === 'music:play') state = { ...state, isPlaying: true };
-        if (event === 'music:pause') state = { ...state, isPlaying: false };
-        room.currentState = state as unknown as Room['currentState'];
-        this.toRoom(info.roomId, event, [args[0]], socketId);
         break;
       }
 
@@ -562,7 +547,9 @@ export class WatchRoomHub {
 
   private scheduleTick(): void {
     if (this.sockets.size === 0 && this.rooms.size === 0) return;
-    void this.ctx.storage.setAlarm(Date.now() + TICK_MS).catch(() => {});
+    void this.ctx.storage.setAlarm(Date.now() + TICK_MS).catch(() => {
+      /* 闹钟设置失败由下一轮 tick 兜底 */
+    });
   }
 
   async alarm(): Promise<void> {

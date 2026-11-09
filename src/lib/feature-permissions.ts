@@ -10,9 +10,7 @@ export const FEATURE_PERMISSION_OPTIONS = [
   { key: 'netdisk_temp_play', label: '临时播放', description: '网盘资源临时播放' },
   { key: 'live', label: '电视直播', description: '电视直播频道观看' },
   { key: 'web_live', label: '网络直播', description: '网络直播观看' },
-  { key: 'music', label: '音乐', description: '音乐视听功能' },
   { key: 'manga', label: '漫画展馆', description: '漫画搜索、阅读与书架' },
-  { key: 'books', label: '电子书馆', description: 'OPDS 电子书浏览、阅读与书架' },
 ] as const;
 
 export type FeaturePermissionKey = (typeof FEATURE_PERMISSION_OPTIONS)[number]['key'];
