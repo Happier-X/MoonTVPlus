@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "300.0.0",
+    date: "2026-11-09",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "本项目转为独立开发，版本线从 300.0.0 重新开始，不再跟随上游版本号",
+    "应用内更新检查改为读取本仓库的 VERSION.txt，并新增 jsdelivr 备用地址"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "227.0.2",
     date: "2026-11-09",
     added: [
