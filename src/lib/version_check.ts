@@ -12,8 +12,11 @@ export enum UpdateStatus {
 }
 
 // 远程版本检查URL配置
+// 本项目已独立开发，版本只和本仓库的 VERSION.txt 比较，不再跟随上游
 const VERSION_CHECK_URLS = [
-  'https://raw.githubusercontent.com/mtvpls/MoonTVPlus/main/VERSION.txt',
+  'https://raw.githubusercontent.com/Happier-X/MoonTVPlus/main/VERSION.txt',
+  // 备用地址：raw.githubusercontent 被墙或限流时使用
+  'https://cdn.jsdelivr.net/gh/Happier-X/MoonTVPlus@main/VERSION.txt',
 ];
 
 /**
@@ -22,19 +25,15 @@ const VERSION_CHECK_URLS = [
  */
 export async function checkForUpdates(): Promise<UpdateStatus> {
   try {
-    // 尝试从主要URL获取版本信息
-    const primaryVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[0]);
-    if (primaryVersion) {
-      return compareVersions(primaryVersion);
+    // 按顺序尝试所有配置的地址，任一成功即返回
+    for (const url of VERSION_CHECK_URLS) {
+      const version = await fetchVersionFromUrl(url);
+      if (version) {
+        return compareVersions(version);
+      }
     }
 
-    // 如果主要URL失败，尝试备用URL
-    const backupVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[1]);
-    if (backupVersion) {
-      return compareVersions(backupVersion);
-    }
-
-    // 如果两个URL都失败，返回获取失败状态
+    // 所有地址都失败，返回获取失败状态
     return UpdateStatus.FETCH_FAILED;
   } catch (error) {
     console.error('版本检查失败:', error);
