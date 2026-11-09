@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "301.0.0",
+    date: "2026-11-09",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "移除音乐功能：页面、API、管理端配置与观影室「一起听」",
+    "移除电子书功能：书源、阅读器、书架、朗读与 OPDS/Legado 配置",
+    "数据库同步删除音乐与电子书的表（升级前请备份，用户书架与歌单数据不可恢复）",
+    "数据导入导出不再包含音乐与电子书数据",
+    "观影室房间类型缩减为「进度同步」「屏幕共享」"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "300.0.0",
     date: "2026-11-09",
     added: [
