@@ -14279,6 +14279,11 @@ const CustomAdFilterConfig = ({
   const lines = m3u8Content.split('\\n');
   const filteredLines = [];
 
+  // 中插广告摘掉后，前后分片的时间轴是断开的，必须在拼接处补回
+  // #EXT-X-DISCONTINUITY，否则播放器会停在断点并自动跳下一集
+  let needDiscontinuity = false;
+  let keptSegmentCount = 0;
+
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -14299,11 +14304,24 @@ const CustomAdFilterConfig = ({
         );
 
         if (containsAdKeyword) {
-          // 跳过 EXTINF 行和 URL 行
+          // 跳过 EXTINF 行和 URL 行，并标记需要补回时间轴断点
+          needDiscontinuity = true;
           i += 2;
           continue;
         }
       }
+    }
+
+    // 片头广告被删时不补，避免开头出现孤立的断点标记
+    if (needDiscontinuity && line.trim()) {
+      if (keptSegmentCount > 0) {
+        filteredLines.push('#EXT-X-DISCONTINUITY');
+      }
+      needDiscontinuity = false;
+    }
+
+    if (line.includes('#EXTINF:')) {
+      keptSegmentCount++;
     }
 
     // 保留当前行

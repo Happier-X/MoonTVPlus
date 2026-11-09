@@ -253,6 +253,13 @@ const PLAY_SHORTCUT_GROUPS = [
   },
 ];
 
+/** 日志里只留看得清的部分：去掉查询串，过长时保留尾部 */
+function shortenUrlForLog(url?: string): string {
+  if (!url) return '(空)';
+  const clean = url.split('?')[0];
+  return clean.length > 100 ? `…${clean.slice(-100)}` : clean;
+}
+
 /* -----------------------------------------------------------------------------
  * 初始化加载动画（后台「个性化配置 → 初始化加载样式」可切换旧版/方格/魔法阵）
  *
@@ -574,7 +581,13 @@ function PlayPageClient() {
   useEffect(() => {
     let cancelled = false;
     loadCustomAdFilterCode().then((code) => {
-      if (!cancelled) customAdFilterCodeRef.current = code;
+      if (!cancelled) {
+        customAdFilterCodeRef.current = code;
+        console.log(
+          '[去广告] 规则来源:',
+          code && code.trim() ? '后台自定义代码' : '默认关键字规则'
+        );
+      }
     });
     return () => {
       cancelled = true;
@@ -7773,6 +7786,12 @@ function PlayPageClient() {
                 loader: loaderClass as any,
               });
 
+              console.log(
+                `[播放] 播放链路 hls.js，去广告 loader=${
+                  shouldUseCustomLoader ? 'on' : 'off'
+                }，地址=${shortenUrlForLog(url)}`
+              );
+
               const kickStartHlsPlayback = () => {
                 try {
                   hls.startLoad(-1);
@@ -7977,9 +7996,9 @@ function PlayPageClient() {
           },
           settings: [
             {
-              html: '去广告',
+              html: '网页播放器去广告',
               icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-              tooltip: blockAdEnabled ? '已开启' : '已关闭',
+              tooltip: blockAdEnabled ? '当前网页播放器：已开启' : '当前网页播放器：已关闭',
               onClick() {
                 const newVal = !blockAdEnabled;
                 try {
@@ -7999,7 +8018,7 @@ function PlayPageClient() {
                 } catch (_) {
                   // ignore
                 }
-                return newVal ? '当前开启' : '当前关闭';
+                return newVal ? '网页播放器已开启' : '网页播放器已关闭';
               },
             },
             {
@@ -10094,6 +10113,11 @@ function PlayPageClient() {
             currentTime >
             artPlayerRef.current.duration + skipConfigRef.current.outro_time
           ) {
+            console.log('[跳过片尾] 触发', {
+              currentTime,
+              duration,
+              outro_time: skipConfigRef.current.outro_time,
+            });
             if (
               currentEpisodeIndexRef.current <
               (detailRef.current?.episodes?.length || 1) - 1
@@ -10178,6 +10202,40 @@ function PlayPageClient() {
             if (artPlayerRef.current) {
               artPlayerRef.current.notice.show = '等待房主切换下一集';
             }
+            return;
+          }
+
+          // 防御：去广告摘掉中间分片后，个别源的时间轴会错位，播放器可能在
+          // 广告结束处误报 ended。此时离片尾还很远，不能跟着跳到下一集。
+          const endedAt = artPlayerRef.current?.currentTime || 0;
+          const totalDuration = artPlayerRef.current?.duration || 0;
+          const endedVideo = artPlayerRef.current?.video as
+            | HTMLVideoElement
+            | undefined;
+          const buffered = endedVideo?.buffered;
+          const bufferedEnd =
+            buffered && buffered.length
+              ? buffered.end(buffered.length - 1)
+              : 0;
+          console.log('[播放] ended 事件', {
+            currentTime: endedAt,
+            duration: totalDuration,
+            bufferedEnd,
+            readyState: endedVideo?.readyState,
+            url: shortenUrlForLog(
+              artPlayerRef.current?.option?.url || videoUrl
+            ),
+          });
+
+          if (
+            Number.isFinite(totalDuration) &&
+            totalDuration > 0 &&
+            endedAt < totalDuration - 1.5
+          ) {
+            console.warn('[播放] ended 事件早于片尾，判定为时间轴异常，不自动跳集', {
+              endedAt,
+              totalDuration,
+            });
             return;
           }
 
@@ -11512,14 +11570,18 @@ function PlayPageClient() {
                         </button>
                       </div>
 
-                      {/* 去广告开关 */}
+                      {/* 外部播放器去广告开关（不影响页面内置播放器） */}
                       <button
                         onClick={toggleToolbarAdBlock}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer border flex-shrink-0 ${externalPlayerAdBlock
                           ? 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white border-blue-400'
                           : 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
                           }`}
-                        title={externalPlayerAdBlock ? '去广告已开启' : '去广告已关闭'}
+                        title={
+                          externalPlayerAdBlock
+                            ? '外部播放器去广告：已开启（通过服务端代理过滤）'
+                            : '外部播放器去广告：已关闭（外部播放器直连源地址）'
+                        }
                       >
                         <svg
                           className='w-4 h-4 flex-shrink-0'
@@ -11543,9 +11605,7 @@ function PlayPageClient() {
                             />
                           )}
                         </svg>
-                        <span className='whitespace-nowrap'>
-                          {externalPlayerAdBlock ? '去广告' : '去广告'}
-                        </span>
+                        <span className='whitespace-nowrap'>外部播放器去广告</span>
                       </button>
 
                       {/* 鸿蒙 HLS.js 开关：关闭后使用原生 HLS，便于浏览器投屏 */}
