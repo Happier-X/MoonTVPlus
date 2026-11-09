@@ -7998,7 +7998,7 @@ function PlayPageClient() {
             {
               html: '网页播放器去广告',
               icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-              tooltip: blockAdEnabled ? '当前网页播放器：已开启' : '当前网页播放器：已关闭',
+              tooltip: blockAdEnabled ? '已开启' : '已关闭',
               onClick() {
                 const newVal = !blockAdEnabled;
                 try {
@@ -8018,7 +8018,7 @@ function PlayPageClient() {
                 } catch (_) {
                   // ignore
                 }
-                return newVal ? '网页播放器已开启' : '网页播放器已关闭';
+                return newVal ? '已开启' : '已关闭';
               },
             },
             {
