@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/logo"
+        android:shortcutId="server_settings"
+        android:shortcutLongLabel="@string/shortcut_settings_long"
+        android:shortcutShortLabel="@string/shortcut_settings_short">
+        <intent
+            android:action="com.moontvplus.phone.OPEN_SETTINGS"
+            android:targetClass="com.moontvplus.phone.MainActivity"
+            android:targetPackage="com.moontvplus.phone" />
+    </shortcut>
+</shortcuts>

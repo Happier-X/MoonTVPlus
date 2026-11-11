@@ -1,0 +1,130 @@
+name: Build Android Phone APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: '默认服务器地址（可留空，装好后在 App 里填），例如 https://tv.example.com'
+        required: false
+        default: ''
+        type: string
+      app_name:
+        description: '桌面显示名称'
+        required: true
+        default: 'MoonTVPlus'
+        type: string
+      version_name:
+        description: '版本名'
+        required: false
+        default: '1.0.0'
+        type: string
+      version_code:
+        description: '版本号，必须是整数'
+        required: false
+        default: '1'
+        type: string
+      min_sdk:
+        description: '最低 Android API（默认 23 = Android 6）'
+        required: false
+        default: '23'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build Android Phone APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # 默认会装已下架的 'tools' 包，导致 sdkmanager 报错
+          packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Prepare app icon from public/logo.png
+        run: |
+          cp public/logo.png apps/android-phone/app/src/main/res/drawable/logo.png
+
+      - name: Decode Android signing keystore
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/android-phone-release.keystore
+            echo "build_type=release" >> "$GITHUB_OUTPUT"
+            echo "build_type_task=Release" >> "$GITHUB_OUTPUT"
+            echo "apk_suffix=release" >> "$GITHUB_OUTPUT"
+            echo "artifact_suffix=release-signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "Android signing secrets are not fully set, building debug APK only."
+            echo "build_type=debug" >> "$GITHUB_OUTPUT"
+            echo "build_type_task=Debug" >> "$GITHUB_OUTPUT"
+            echo "apk_suffix=debug" >> "$GITHUB_OUTPUT"
+            echo "artifact_suffix=debug" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        working-directory: apps/android-phone
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          APP_NAME: ${{ inputs.app_name }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          MIN_SDK: ${{ inputs.min_sdk }}
+          ANDROID_KEYSTORE_PATH: /tmp/android-phone-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle assemble${{ steps.signing.outputs.build_type_task }} \
+            -PBASE_URL="$BASE_URL" \
+            -PAPP_NAME="$APP_NAME" \
+            -PVERSION_NAME="$VERSION_NAME" \
+            -PVERSION_CODE="$VERSION_CODE" \
+            -PMIN_SDK="$MIN_SDK"
+
+      - name: Collect APK artifacts
+        run: |
+          mkdir -p /tmp/android-phone-apks
+          cp \
+            "apps/android-phone/app/build/outputs/apk/${{ steps.signing.outputs.build_type }}/app-${{ steps.signing.outputs.apk_suffix }}.apk" \
+            "/tmp/android-phone-apks/moontvplus-phone-${{ inputs.version_name }}-${{ steps.signing.outputs.artifact_suffix }}.apk"
+          ls -lh /tmp/android-phone-apks
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-android-phone-${{ inputs.version_name }}-${{ steps.signing.outputs.artifact_suffix }}
+          path: /tmp/android-phone-apks/*.apk
+          if-no-files-found: error
+          retention-days: 30
