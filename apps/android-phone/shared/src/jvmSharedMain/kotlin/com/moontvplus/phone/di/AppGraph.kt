@@ -16,6 +16,7 @@ import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.storage.TextFileStore
 import com.moontvplus.phone.data.repository.AuthRepository
 import com.moontvplus.phone.data.repository.HomeRepository
+import com.moontvplus.phone.data.repository.LibraryRepository
 import com.moontvplus.phone.data.repository.SearchRepository
 import com.moontvplus.phone.data.repository.ServerRepository
 import com.moontvplus.phone.playback.PlaybackEngine
@@ -124,6 +125,7 @@ class AppGraph(
     )
     val homeRepository = HomeRepository(moonApi, json, serverProvider, textStore)
     val searchRepository = SearchRepository(moonApi, json, urlResolver, sseClient)
+    val libraryRepository = LibraryRepository(moonApi)
 
     /** 启动时把设置读进内存；各平台在创建界面之前调一次。 */
     suspend fun initialize() {

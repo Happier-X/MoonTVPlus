@@ -182,7 +182,11 @@ private fun MoonTvApp(
                             val container = appContainer(context)
                             val scope = rememberCoroutineScope()
                             val shell = remember(container) { MoonTvController(container.graph, scope) }
-                            LaunchedEffect(shell) { shell.enterShell() }
+                            LaunchedEffect(shell) {
+                                // 安卓端保留自己的搜索页（能挑源），豆瓣卡片走它
+                                shell.onNeedSearch = { title -> currentRoute = AppRoute.Search(title) }
+                                shell.enterShell()
+                            }
 
                             MoonTvShell(
                                 controller = shell,

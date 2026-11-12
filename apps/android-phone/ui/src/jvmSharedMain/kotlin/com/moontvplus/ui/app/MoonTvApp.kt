@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,9 +20,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,13 +33,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moontvplus.ui.model.MainTab
+import com.moontvplus.ui.model.PlayRequest
+import com.moontvplus.ui.model.ShellScreen
 import com.moontvplus.ui.model.OpenTarget
 import com.moontvplus.ui.screen.BrowseContent
+import com.moontvplus.ui.screen.DetailContent
+import com.moontvplus.ui.screen.LibraryContent
 import com.moontvplus.ui.screen.HomeContent
 import com.moontvplus.ui.shell.CenteredMessage
 import com.moontvplus.ui.shell.SeleneBottomBar
@@ -54,6 +64,7 @@ import com.moontvplus.ui.theme.SeleneColors
 fun MoonTvApp(
     controller: MoonTvController,
     darkTheme: Boolean,
+    onPlay: (PlayRequest) -> Unit = {},
     onOpenTarget: (OpenTarget) -> Unit = {},
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
@@ -75,8 +86,9 @@ fun MoonTvApp(
 
                 is ShellStage.NeedLogin -> LoginPane(controller, stage.reason)
 
-                ShellStage.Ready -> MainShell(
+                ShellStage.Ready -> ShellContent(
                     controller = controller,
+                    onPlay = onPlay,
                     onOpenTarget = onOpenTarget,
                     onMore = onMore,
                     onOpenSearch = onOpenSearch,
@@ -88,8 +100,40 @@ fun MoonTvApp(
 }
 
 @Composable
-private fun MainShell(    controller: MoonTvController,
+private fun ShellContent(
+    controller: MoonTvController,
+    onPlay: (PlayRequest) -> Unit,
     onOpenTarget: (OpenTarget) -> Unit,
+    onMore: (MainTab) -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    when (val screen = controller.screen) {
+        ShellScreen.Main -> MainShell(
+            controller = controller,
+            onPlay = onPlay,
+            onMore = onMore,
+            onOpenSearch = onOpenSearch,
+            onOpenSettings = onOpenSettings,
+        )
+
+        is ShellScreen.Detail -> DetailPane(
+            controller = controller,
+            screen = screen,
+            onPlay = onPlay,
+        )
+
+        ShellScreen.Library -> LibraryPane(
+            controller = controller,
+            onPlay = onPlay,
+        )
+    }
+}
+
+@Composable
+private fun MainShell(
+    controller: MoonTvController,
+    onPlay: (PlayRequest) -> Unit,
     onMore: (MainTab) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -102,6 +146,9 @@ private fun MainShell(    controller: MoonTvController,
                 subtitle = controller.session?.displayName?.takeIf { it.isNotBlank() },
                 onSearch = onOpenSearch,
                 actions = {
+                    TextButton(onClick = { controller.openLibrary() }) {
+                        Text("收藏", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     TextButton(onClick = onOpenSettings) {
                         Text("设置", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -111,7 +158,7 @@ private fun MainShell(    controller: MoonTvController,
             when (controller.tab) {
                 MainTab.HOME -> HomeContent(
                     state = controller.home,
-                    onItemClick = { item -> item.target?.let(onOpenTarget) },
+                    onItemClick = { item -> controller.open(item.target) },
                     onMore = { section ->
                         // 「更多」跳到对应分类页
                         sectionToTab(section.id)?.let(controller::selectTab)
@@ -122,7 +169,7 @@ private fun MainShell(    controller: MoonTvController,
 
                 else -> BrowseContent(
                     state = controller.browse,
-                    onItemClick = { item -> item.target?.let(onOpenTarget) },
+                    onItemClick = { item -> controller.open(item.target) },
                 )
             }
         }
@@ -139,6 +186,7 @@ private fun MainShell(    controller: MoonTvController,
 fun MoonTvShell(
     controller: MoonTvController,
     darkTheme: Boolean,
+    onPlay: (PlayRequest) -> Unit = {},
     onOpenTarget: (OpenTarget) -> Unit = {},
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
@@ -149,8 +197,9 @@ fun MoonTvShell(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-            MainShell(
+            ShellContent(
                 controller = controller,
+                onPlay = onPlay,
                 onOpenTarget = onOpenTarget,
                 onMore = onMore,
                 onOpenSearch = onOpenSearch,
@@ -266,6 +315,95 @@ private fun LoginPane(controller: MoonTvController, reason: String?) {
         TextButton(onClick = { controller.changeServer() }) {
             Text("更换服务器", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+// ---- 详情页 -----------------------------------------------------------------
+
+@Composable
+private fun DetailPane(
+    controller: MoonTvController,
+    screen: ShellScreen.Detail,
+    onPlay: (PlayRequest) -> Unit,
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(Modifier.widthIn(max = 980.dp).fillMaxSize()) {
+        BackBar(title = controller.detail.title.ifBlank { screen.title }, onBack = controller::back)
+
+        DetailContent(
+            state = controller.detail,
+            onPlay = { index ->
+                onPlay(
+                    PlayRequest(
+                        source = screen.source,
+                        videoId = screen.videoId,
+                        title = controller.detail.title.ifBlank { screen.title },
+                        index = index,
+                    )
+                )
+            },
+            onToggleFavorite = controller::toggleFavorite,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    }
+}
+
+// ---- 收藏 / 播放历史 ---------------------------------------------------------
+
+@Composable
+private fun LibraryPane(
+    controller: MoonTvController,
+    onPlay: (PlayRequest) -> Unit,
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(Modifier.widthIn(max = 980.dp).fillMaxSize()) {
+        BackBar(title = "收藏与历史", onBack = controller::back)
+
+        LibraryContent(
+            state = controller.library,
+            onSelectTab = controller::selectLibraryTab,
+            onOpen = { item ->
+                when (val target = item.target) {
+                    is OpenTarget.Resume -> onPlay(
+                        PlayRequest(target.source, target.id, target.title, target.index - 1)
+                    )
+
+                    else -> controller.open(target)
+                }
+            },
+            onRemove = controller::removeLibraryItem,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    }
+}
+
+/** 详情页 / 收藏页的顶栏：返回 + 标题。 */
+@Composable
+private fun BackBar(title: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "返回",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        Text(
+            text = title,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

@@ -69,3 +69,12 @@ data class HomeSection(
     val items: List<PosterItem>,
     val error: String? = null,
 )
+
+/** 宿主收到播放请求：Android 交给原生播放器，桌面端用浏览器打开站点播放页。 */
+data class PlayRequest(
+    val source: String,
+    val videoId: String,
+    val title: String,
+    /** 0 起的集数下标 */
+    val index: Int,
+)

@@ -7,6 +7,8 @@ import com.moontvplus.phone.core.model.LoginRequest
 import com.moontvplus.phone.core.model.LoginResponse
 import com.moontvplus.phone.core.model.PlayRecord
 import com.moontvplus.phone.core.model.SavePlayRecordRequest
+import com.moontvplus.phone.core.model.Favorite
+import com.moontvplus.phone.core.model.SaveFavoriteRequest
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.ServerConfig
 import com.moontvplus.phone.core.model.TmdbItem
@@ -93,6 +95,26 @@ interface MoonApi {
         @Query("source") source: String,
         @Query("id") videoId: String,
     ): Response<SearchResult>
+
+    // ---- 收藏 ----
+
+    /** 不带 key 返回全部收藏；带 key 返回单条（可能 body 为 null）。 */
+    @GET("api/favorites")
+    suspend fun favorites(): Response<Map<String, Favorite>>
+
+    @GET("api/favorites")
+    suspend fun favorite(@Query("key") key: String): Response<Favorite>
+
+    @POST("api/favorites")
+    suspend fun saveFavorite(@Body body: SaveFavoriteRequest): Response<Unit>
+
+    @DELETE("api/favorites")
+    suspend fun deleteFavorite(@Query("key") key: String): Response<Unit>
+
+    // ---- 播放记录 ----
+
+    @DELETE("api/playrecords")
+    suspend fun deletePlayRecord(@Query("key") key: String): Response<Unit>
 }
 
 @Serializable
