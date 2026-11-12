@@ -40,6 +40,8 @@ class AppViewModel(
     private val authRepository: AuthRepository,
     private val serverRepository: ServerRepository,
     private val legacyMigration: LegacySessionBridge,
+    /** 启动时把设置从磁盘读进内存，只做一次 */
+    private val initialize: suspend () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AppUiState>(AppUiState.Loading)
@@ -71,6 +73,7 @@ class AppViewModel(
     fun boot() {
         viewModelScope.launch {
             _state.value = AppUiState.Loading
+            initialize()
             legacyMigration.migrateServerAddress(settingsStore)
 
             var snapshot = settingsStore.snapshot()

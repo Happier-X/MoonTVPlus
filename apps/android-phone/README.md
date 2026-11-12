@@ -1,6 +1,16 @@
-# MoonTVPlus Android（手机原生客户端）
+# MoonTVPlus 移动端与桌面端（Kotlin Multiplatform）
 
-Kotlin + Jetpack Compose 写的原生客户端，直接调用站点的 HTTP API，不再用 WebView 套壳。
+Kotlin 写的多端客户端，直接调用站点的 HTTP API，不用 WebView 套壳。
+
+工程结构（KMP）：
+
+```
+shared/   逻辑层：模型、网络、仓库、缓存（Android + 桌面共用，JVM 公共源集放 OkHttp/Retrofit）
+app/      Android 应用外壳：Activity、播放器、清单、资源
+```
+
+`shared` 里的 `commonMain` 只放平台无关代码；`jvmSharedMain` 放依赖 OkHttp/Retrofit 的网络层，
+Android 与桌面共用同一份。依赖用手写 `AppGraph` 装配（Hilt 只能在 Android 用）。
 
 ## 当前进度
 

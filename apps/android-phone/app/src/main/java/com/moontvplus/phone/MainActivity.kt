@@ -84,6 +84,7 @@ private fun MoonTvApp(
             authRepository = it.graph.authRepository,
             serverRepository = it.graph.serverRepository,
             legacyMigration = it.graph.platformServices.legacy,
+            initialize = { it.graph.initialize() },
         )
     },
 ) {

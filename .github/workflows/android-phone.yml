@@ -93,7 +93,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: apps/android-phone
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :shared:testDebugUnitTest :shared:desktopTest --stacktrace
 
       - name: Build APK
         working-directory: apps/android-phone
