@@ -153,28 +153,19 @@ jobs:
         shell: bash
         run: ./gradlew :shared:desktopTest --stacktrace
 
-      - name: Build desktop app image
+      # 用 uber jar 而不是 jpackage：Windows runner 上 jpackage 会以退出码 1 静默失败，
+      # 打不出可诊断的信息。uber jar 只需要 JDK，产物 `java -jar` 就能跑。
+      - name: Build runnable desktop jar
         working-directory: apps/android-phone
         shell: bash
         env:
           VERSION_NAME: ${{ inputs.version_name }}
-        run: ./gradlew :desktop:createDistributable -PVERSION_NAME="$VERSION_NAME"
+        run: ./gradlew :desktop:packageUberJarForCurrentOS -PVERSION_NAME="$VERSION_NAME"
 
-      - name: Dump packaging logs on failure
-        if: failure()
-        working-directory: apps/android-phone
-        shell: bash
-        run: |
-          for f in desktop/build/compose/logs/createDistributable/*; do
-            echo "=== $f"
-            cat "$f" || true
-          done
-          ls -R desktop/build/compose/tmp || true
-
-      - name: Upload desktop app
+      - name: Upload desktop jar
         uses: actions/upload-artifact@v4
         with:
           name: moontvplus-desktop-${{ inputs.version_name }}-windows
-          path: apps/android-phone/desktop/build/compose/binaries/main/app
+          path: apps/android-phone/desktop/build/compose/jars/*.jar
           if-no-files-found: error
           retention-days: 30
