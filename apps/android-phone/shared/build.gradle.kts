@@ -21,7 +21,8 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+                // AppGraph 暴露 Json，消费方也要能看到，所以用 api
+                api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
                 // okio 是跨平台的，用它做文件存储
                 implementation("com.squareup.okio:okio:3.6.0")
             }

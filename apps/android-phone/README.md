@@ -5,8 +5,9 @@ Kotlin 写的多端客户端，直接调用站点的 HTTP API，不用 WebView �
 工程结构（KMP）：
 
 ```
-shared/   逻辑层：模型、网络、仓库、缓存（Android + 桌面共用，JVM 公共源集放 OkHttp/Retrofit）
-app/      Android 应用外壳：Activity、播放器、清单、资源
+shared/   逻辑层：模型、网络、仓库、缓存、播放器抽象（Android + 桌面共用）
+app/      Android 应用外壳：Activity、播放器画面、清单、资源
+desktop/  Windows/桌面外壳：窗口与临时界面（Compose Desktop）
 ```
 
 `shared` 里的 `commonMain` 只放平台无关代码；`jvmSharedMain` 放依赖 OkHttp/Retrofit 的网络层，
@@ -57,6 +58,17 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 产物在 Actions 的 artifacts 里。未配置签名 secrets 时构建 debug APK；配置了完整的
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 则构建签名 release APK（和 TV 版共用同一套 secrets）。
+
+桌面端（当前为临时外壳，界面在阶段四抽成共享模块）：
+
+```bash
+cd apps/android-phone
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" ./gradlew :desktop:run
+# 打包成可运行的程序目录
+./gradlew :desktop:createDistributable
+```
+
+应用数据存在 `~/.moontvplus/`（settings.json / session.json / cache/）。
 
 CI 与本地都用仓库内的 Gradle Wrapper（8.10.2），只需要一个 JDK 17：
 

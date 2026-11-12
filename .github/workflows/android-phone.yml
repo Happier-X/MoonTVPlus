@@ -130,3 +130,40 @@ jobs:
           path: /tmp/android-phone-apks/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  desktop:
+    name: Package Desktop App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run shared unit tests
+        working-directory: apps/android-phone
+        shell: bash
+        run: ./gradlew :shared:desktopTest --stacktrace
+
+      - name: Build desktop app image
+        working-directory: apps/android-phone
+        shell: bash
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: ./gradlew :desktop:createDistributable -PVERSION_NAME="$VERSION_NAME"
+
+      - name: Upload desktop app
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-desktop-${{ inputs.version_name }}-windows
+          path: apps/android-phone/desktop/build/compose/binaries/main/app
+          if-no-files-found: error
+          retention-days: 30

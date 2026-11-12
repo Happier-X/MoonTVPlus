@@ -18,3 +18,4 @@ rootProject.name = "MoonTVPlusMobile"
 
 include(":shared")
 include(":app")
+include(":desktop")
