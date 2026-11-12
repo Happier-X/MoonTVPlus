@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -124,11 +126,21 @@ fun DetailContent(
                     OutlinedButton(
                         onClick = onToggleFavorite,
                         enabled = !state.favoriteBusy,
+                        border = BorderStroke(1.dp, SeleneColors.Accent),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (state.favorite) {
+                                SeleneColors.Accent.copy(alpha = 0.12f)
+                            } else {
+                                androidx.compose.ui.graphics.Color.Transparent
+                            },
+                            contentColor = SeleneColors.Accent,
+                        ),
                     ) {
                         Text(
                             text = if (state.favorite) "已收藏" else "收藏",
                             fontSize = 13.sp,
-                            color = if (state.favorite) SeleneColors.Accent else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                            color = SeleneColors.Accent,
                         )
                     }
                 }

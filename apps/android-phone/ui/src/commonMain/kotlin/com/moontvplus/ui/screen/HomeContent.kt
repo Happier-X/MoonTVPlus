@@ -2,11 +2,13 @@ package com.moontvplus.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -59,32 +61,24 @@ fun HomeContent(
         return
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        state.continueWatching?.takeIf { it.items.isNotEmpty() }?.let { section ->
-            item(key = section.id) {
-                HomeSectionRow(section, onItemClick)
-            }
-        }
-
         state.sections.forEach { section ->
             if (section.items.isEmpty() && section.error == null) return@forEach
-            item(key = section.id) {
-                HomeSectionRow(section, onItemClick, onMore = { onMore(section) })
-            }
+            HomeSectionRow(section, onItemClick, onMore = { onMore(section) })
         }
 
         if (state.loading) {
-            item(key = "loading-more") {
-                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.padding(8.dp),
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                }
+            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(8.dp),
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
         }
     }

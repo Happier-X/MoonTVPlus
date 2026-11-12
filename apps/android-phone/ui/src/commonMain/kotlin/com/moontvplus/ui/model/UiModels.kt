@@ -56,8 +56,13 @@ data class PosterItem(
     val title: String,
     val subtitle: String? = null,
     val posterUrl: String? = null,
+    /** 左上角年份角标（深蓝底白字，Selene 的 `#2C3E50 @0.8`） */
+    val year: String? = null,
+    /** 右上角评分（粉色圆点，Selene 的 `#E91E63`） */
+    val rate: String? = null,
+    /** 右上角集数/更新角标（绿色底白字，Selene 的 `#27AE60`） */
     val badge: String? = null,
-    /** 0f..1f，非空时在封面底部画一条进度条（继续观看用）。 */
+    /** 0f..1f，非空时在封面底部画一条绿色进度条（继续观看用）。 */
     val progress: Float? = null,
     val target: OpenTarget? = null,
 )

@@ -8,15 +8,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -32,10 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moontvplus.ui.model.HomeSection
 import com.moontvplus.ui.model.PosterItem
+import com.moontvplus.ui.theme.SeleneColors
 
 /** Selene 的卡片：宽 120、高 180（1.5 倍）、圆角 8。 */
 private val CardWidth = 120.dp
-private val CardHeight = CardWidth * 1.5f
 private val CardShape = RoundedCornerShape(8.dp)
 
 @Composable
@@ -46,19 +48,14 @@ fun PosterCard(
     /** null 表示宽度由父容器决定（网格用），否则固定宽度（横滑列表用）。 */
     width: Dp? = CardWidth,
 ) {
-    val columnModifier = if (width == null) {
-        modifier.fillMaxWidth()
-    } else {
-        modifier.width(width)
-    }
-    Column(
-        modifier = columnModifier.clickable { onClick(item) },
-    ) {
+    val columnModifier = if (width == null) modifier.fillMaxWidth() else modifier.width(width)
+    Column(modifier = columnModifier.clickable { onClick(item) }) {
         val posterModifier = if (width == null) {
             Modifier.fillMaxWidth().aspectRatio(2f / 3f)
         } else {
             Modifier.fillMaxWidth().height(width * 1.5f)
         }
+
         Box(
             modifier = posterModifier
                 .clip(CardShape)
@@ -70,23 +67,61 @@ fun PosterCard(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val badge = item.badge
-            if (!badge.isNullOrBlank()) {
+            // 左上角年份角标
+            item.year?.takeIf { it.isNotBlank() }?.let { year ->
                 Text(
-                    text = badge,
-                    color = androidx.compose.ui.graphics.Color.White,
+                    text = year,
+                    color = Color.White,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(SeleneColors.YearChip)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                )
+            }
+
+            // 右上角：有评分画粉色圆点，否则画绿色集数角标
+            val rate = item.rate?.takeIf { it.isNotBlank() }
+            val badge = item.badge?.takeIf { it.isNotBlank() }
+            when {
+                rate != null -> Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(SeleneColors.Rating),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = rate,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+
+                badge != null -> Text(
+                    text = badge,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(4.dp)
                         .clip(RoundedCornerShape(5.dp))
-                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                        .background(SeleneColors.Accent)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
             }
 
+            // 底部进度条
             val progress = item.progress
             if (progress != null && progress > 0f) {
                 Box(
@@ -94,13 +129,13 @@ fun PosterCard(
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
                         .height(3.dp)
-                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f)),
+                        .background(Color.Black.copy(alpha = 0.35f)),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.secondary),
+                            .background(SeleneColors.Accent),
                     )
                 }
             }
@@ -128,7 +163,7 @@ fun PosterCard(
     }
 }
 
-/** 区块标题：左标题 + 右侧「更多」。 */
+/** 区块标题：左标题 + 右侧绿色「更多」。 */
 @Composable
 fun SectionHeader(
     title: String,
@@ -149,7 +184,7 @@ fun SectionHeader(
         )
         if (onMore != null) {
             TextButton(onClick = onMore, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                Text("更多", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("查看更多 >", fontSize = 13.sp, color = SeleneColors.Accent)
             }
         }
     }
@@ -189,7 +224,7 @@ fun HomeSectionRow(
             ) {
                 Box(
                     Modifier
-                        .size(CardWidth, CardHeight)
+                        .size(CardWidth, CardWidth * 1.5f)
                         .clip(CardShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 )

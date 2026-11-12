@@ -428,8 +428,9 @@ class MoonTvController(
     private fun ContinueItem.toHistoryPoster(): PosterItem = PosterItem(
         key = "his:$key",
         title = record.title,
-        subtitle = "第 ${record.index} 集",
         posterUrl = imageUrl(record.cover),
+        year = record.year.takeIf { it.isNotBlank() },
+        badge = "第 ${record.index} 集",
         progress = record.progress,
         target = OpenTarget.Resume(source = source, id = videoId, title = record.title, index = record.index),
     )
@@ -451,7 +452,7 @@ class MoonTvController(
         val result = graph.homeRepository.refresh(cached)
         home = buildHome(result.cache, home.copy(loading = false)).copy(
             error = if (result.empty) result.errors.values.firstOrNull() else null,
-        )
+        ).withContinueSection()
     }
 
     private suspend fun loadContinueWatching() {
@@ -466,7 +467,13 @@ class MoonTvController(
                 title = "继续观看",
                 items = records.map { it.toHistoryPoster() },
             ),
-        )
+        ).withContinueSection()
+    }
+
+    /** 继续观看排在首页最前面；换成一整条 sections 之后就没有独立分支了。 */
+    private fun HomeUiState.withContinueSection(): HomeUiState {
+        val cw = continueWatching?.takeIf { it.items.isNotEmpty() } ?: return this
+        return copy(sections = listOf(cw) + sections.filter { it.id != cw.id })
     }
 
     private fun buildHome(cache: HomeCache, base: HomeUiState): HomeUiState {
@@ -529,9 +536,10 @@ class MoonTvController(
         return PosterItem(
             key = "douban:$id:$title",
             title = title,
-            subtitle = meta.ifBlank { null },
+            subtitle = null,
             posterUrl = imageUrl(poster),
-            badge = rate.takeIf { it.isNotBlank() },
+            year = year.takeIf { it.isNotBlank() },
+            rate = rate.takeIf { it.isNotBlank() },
             target = OpenTarget.Douban(title = title, doubanId = id),
         )
     }
@@ -539,26 +547,28 @@ class MoonTvController(
     private fun BangumiSubject.toPoster(): PosterItem = PosterItem(
         key = "bangumi:$id",
         title = displayTitle,
-        subtitle = year.ifBlank { null },
         posterUrl = imageUrl(images?.best),
-        badge = rating?.score?.takeIf { it > 0 }?.let { String.format("%.1f", it) },
+        year = year.ifBlank { null },
+        rate = rating?.score?.takeIf { it > 0 }?.let { String.format("%.1f", it) },
         target = OpenTarget.Douban(title = displayTitle),
     )
 
     private fun TmdbItem.toPoster(): PosterItem = PosterItem(
         key = "tmdb:$id",
         title = title,
-        subtitle = year.ifBlank { null },
         posterUrl = imageUrl(posterUrl),
-        badge = voteAverage.takeIf { it > 0 }?.let { String.format("%.1f", it) },
+        year = year.ifBlank { null },
+        rate = voteAverage.takeIf { it > 0 }?.let { String.format("%.1f", it) },
         target = OpenTarget.Douban(title = title),
     )
 
     private fun SearchResult.toPoster(): PosterItem = PosterItem(
         key = "video:$source+$id",
         title = title,
-        subtitle = vodRemarks?.takeIf { it.isNotBlank() } ?: sourceName.ifBlank { null },
+        subtitle = sourceName.ifBlank { null },
         posterUrl = imageUrl(poster),
+        year = year.takeIf { it.isNotBlank() },
+        badge = vodRemarks?.takeIf { it.isNotBlank() },
         target = OpenTarget.Video(source = source, id = id, title = title),
     )
 

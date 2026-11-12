@@ -1,5 +1,6 @@
 package com.moontvplus.phone.desktop
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,7 +62,8 @@ fun main() = application {
 
         MoonTvApp(
             controller = controller,
-            darkTheme = true,
+            // 默认跟随系统：Selene 的浅色底是 #F8F9FA，不是纯黑
+            darkTheme = isSystemInDarkTheme(),
             onPlay = { request -> openInBrowser(webPlayUrl(graph, request)) },
         )
     }
