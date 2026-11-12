@@ -78,6 +78,8 @@ skills-lock.json
 
 # Android 壳工程构建产物
 apps/*/app/build/
+apps/*/shared/build/
+apps/*/*/build/
 apps/*/build/
 apps/*/.gradle/
 apps/*/local.properties
