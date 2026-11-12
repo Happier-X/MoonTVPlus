@@ -1,57 +1,56 @@
-# MoonTVPlus Android（手机版）
+# MoonTVPlus Android（手机原生客户端）
 
-极简 WebView 壳工程：把站点装成一个普通 Android App，打开的是手机版首页（不是 `/tv`）。
+Kotlin + Jetpack Compose 写的原生客户端，直接调用站点的 HTTP API，不再用 WebView 套壳。
 
-和 `apps/android-tv` 的区别：
+## 当前进度
 
-| | TV 版 | 手机版 |
+| 里程碑 | 内容 | 状态 |
 |---|---|---|
-| 打开页面 | `BASE_URL/tv` | `BASE_URL/` |
-| 屏幕方向 | 锁横屏 | 跟随设备旋转 |
-| 服务器地址 | 打包时写死 | App 内可改，并记住 |
-| 启动器 | TV 桌面 | 普通桌面（支持长按图标 → 服务器设置） |
+| M0 | 工程骨架：Kotlin/Compose/Hilt/KSP、主题、占位页、CI 单元测试 | 进行中 |
+| M1 | 服务器地址 + 登录（两种模式）+ 会话与自动刷新 + 旧版升级迁移 | 待做 |
+| M2 | 首页（豆瓣 / Bangumi / 短剧 / 即将上映 / 继续观看） | 待做 |
+| M3 | 搜索（SSE 流式）+ 结果聚合 + 选源 + 历史 | 待做 |
+| M4 | 详情 + 选集 + ExoPlayer 播放 + 续播 + 跳片头尾 | 待做 |
+| M5 | 收藏 / 历史 / 设置 / 网页版入口 | 待做 |
+| M6 | R8、lint、单测补齐、图标与启动页 | 待做 |
 
-## 首次启动
+弹幕、直播、漫画、观影室、AI、网盘与磁链搜索**不在第一期**，统一走「网页版」入口（带登录 Cookie 的 WebView 页），后续再逐块原生化。
 
-第一次打开会让你填服务器地址（不带 `/tv`），例如：
+## 和服务端的约定
 
-```text
-https://tv.example.com
-http://192.168.1.10:3000
-```
-
-保存后直接加载。之后想改地址：
-
-- 长按桌面图标 → 「服务器设置」
-- 或者长按返回键（三键导航）
-- 页面打不开时，错误页上也有「修改服务器地址」
+- 鉴权用 `Authorization: Bearer <token>`，token 就是 `/api/login` 返回的 `token` 字段原样（本身就是 URL 编码过的 JSON），不要二次编码。
+- access token 4 小时过期，401 时自动调 `POST /api/auth/refresh` 换新；`StorageType=localstorage` 的站点不调 refresh。
+- UA 固定带 `moontvplus app`，服务端据此把配置过的源 m3u8 改写成 `/api/proxy-m3u8?url=`（去广告代理）。
+- `proxyMode=true` 的源走 `/api/proxy/vod/m3u8`，该接口需要登录态，所以播放器用共享 OkHttp 的数据源。
 
 ## 构建
 
 GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 
-- `base_url`：可选。填了就作为默认地址（用户仍可在 App 内改）
+- `base_url`：可选，作为默认服务器地址（用户仍可在 App 内改）
 - `app_name`：桌面显示名称，默认 `MoonTVPlus`
-- `version_name` / `version_code`
+- `version_name` / `version_code`（**覆盖升级要求 version_code 递增**）
 - `min_sdk`：默认 23（Android 6+）
 
 产物在 Actions 的 artifacts 里。未配置签名 secrets 时构建 debug APK；配置了完整的
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 则构建签名 release APK（和 TV 版共用同一套 secrets）。
 
-本地构建：
+本地构建需要一个可用的 JDK 17 与 Gradle 8.10.2：
 
 ```bash
 cd apps/android-phone
-gradle assembleDebug -PBASE_URL="https://tv.example.com"
+gradle :app:assembleDebug -PBASE_URL="https://tv.example.com"
+gradle :app:testDebugUnitTest
 ```
 
-## 已处理的移动端细节
+## 目录结构
 
-- 视频全屏（`onShowCustomView`）：进入沉浸式，退出恢复
-- 文件选择（头像、字幕等 `<input type=file>`）
-- 非 http(s) 链接交给系统：`nplayer://`、`iina://`、`potplayer://`、`magnet:` 等
-- 混合内容、明文 HTTP 允许（自建站常见）
-- UA 追加 `MoonTVPlusAndroid`
-- 返回键：先退全屏 → 再网页后退 → 双击退出
-- 断网/地址错误时有重试页，不会白屏
+```
+app/src/main/java/com/moontvplus/phone/
+├── MoonTvApplication.kt      @HiltAndroidApp
+├── MainActivity.kt           单 Activity + Compose
+├── core/                     通用模型、网络、存储、主题
+├── data/                     仓库层、本地缓存、播放器解析
+└── feature/                  按页面分包
+```

@@ -93,6 +93,10 @@ jobs:
             echo "artifact_suffix=debug" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Run unit tests
+        working-directory: apps/android-phone
+        run: gradle :app:testDebugUnitTest --stacktrace
+
       - name: Build APK
         working-directory: apps/android-phone
         env:
