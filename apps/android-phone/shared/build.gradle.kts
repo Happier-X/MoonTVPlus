@@ -43,7 +43,15 @@ kotlin {
             }
         }
 
-        val androidMain by getting { dependsOn(jvmSharedMain) }
+        val androidMain by getting {
+            dependsOn(jvmSharedMain)
+            dependencies {
+                // Media3 只在 Android 侧存在；桌面端由各自的 actual 实现补上
+                implementation("androidx.media3:media3-exoplayer:1.4.1")
+                implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+                implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+            }
+        }
         val desktopMain by getting { dependsOn(jvmSharedMain) }
 
         val commonTest by getting {

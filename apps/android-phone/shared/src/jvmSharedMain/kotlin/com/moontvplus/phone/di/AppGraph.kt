@@ -18,6 +18,8 @@ import com.moontvplus.phone.data.repository.AuthRepository
 import com.moontvplus.phone.data.repository.HomeRepository
 import com.moontvplus.phone.data.repository.SearchRepository
 import com.moontvplus.phone.data.repository.ServerRepository
+import com.moontvplus.phone.playback.PlaybackEngine
+import com.moontvplus.phone.playback.createPlaybackEngine
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import okhttp3.Dispatcher
@@ -104,6 +106,12 @@ class AppGraph(
     val moonApi: MoonApi = retrofit.create(MoonApi::class.java)
 
     val imageUrlBuilder = ImageUrlBuilder(urlResolver)
+
+    /**
+     * 平台播放器工厂。懒加载：Android 的 actual 需要 Context 与共享 OkHttp，
+     * 由 AppContainer 在构造完依赖图之后、界面出现之前注入（见 AndroidPlaybackContext）。
+     */
+    val playbackEngine: PlaybackEngine by lazy { createPlaybackEngine() }
 
     val serverRepository = ServerRepository(settingsStore, serverProvider, json)
     val authRepository = AuthRepository(

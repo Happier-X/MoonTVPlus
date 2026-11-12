@@ -12,6 +12,7 @@ import com.moontvplus.phone.core.platform.PlatformServices
 import com.moontvplus.phone.data.local.AndroidLegacySessionBridge
 import com.moontvplus.phone.data.local.AndroidSiteCookies
 import com.moontvplus.phone.di.AppGraph
+import com.moontvplus.phone.playback.AndroidPlaybackContext
 import java.io.File
 
 /** Android 侧注入给共享逻辑层的运行时信息。 */
@@ -51,6 +52,16 @@ class AppContainer(context: Context) {
             legacy = AndroidLegacySessionBridge(appContext),
         ),
     )
+
+    init {
+        // 播放器实现需要 Context 与共享 OkHttp；依赖图建好之后再装进去
+        AndroidPlaybackContext.install(
+            context = appContext,
+            client = { graph.mediaClient },
+            siteHost = { graph.serverProvider.current()?.base?.host },
+            origin = { graph.serverProvider.current()?.origin.orEmpty() },
+        )
+    }
 
     /** 海报加载器：复用带鉴权与 UA 的 client（图片代理需要登录态）。 */
     val imageLoader: ImageLoader = ImageLoader.Builder(appContext)

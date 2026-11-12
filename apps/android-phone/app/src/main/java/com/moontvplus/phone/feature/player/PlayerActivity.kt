@@ -11,9 +11,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
-import com.moontvplus.phone.di.appContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,46 +38,40 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.ResolvingDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.ui.PlayerView
-import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.ui.theme.MoonTvTheme
-import com.moontvplus.phone.data.media.EpisodePlan
+import com.moontvplus.phone.di.appContainer
+import com.moontvplus.phone.playback.ExoPlaybackController
+import com.moontvplus.phone.playback.PlaybackController
+import com.moontvplus.phone.playback.PlaybackStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import okhttp3.OkHttpClient
 
 class PlayerActivity : ComponentActivity() {
 
     private val container by lazy { appContainer(this) }
-    private val mediaClient: OkHttpClient by lazy { container.graph.mediaClient }
-    private val serverProvider: ServerProvider by lazy { container.graph.serverProvider }
 
     private val viewModel: PlayerViewModel by viewModels {
         viewModelFactory {
             initializer {
-                PlayerViewModel(container.graph.moonApi, container.graph.serverProvider)
+                PlayerViewModel(
+                    api = container.graph.moonApi,
+                    serverProvider = container.graph.serverProvider,
+                    engine = container.graph.playbackEngine,
+                )
             }
         }
     }
-    private var player: ExoPlayer? = null
+
+    /** 具体播放器由平台提供；Android 这里是 Media3 实现，生命周期跟着 ViewModel。 */
+    private val controller: PlaybackController get() = viewModel.controller
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        player = buildPlayer()
 
         viewModel.load(
             source = intent.getStringExtra(EXTRA_SOURCE).orEmpty(),
@@ -94,79 +85,13 @@ class PlayerActivity : ComponentActivity() {
             MoonTvTheme(darkTheme = true) {
                 PlayerScreen(
                     viewModel = viewModel,
-                    player = player,
-                    onApplyPlan = ::applyPlan,
+                    controller = controller,
                     onSaveProgress = ::saveProgress,
                     onBack = { finish() },
                     onEnterPip = { enterPip() },
                 )
             }
         }
-    }
-
-    /** 站点自己的代理请求不带 Referer；第三方分片补浏览器 UA + Referer，绕过防盗链。 */
-    private fun dataSourceFactory(): ResolvingDataSource.Factory {
-        val origin = serverProvider.current()?.origin.orEmpty()
-        val siteHost = serverProvider.current()?.base?.host.orEmpty()
-        val base = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(mediaClient))
-        return ResolvingDataSource.Factory(base) { dataSpec ->
-            if (dataSpec.uri.host.orEmpty() == siteHost) {
-                dataSpec
-            } else {
-                dataSpec.withRequestHeaders(
-                    mapOf(
-                        "User-Agent" to BROWSER_UA,
-                        "Referer" to "$origin/",
-                    )
-                )
-            }
-        }
-    }
-
-    private fun buildPlayer(): ExoPlayer {
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(30_000, 50_000, 2_500, 5_000)
-            .build()
-
-        return ExoPlayer.Builder(this)
-            .setLoadControl(loadControl)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
-            .build()
-            .apply {
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        viewModel.reportError(
-                            error.errorCodeName + "：" + (error.message ?: "播放失败")
-                        )
-                    }
-
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) onEnded()
-                    }
-                })
-            }
-    }
-
-    private fun applyPlan(plan: EpisodePlan, startPositionMs: Long) {
-        val exo = player ?: return
-        val factory = dataSourceFactory()
-        val item = MediaItem.fromUri(plan.url)
-        val mediaSource = if (plan.isHls) {
-            HlsMediaSource.Factory(factory).createMediaSource(item)
-        } else {
-            ProgressiveMediaSource.Factory(factory).createMediaSource(item)
-        }
-
-        exo.setMediaSource(mediaSource)
-        exo.prepare()
-        if (startPositionMs > 0L) exo.seekTo(startPositionMs)
-        exo.playWhenReady = true
-    }
-
-    private fun onEnded() {
-        val current = viewModel.state.value
-        val next = current.index + 1
-        if (next <= current.episodeCount) viewModel.goTo(next)
     }
 
     private fun enterPip() {
@@ -179,23 +104,15 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun saveProgress() {
-        val exo = player ?: return
-        val position = exo.currentPosition
+        val position = controller.currentPositionMs()
         if (position <= 0) return
-        val duration = exo.duration.takeIf { it > 0 } ?: 0L
-        viewModel.saveProgress(position, duration)
+        viewModel.saveProgress(position, viewModel.playback.value.durationMs)
     }
 
     override fun onStop() {
         saveProgress()
-        player?.pause()
+        viewModel.pause()
         super.onStop()
-    }
-
-    override fun onDestroy() {
-        player?.release()
-        player = null
-        super.onDestroy()
     }
 
     companion object {
@@ -204,10 +121,6 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_INDEX = "index"
         private const val EXTRA_POSITION = "position"
-
-        private const val BROWSER_UA =
-            "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/120.0.0.0 Mobile Safari/537.36"
 
         fun intent(
             context: Context,
@@ -229,25 +142,43 @@ class PlayerActivity : ComponentActivity() {
 @Composable
 private fun PlayerScreen(
     viewModel: PlayerViewModel,
-    player: ExoPlayer?,
-    onApplyPlan: (EpisodePlan, Long) -> Unit,
+    controller: PlaybackController,
     onSaveProgress: () -> Unit,
     onBack: () -> Unit,
     onEnterPip: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val playback by viewModel.playback.collectAsStateWithLifecycle()
+
+    // 播完自动下一集
+    LaunchedEffect(playback.status) {
+        if (playback.status == PlaybackStatus.ENDED) {
+            val next = state.index + 1
+            if (next <= state.episodeCount) viewModel.goTo(next)
+        }
+    }
+
+    // 每 5 秒上报一次进度（离开时 onStop 再补一次）
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(5_000)
+            onSaveProgress()
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        if (player != null) {
+        // 画面绑定到平台播放器：这里是 Android 的 ExoPlayer
+        val exoPlayer = (controller as? ExoPlaybackController)?.exoPlayer
+        if (exoPlayer != null) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     PlayerView(context).apply {
-                        this.player = player
+                        player = exoPlayer
                         useController = true
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         setBackgroundColor(android.graphics.Color.BLACK)
@@ -256,20 +187,7 @@ private fun PlayerScreen(
             )
         }
 
-        // 地址或集数变化时换源；首播按续播位置 seek
-        LaunchedEffect(state.plan?.url, state.index) {
-            state.plan?.let { onApplyPlan(it, state.startPositionMs) }
-        }
-
-        // 每 5 秒上报一次进度（离开时 onStop 再补一次）
-        LaunchedEffect(state.plan?.url) {
-            while (isActive) {
-                delay(5_000)
-                onSaveProgress()
-            }
-        }
-
-        if (state.loading) {
+        if (state.loading || playback.status == PlaybackStatus.BUFFERING) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
             }
@@ -300,7 +218,7 @@ private fun PlayerScreen(
             OutlinedButton(onClick = onEnterPip) { Text("画中画") }
         }
 
-        val error = state.error
+        val error = state.error ?: playback.error
         if (error != null) {
             Column(
                 modifier = Modifier

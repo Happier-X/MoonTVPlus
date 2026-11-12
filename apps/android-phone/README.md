@@ -12,6 +12,18 @@ app/      Android 应用外壳：Activity、播放器、清单、资源
 `shared` 里的 `commonMain` 只放平台无关代码；`jvmSharedMain` 放依赖 OkHttp/Retrofit 的网络层，
 Android 与桌面共用同一份。依赖用手写 `AppGraph` 装配（Hilt 只能在 Android 用）。
 
+### 播放器抽象
+
+播放由 `commonMain` 的 `PlaybackController` 定义，各平台用 `actual` 实现：
+
+| 平台 | 实现 | 内嵌播放 |
+|---|---|---|
+| Android | `shared/androidMain` 的 Media3 / ExoPlayer | 支持 |
+| Windows/Linux/macOS | `shared/desktopMain` 的占位实现 | 暂不支持，界面走「外部播放器」 |
+
+界面层只剩 Android 的 `PlayerView`（画面控件）需要 Media3 类型；换播放器只需实现
+`PlaybackController` 与 `PlaybackEngine`，不用动播放页逻辑。
+
 ## 当前进度
 
 | 里程碑 | 内容 | 状态 |
