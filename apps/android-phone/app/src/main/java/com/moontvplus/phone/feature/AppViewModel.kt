@@ -8,7 +8,10 @@ import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.network.ServerAddress
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.network.SessionManager
+import com.moontvplus.phone.data.local.LegacyMigration
 import com.moontvplus.phone.data.repository.AuthRepository
+import com.moontvplus.phone.data.repository.ServerProbeResult
+import com.moontvplus.phone.data.repository.ServerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +41,8 @@ class AppViewModel @Inject constructor(
     private val serverProvider: ServerProvider,
     private val sessions: SessionManager,
     private val authRepository: AuthRepository,
+    private val serverRepository: ServerRepository,
+    private val legacyMigration: LegacyMigration,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AppUiState>(AppUiState.Loading)
@@ -69,8 +74,10 @@ class AppViewModel @Inject constructor(
     fun boot() {
         viewModelScope.launch {
             _state.value = AppUiState.Loading
-            val snapshot = settingsStore.snapshot()
-            val address = ServerAddress.parseStored(snapshot.serverAddress)
+            legacyMigration.migrateServerAddress()
+
+            var snapshot = settingsStore.snapshot()
+            var address = ServerAddress.parseStored(snapshot.serverAddress)
             serverProvider.set(address)
 
             if (address == null) {
@@ -78,7 +85,21 @@ class AppViewModel @Inject constructor(
                 return@launch
             }
 
+            // 旧壳升级上来时只有地址、没有站点信息，补探测一次拿到存储类型（决定登录方式）
+            if (snapshot.storageType.isNullOrBlank()) {
+                val probed = serverRepository.probe(address.display())
+                if (probed is ServerProbeResult.Success) {
+                    serverRepository.save(probed.address, probed.config)
+                    snapshot = settingsStore.snapshot()
+                    address = probed.address
+                }
+            }
+
             sessions.load()
+            if (sessions.session.value == null) {
+                legacyMigration.restoreSessionOnce(address)?.let { sessions.save(it) }
+            }
+
             val session = sessions.session.value
             if (session == null) {
                 _state.value = AppUiState.NeedLogin()

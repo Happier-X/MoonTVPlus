@@ -24,6 +24,8 @@ data class AppSettings(
     val storageType: String? = null,
     val loginRequireTurnstile: Boolean = false,
     val turnstileSiteKey: String? = null,
+    /** 旧壳 cookie 迁移只做一次，避免退出登录后被旧 cookie 顶回来 */
+    val legacyCookieMigrationDone: Boolean = false,
     /** system / light / dark */
     val themeMode: String = "system",
     val fluidSearch: Boolean = true,
@@ -48,6 +50,7 @@ class SettingsStore @Inject constructor(
             storageType = prefs[KEY_STORAGE_TYPE],
             loginRequireTurnstile = prefs[KEY_LOGIN_TURNSTILE] ?: false,
             turnstileSiteKey = prefs[KEY_TURNSTILE_SITE_KEY]?.takeIf { it.isNotBlank() },
+            legacyCookieMigrationDone = prefs[KEY_LEGACY_COOKIE_MIGRATED] ?: false,
             themeMode = prefs[KEY_THEME_MODE] ?: "system",
             fluidSearch = prefs[KEY_FLUID_SEARCH] ?: true,
             exactSearch = prefs[KEY_EXACT_SEARCH] ?: true,
@@ -88,6 +91,10 @@ class SettingsStore @Inject constructor(
         }
     }
 
+    suspend fun markLegacyCookieMigrationDone() {
+        dataStore.edit { it[KEY_LEGACY_COOKIE_MIGRATED] = true }
+    }
+
     suspend fun setThemeMode(mode: String) {
         dataStore.edit { it[KEY_THEME_MODE] = mode }
     }
@@ -119,6 +126,7 @@ class SettingsStore @Inject constructor(
         val KEY_STORAGE_TYPE = stringPreferencesKey("storage_type")
         val KEY_LOGIN_TURNSTILE = booleanPreferencesKey("login_require_turnstile")
         val KEY_TURNSTILE_SITE_KEY = stringPreferencesKey("turnstile_site_key")
+        val KEY_LEGACY_COOKIE_MIGRATED = booleanPreferencesKey("legacy_cookie_migrated")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_FLUID_SEARCH = booleanPreferencesKey("fluid_search")
         val KEY_EXACT_SEARCH = booleanPreferencesKey("exact_search")

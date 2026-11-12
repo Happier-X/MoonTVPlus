@@ -8,7 +8,9 @@ import com.moontvplus.phone.core.model.AuthInfo
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.model.LoginRequest
 import com.moontvplus.phone.core.network.MoonApi
+import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.network.SessionManager
+import com.moontvplus.phone.data.local.SiteCookieStore
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,6 +23,8 @@ class AuthRepository @Inject constructor(
     private val api: MoonApi,
     private val sessions: SessionManager,
     private val settings: SettingsStore,
+    private val serverProvider: ServerProvider,
+    private val cookies: SiteCookieStore,
     private val json: Json,
 ) {
 
@@ -71,6 +75,10 @@ class AuthRepository @Inject constructor(
                 savedAt = System.currentTimeMillis(),
             )
             sessions.save(session)
+            // 网页版入口要靠 cookie 带登录态，登录成功后同步写一份
+            if (token.isNotBlank()) {
+                serverProvider.current()?.origin?.let { cookies.writeAuth(it, token) }
+            }
             ApiResult.Ok(session)
         } catch (e: IOException) {
             ApiResult.Err(AppError.Network)
@@ -79,10 +87,11 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    /** 服务端登出失败也照样清本地会话。 */
+    /** 服务端登出失败也照样清本地会话与站点 cookie。 */
     suspend fun logout() = withContext(Dispatchers.IO) {
         runCatching { api.logout() }
         sessions.clear()
+        serverProvider.current()?.origin?.let { cookies.clearAuth(it) }
     }
 
     private fun defaultLoginMessage(code: Int): String = when (code) {
