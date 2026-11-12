@@ -1,12 +1,19 @@
 package com.moontvplus.phone.core.network
 
+import com.moontvplus.phone.core.model.BangumiCalendarDay
+import com.moontvplus.phone.core.model.CodedListResponse
+import com.moontvplus.phone.core.model.DoubanCategoriesResponse
 import com.moontvplus.phone.core.model.LoginRequest
 import com.moontvplus.phone.core.model.LoginResponse
+import com.moontvplus.phone.core.model.PlayRecord
+import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.ServerConfig
+import com.moontvplus.phone.core.model.TmdbItem
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Query
 
 /**
  * 站点的 HTTP 接口。
@@ -25,4 +32,29 @@ interface MoonApi {
     /** 探测服务器地址时会临时构造一个指向候选地址的调用，见 ServerRepository。 */
     @GET("api/server-config")
     suspend fun serverConfig(): ServerConfig
+
+    // ---- 首页 ----
+
+    @GET("api/douban/categories")
+    suspend fun doubanCategories(
+        @Query("kind") kind: String,
+        @Query("category") category: String,
+        @Query("type") type: String,
+        @Query("limit") limit: Int = 20,
+        @Query("start") start: Int = 0,
+    ): Response<DoubanCategoriesResponse>
+
+    @GET("api/bangumi/calendar")
+    suspend fun bangumiCalendar(): Response<List<BangumiCalendarDay>>
+
+    @GET("api/duanju/recommends")
+    suspend fun duanjuRecommends(): Response<CodedListResponse<SearchResult>>
+
+    @GET("api/tmdb/upcoming")
+    suspend fun tmdbUpcoming(): Response<CodedListResponse<TmdbItem>>
+
+    // ---- 播放记录 ----
+
+    @GET("api/playrecords")
+    suspend fun playRecords(): Response<Map<String, PlayRecord>>
 }

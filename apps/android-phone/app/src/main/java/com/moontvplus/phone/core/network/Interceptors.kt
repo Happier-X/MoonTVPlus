@@ -7,18 +7,24 @@ import javax.inject.Singleton
 import okhttp3.Interceptor
 import okhttp3.Response
 
-/** 把请求里的占位 host 换成当前服务器地址，并补上子路径前缀。 */
+/**
+ * 把 Retrofit 占位 host（`127.0.0.1`）的请求改写成当前服务器地址，并补上子路径前缀。
+ *
+ * 只处理占位 host：图片代理、播放分片这类已经是绝对地址的请求原样放行，
+ * 否则第三方 CDN 会被错误地换成站点域名。
+ */
 @Singleton
 class ServerUrlInterceptor @Inject constructor(
     private val urls: ApiUrlResolver,
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val base = urls.base() ?: return chain.proceed(chain.request())
         val request = chain.request()
         val original = request.url
-        val prefix = urls.prefixPath("")
+        if (original.host != PLACEHOLDER_HOST) return chain.proceed(request)
 
+        val base = urls.base() ?: return chain.proceed(request)
+        val prefix = urls.prefixPath("")
         val rewritten = original.newBuilder()
             .scheme(base.scheme)
             .host(base.host)
@@ -27,6 +33,10 @@ class ServerUrlInterceptor @Inject constructor(
             .build()
 
         return chain.proceed(request.newBuilder().url(rewritten).build())
+    }
+
+    private companion object {
+        const val PLACEHOLDER_HOST = "127.0.0.1"
     }
 }
 
