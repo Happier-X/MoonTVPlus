@@ -160,6 +160,17 @@ jobs:
           VERSION_NAME: ${{ inputs.version_name }}
         run: ./gradlew :desktop:createDistributable -PVERSION_NAME="$VERSION_NAME"
 
+      - name: Dump packaging logs on failure
+        if: failure()
+        working-directory: apps/android-phone
+        shell: bash
+        run: |
+          for f in desktop/build/compose/logs/createDistributable/*; do
+            echo "=== $f"
+            cat "$f" || true
+          done
+          ls -R desktop/build/compose/tmp || true
+
       - name: Upload desktop app
         uses: actions/upload-artifact@v4
         with:
