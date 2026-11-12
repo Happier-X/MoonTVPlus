@@ -6,8 +6,8 @@ Kotlin + Jetpack Compose 写的原生客户端，直接调用站点的 HTTP API�
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| M0 | 工程骨架：Kotlin/Compose/Hilt/KSP、主题、占位页、CI 单元测试 | 进行中 |
-| M1 | 服务器地址 + 登录（两种模式）+ 会话与自动刷新 + 旧版升级迁移 | 待做 |
+| M0 | 工程骨架：Kotlin/Compose/Hilt/KSP、主题、占位页、CI 单元测试 | 完成 |
+| M1 | 服务器地址 + 登录（两种模式）+ 会话与自动刷新 | 完成（旧版 Cookie 迁移待做） |
 | M2 | 首页（豆瓣 / Bangumi / 短剧 / 即将上映 / 继续观看） | 待做 |
 | M3 | 搜索（SSE 流式）+ 结果聚合 + 选源 + 历史 | 待做 |
 | M4 | 详情 + 选集 + ExoPlayer 播放 + 续播 + 跳片头尾 | 待做 |
@@ -36,12 +36,18 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 则构建签名 release APK（和 TV 版共用同一套 secrets）。
 
-本地构建需要一个可用的 JDK 17 与 Gradle 8.10.2：
+CI 与本地都用仓库内的 Gradle Wrapper（8.10.2），只需要一个 JDK 17：
 
 ```bash
 cd apps/android-phone
-gradle :app:assembleDebug -PBASE_URL="https://tv.example.com"
-gradle :app:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug -PBASE_URL="https://tv.example.com"
+```
+
+Windows 上如果没有配置 `JAVA_HOME`，可以直接指向 Android Studio 自带的 JDK：
+
+```bash
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" ./gradlew :app:assembleDebug
 ```
 
 ## 目录结构

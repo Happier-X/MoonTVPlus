@@ -64,8 +64,6 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
 
       - name: Prepare app icon from public/logo.png
         run: |
@@ -95,7 +93,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: apps/android-phone
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build APK
         working-directory: apps/android-phone
@@ -110,7 +108,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          gradle assemble${{ steps.signing.outputs.build_type_task }} \
+          ./gradlew assemble${{ steps.signing.outputs.build_type_task }} \
             -PBASE_URL="$BASE_URL" \
             -PAPP_NAME="$APP_NAME" \
             -PVERSION_NAME="$VERSION_NAME" \
