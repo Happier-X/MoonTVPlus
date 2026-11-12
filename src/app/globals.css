@@ -8,14 +8,14 @@
 }
 
 #nprogress .bar {
-  background: #3b82f6;
+  background: #27ae60;
   position: fixed;
   z-index: 9999;
   top: 0;
   left: 0;
   width: 100%;
   height: 3px;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8), 0 0 5px rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 10px rgba(39, 174, 96, 0.8), 0 0 5px rgba(39, 174, 96, 0.6);
 }
 
 #nprogress .peg {
@@ -24,19 +24,19 @@
   right: 0px;
   width: 100px;
   height: 100%;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8), 0 0 5px rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 10px rgba(39, 174, 96, 0.8), 0 0 5px rgba(39, 174, 96, 0.6);
   opacity: 1.0;
   transform: rotate(3deg) translate(0px, -4px);
 }
 
 /* 暗色模式下的进度条样式 */
 .dark #nprogress .bar {
-  background: #60a5fa;
-  box-shadow: 0 0 10px rgba(96, 165, 250, 0.8), 0 0 5px rgba(96, 165, 250, 0.6);
+  background: #52c77a;
+  box-shadow: 0 0 10px rgba(82, 199, 122, 0.8), 0 0 5px rgba(82, 199, 122, 0.6);
 }
 
 .dark #nprogress .peg {
-  box-shadow: 0 0 10px rgba(96, 165, 250, 0.8), 0 0 5px rgba(96, 165, 250, 0.6);
+  box-shadow: 0 0 10px rgba(82, 199, 122, 0.8), 0 0 5px rgba(82, 199, 122, 0.6);
 }
 
 @layer utilities {
@@ -51,7 +51,7 @@
 }
 
 :root {
-  --foreground-rgb: 255, 255, 255;
+  --foreground-rgb: 44, 62, 80; /* Selene ink #2C3E50 */
   /* 顶部安全区：只在"装到主屏(独立窗口)"的沉浸式场景才留。
      普通浏览器里状态栏在视口之外，但升级后的部分 WebView 仍会上报
      env(safe-area-inset-top)，直接照用会凭空多出一条留白。 */
@@ -76,17 +76,13 @@ body {
   color: rgb(var(--foreground-rgb));
 }
 
+/* Selene 的浅色底是干净的 #F8F9FA，不再用蓝灰渐变 */
 html:not(.dark) body {
-  background: linear-gradient(
-    180deg,
-    #e6f3fb 0%,
-    #eaf3f7 18%,
-    #f7f7f3 38%,
-    #e9ecef 60%,
-    #dbe3ea 80%,
-    #d3dde6 100%
-  );
-  background-attachment: fixed;
+  background: #f8f9fa;
+}
+
+html.dark body {
+  background: #121212;
 }
 
 /* 自定义滚动条样式 */
@@ -381,8 +377,8 @@ html:not([data-loading-style]) .mtv-load-talisman {
 /* 主题色与墨色，两种款式共用 */
 .mtv-load-grid,
 .mtv-load-talisman {
-  --mtv-acc: var(--theme-primary, #10b981);
-  --mtv-acc-hover: var(--theme-primary-hover, #059669);
+  --mtv-acc: var(--theme-primary, #27ae60);
+  --mtv-acc-hover: var(--theme-primary-hover, #52c77a);
   --mtv-ink: #1c1c22;
   --mtv-done: #2563eb; /* 方格里「已完成」的填色，刻意不跟主题色同色系 */
   --mtv-surface: rgba(255, 255, 255, 0.94);
