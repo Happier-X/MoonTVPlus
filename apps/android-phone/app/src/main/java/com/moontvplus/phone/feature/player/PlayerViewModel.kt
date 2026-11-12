@@ -9,15 +9,12 @@ import com.moontvplus.phone.core.network.MoonApi
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.data.media.EpisodePlan
 import com.moontvplus.phone.data.media.EpisodeUrlResolver
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-@HiltViewModel
-class PlayerViewModel @Inject constructor(
+class PlayerViewModel(
     private val api: MoonApi,
     private val serverProvider: ServerProvider,
 ) : ViewModel() {

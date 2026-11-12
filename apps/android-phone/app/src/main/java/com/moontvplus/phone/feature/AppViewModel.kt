@@ -2,18 +2,16 @@ package com.moontvplus.phone.feature
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.moontvplus.phone.core.datastore.AppSettings
-import com.moontvplus.phone.core.datastore.SettingsStore
+import com.moontvplus.phone.core.storage.AppSettings
+import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.network.ServerAddress
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.network.SessionManager
-import com.moontvplus.phone.data.local.LegacyMigration
+import com.moontvplus.phone.core.platform.LegacySessionBridge
 import com.moontvplus.phone.data.repository.AuthRepository
 import com.moontvplus.phone.data.repository.ServerProbeResult
 import com.moontvplus.phone.data.repository.ServerRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,14 +33,13 @@ sealed interface AppUiState {
 /**
  * 启动决策：没有服务器地址 → 设置页；没有会话 → 登录页；否则进首页。
  */
-@HiltViewModel
-class AppViewModel @Inject constructor(
+class AppViewModel(
     private val settingsStore: SettingsStore,
     private val serverProvider: ServerProvider,
     private val sessions: SessionManager,
     private val authRepository: AuthRepository,
     private val serverRepository: ServerRepository,
-    private val legacyMigration: LegacyMigration,
+    private val legacyMigration: LegacySessionBridge,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AppUiState>(AppUiState.Loading)
@@ -74,7 +71,7 @@ class AppViewModel @Inject constructor(
     fun boot() {
         viewModelScope.launch {
             _state.value = AppUiState.Loading
-            legacyMigration.migrateServerAddress()
+            legacyMigration.migrateServerAddress(settingsStore)
 
             var snapshot = settingsStore.snapshot()
             var address = ServerAddress.parseStored(snapshot.serverAddress)
@@ -97,7 +94,7 @@ class AppViewModel @Inject constructor(
 
             sessions.load()
             if (sessions.session.value == null) {
-                legacyMigration.restoreSessionOnce(address)?.let { sessions.save(it) }
+                legacyMigration.restoreSessionOnce(address, settingsStore)?.let { sessions.save(it) }
             }
 
             val session = sessions.session.value

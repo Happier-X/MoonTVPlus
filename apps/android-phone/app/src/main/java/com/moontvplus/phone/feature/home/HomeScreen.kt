@@ -43,7 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.ui.PosterImage
 
@@ -55,7 +55,9 @@ fun HomeScreen(
     onOpenSearch: () -> Unit,
     onLogout: () -> Unit,
     onChangeServer: () -> Unit,
-    viewModel: HomeViewModel = hiltViewModel(),
+    viewModel: HomeViewModel = appViewModel {
+        HomeViewModel(it.graph.homeRepository, it.graph.imageUrlBuilder)
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -247,14 +249,15 @@ private fun PosterCard(card: HomeCard, onClick: () -> Unit) {
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f),
             )
-            if (card.badge != null) {
+            val badge = card.badge
+            if (badge != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
                     shape = RoundedCornerShape(bottomStart = 8.dp, topEnd = 8.dp),
                     modifier = Modifier.align(Alignment.TopEnd),
                 ) {
                     Text(
-                        text = card.badge,
+                        text = badge,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.inverseOnSurface,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -270,9 +273,10 @@ private fun PosterCard(card: HomeCard, onClick: () -> Unit) {
             minLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (card.subtitle != null) {
+        val subtitle = card.subtitle
+        if (subtitle != null) {
             Text(
-                text = card.subtitle,
+                text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -29,7 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.ui.theme.MoonTvTheme
 import com.moontvplus.phone.feature.AppUiState
@@ -41,7 +41,6 @@ import com.moontvplus.phone.feature.login.LoginScreen
 import com.moontvplus.phone.feature.player.PlayerActivity
 import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
-import dagger.hilt.android.AndroidEntryPoint
 
 /** 桌面图标的「服务器设置」快捷方式走这个 action。 */
 const val ACTION_OPEN_SETTINGS = "com.moontvplus.phone.OPEN_SETTINGS"
@@ -53,7 +52,6 @@ private sealed interface AppRoute {
     data class Detail(val source: String, val videoId: String, val title: String) : AppRoute
 }
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val openSettingsRequest: MutableState<Boolean> = mutableStateOf(false)
@@ -78,7 +76,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MoonTvApp(
     openSettingsRequest: MutableState<Boolean>,
-    viewModel: AppViewModel = hiltViewModel(),
+    viewModel: AppViewModel = appViewModel {
+        AppViewModel(
+            settingsStore = it.graph.settingsStore,
+            serverProvider = it.graph.serverProvider,
+            sessions = it.graph.sessionManager,
+            authRepository = it.graph.authRepository,
+            serverRepository = it.graph.serverRepository,
+            legacyMigration = it.graph.platformServices.legacy,
+        )
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()

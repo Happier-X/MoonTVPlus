@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml:2:13-83
+INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml:2:13-83
+	package
+		INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml
+	xmlns:android
+		ADDED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml:2:23-81
+uses-sdk
+INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml reason: use-sdk injection requested
+INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml
+INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml
+	android:targetSdkVersion
+		INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml
+	android:minSdkVersion
+		INJECTED from C:\code\MoonTVPlus\apps\android-phone\shared\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest2872511076936648369.xml

@@ -6,16 +6,13 @@ import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.network.ImageUrlBuilder
 import com.moontvplus.phone.core.network.MoonApi
 import com.moontvplus.phone.core.network.ServerProvider
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class DetailViewModel @Inject constructor(
+class DetailViewModel(
     private val api: MoonApi,
     private val imageUrls: ImageUrlBuilder,
     private val serverProvider: ServerProvider,

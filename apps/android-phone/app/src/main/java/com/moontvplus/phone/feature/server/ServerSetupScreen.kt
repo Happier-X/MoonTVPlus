@@ -26,14 +26,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun ServerSetupScreen(
     onDone: () -> Unit,
     onCancel: (() -> Unit)? = null,
-    viewModel: ServerSetupViewModel = hiltViewModel(),
+    viewModel: ServerSetupViewModel = appViewModel {
+        ServerSetupViewModel(it.graph.serverRepository, it.graph.settingsStore)
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 

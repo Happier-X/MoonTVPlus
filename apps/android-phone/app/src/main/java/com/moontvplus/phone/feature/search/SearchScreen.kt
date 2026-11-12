@@ -50,7 +50,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.ui.PosterImage
@@ -61,7 +61,9 @@ fun SearchScreen(
     initialQuery: String? = null,
     onBack: () -> Unit,
     onOpenDetail: (source: String, videoId: String, title: String) -> Unit,
-    viewModel: SearchViewModel = hiltViewModel(),
+    viewModel: SearchViewModel = appViewModel {
+        SearchViewModel(it.graph.searchRepository, it.graph.imageUrlBuilder)
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focusRequester = remember { FocusRequester() }

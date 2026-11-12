@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.moontvplus.phone.core.network.ServerAddressTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-11-12T02:50:22" hostname="HAPPIER-PC" time="0.096">
+  <properties/>
+  <testcase name="子路径部署保留前缀" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.07"/>
+  <testcase name="显式 scheme 时只给一个候选" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.0"/>
+  <testcase name="无 scheme 时 https 优先并回退 http" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.001"/>
+  <testcase name="非法输入返回 null" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.001"/>
+  <testcase name="裸域名默认补 https" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.008"/>
+  <testcase name="无协议头的非法值不会抛异常" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.003"/>
+  <testcase name="误贴页面路径时去掉应用路由段" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.001"/>
+  <testcase name="保留显式 http 与端口" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.007"/>
+  <testcase name="默认端口不写进 origin" classname="com.moontvplus.phone.core.network.ServerAddressTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -14,5 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MoonTVPlusAndroidPhone"
+rootProject.name = "MoonTVPlusMobile"
+
+include(":shared")
 include(":app")

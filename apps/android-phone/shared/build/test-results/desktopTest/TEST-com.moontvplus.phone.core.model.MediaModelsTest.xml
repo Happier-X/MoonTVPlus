@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.moontvplus.phone.core.model.MediaModelsTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-11-12T02:50:15" hostname="HAPPIER-PC" time="0.37">
+  <properties/>
+  <testcase name="豆瓣列表解析[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.333"/>
+  <testcase name="Bangumi 取第一个可用海报[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.003"/>
+  <testcase name="脏字段也能解析[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.018"/>
+  <testcase name="缺字段用默认值[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.001"/>
+  <testcase name="播放记录 map 能按 key 拆出源和 id[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.009"/>
+  <testcase name="TMDB 海报地址拼装[desktop]" classname="com.moontvplus.phone.core.model.MediaModelsTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

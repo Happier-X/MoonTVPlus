@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.moontvplus.phone.di.appContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,27 +53,26 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
-import com.moontvplus.phone.core.di.MediaClient
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.ui.theme.MoonTvTheme
 import com.moontvplus.phone.data.media.EpisodePlan
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import okhttp3.OkHttpClient
 
-@AndroidEntryPoint
 class PlayerActivity : ComponentActivity() {
 
-    @Inject
-    @MediaClient
-    lateinit var mediaClient: OkHttpClient
+    private val container by lazy { appContainer(this) }
+    private val mediaClient: OkHttpClient by lazy { container.graph.mediaClient }
+    private val serverProvider: ServerProvider by lazy { container.graph.serverProvider }
 
-    @Inject
-    lateinit var serverProvider: ServerProvider
-
-    private val viewModel: PlayerViewModel by viewModels()
+    private val viewModel: PlayerViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                PlayerViewModel(container.graph.moonApi, container.graph.serverProvider)
+            }
+        }
+    }
     private var player: ExoPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {

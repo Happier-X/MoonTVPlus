@@ -6,8 +6,6 @@ import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.network.ImageUrlBuilder
 import com.moontvplus.phone.data.repository.SearchEvent
 import com.moontvplus.phone.data.repository.SearchRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,8 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class SearchViewModel @Inject constructor(
+class SearchViewModel(
     private val repository: SearchRepository,
     private val imageUrls: ImageUrlBuilder,
 ) : ViewModel() {

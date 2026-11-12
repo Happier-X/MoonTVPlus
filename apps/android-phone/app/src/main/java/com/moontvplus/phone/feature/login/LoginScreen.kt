@@ -28,7 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.model.AuthSession
 
@@ -37,7 +37,9 @@ fun LoginScreen(
     reason: String?,
     onLoggedIn: (AuthSession) -> Unit,
     onChangeServer: () -> Unit,
-    viewModel: LoginViewModel = hiltViewModel(),
+    viewModel: LoginViewModel = appViewModel {
+        LoginViewModel(it.graph.authRepository, it.graph.settingsStore, it.graph.serverProvider)
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 

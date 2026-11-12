@@ -3,20 +3,17 @@ package com.moontvplus.phone.feature.server
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moontvplus.phone.BuildConfig
-import com.moontvplus.phone.core.datastore.SettingsStore
+import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.model.ServerConfig
 import com.moontvplus.phone.core.network.ServerAddress
 import com.moontvplus.phone.data.repository.ServerProbeResult
 import com.moontvplus.phone.data.repository.ServerRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class ServerSetupViewModel @Inject constructor(
+class ServerSetupViewModel(
     private val repository: ServerRepository,
     private val settingsStore: SettingsStore,
 ) : ViewModel() {

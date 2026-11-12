@@ -37,7 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.ui.PosterImage
 
@@ -48,7 +48,9 @@ fun DetailScreen(
     fallbackTitle: String,
     onBack: () -> Unit,
     onPlay: (index: Int, startPositionMs: Long) -> Unit,
-    viewModel: DetailViewModel = hiltViewModel(),
+    viewModel: DetailViewModel = appViewModel {
+        DetailViewModel(it.graph.moonApi, it.graph.imageUrlBuilder, it.graph.serverProvider)
+    },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 

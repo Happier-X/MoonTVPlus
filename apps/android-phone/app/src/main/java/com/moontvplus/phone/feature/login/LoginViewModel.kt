@@ -4,19 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moontvplus.phone.core.common.ApiResult
 import com.moontvplus.phone.core.common.userMessage
-import com.moontvplus.phone.core.datastore.SettingsStore
+import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.data.repository.AuthRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class LoginViewModel @Inject constructor(
+class LoginViewModel(
     private val authRepository: AuthRepository,
     private val settingsStore: SettingsStore,
     serverProvider: ServerProvider,

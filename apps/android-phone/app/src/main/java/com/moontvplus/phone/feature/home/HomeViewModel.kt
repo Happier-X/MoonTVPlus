@@ -9,17 +9,14 @@ import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.TmdbItem
 import com.moontvplus.phone.data.repository.HomeCache
 import com.moontvplus.phone.data.repository.HomeRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Calendar
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class HomeViewModel @Inject constructor(
+class HomeViewModel(
     private val repository: HomeRepository,
     private val imageUrls: com.moontvplus.phone.core.network.ImageUrlBuilder,
 ) : ViewModel() {
