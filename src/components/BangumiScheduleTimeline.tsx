@@ -91,7 +91,6 @@ function TimelineVideoCard({ item }: { item: BangumiScheduleItem }) {
         rate={item.rating}
         year={item.air_date?.split('-')?.[0] || ''}
         isBangumi
-        isAnime
       />
     </div>
   );

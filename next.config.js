@@ -238,7 +238,7 @@ const createNextConfig = (phase) => {
     return config;
   },
 
-  // 音乐与电子书功能已下线：老书签、已安装 PWA 的缓存入口统一回首页，
+  // 音乐、电子书、私人影库功能已下线：老书签、已安装 PWA 的缓存入口统一回首页，
   // 避免落到 404。等一段时间后可以删掉这段。
   async redirects() {
     return [
@@ -251,6 +251,9 @@ const createNextConfig = (phase) => {
         destination: '/watch-room',
         permanent: false,
       },
+      { source: '/private-library', destination: '/', permanent: false },
+      { source: '/private-library/:path*', destination: '/', permanent: false },
+      { source: '/tv/private', destination: '/tv', permanent: false },
     ];
   },
 };

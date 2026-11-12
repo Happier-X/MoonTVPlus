@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Blend, Cat, Clover, Container, Film, Globe, Home, Star, Tv, TvMinimalPlay, Users } from 'lucide-react';
+import { Blend, Cat, Clover, Film, Globe, Home, Star, Tv, TvMinimalPlay, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -104,15 +104,6 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         icon: Globe,
         label: '网络直播',
         href: '/web-live',
-      });
-    }
-
-    // 如果配置了 OpenList 或 Emby，添加私人影库入口
-    if (runtimeConfig?.PRIVATE_LIBRARY_ENABLED) {
-      items.push({
-        icon: Container,
-        label: '私人影库',
-        href: '/private-library',
       });
     }
 

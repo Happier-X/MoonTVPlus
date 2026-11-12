@@ -848,7 +848,6 @@ function DoubanPageClient() {
                         isBangumi={
                           type === 'anime' && primarySelection === '每日放送'
                         }
-                        isAnime={type === 'anime'}
                       />
                     </div>
                   ))}

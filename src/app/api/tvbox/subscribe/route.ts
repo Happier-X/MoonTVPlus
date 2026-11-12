@@ -98,42 +98,6 @@ export async function GET(request: NextRequest) {
 
     console.log('TVBOX 订阅 baseUrl:', baseUrl, 'adFilter:', adFilter, 'yellowFilter:', yellowFilter);
 
-    // 检查是否配置了 OpenList
-    const hasOpenList = !!(
-      config.OpenListConfig?.Enabled &&
-      config.OpenListConfig?.URL &&
-      config.OpenListConfig?.Username &&
-      config.OpenListConfig?.Password
-    );
-
-    // 获取所有启用的 Emby 源
-    const { embyManager } = await import('@/lib/emby-manager');
-    const embySources = await embyManager.getEnabledSources();
-
-    // 构建 OpenList 站点配置
-    const openlistSites = hasOpenList ? [{
-      key: 'openlist',
-      name: '私人影库',
-      type: 1,
-      api: `${baseUrl}/api/openlist/cms-proxy/${encodeURIComponent(token)}`,
-      searchable: 1,
-      quickSearch: 1,
-      filterable: 1,
-      ext: '',
-    }] : [];
-
-    // 构建 Emby 站点配置（为每个启用的Emby源生成独立站点）
-    const embySites = embySources.map(source => ({
-      key: `emby_${source.key}`,
-      name: source.name || 'Emby媒体库',
-      type: 1,
-      api: `${baseUrl}/api/emby/cms-proxy/${encodeURIComponent(token)}?embyKey=${source.key}`,
-      searchable: 1,
-      quickSearch: 1,
-      filterable: 1,
-      ext: '',
-    }));
-
     // 构建TVBOX订阅数据
     const tvboxSubscription = {
       // 站点配置
@@ -141,10 +105,7 @@ export async function GET(request: NextRequest) {
       wallpaper: '',
 
       // 视频源站点 - 根据 adFilter 参数决定是否使用代理
-      // OpenList 和 Emby 源放在最前面
       sites: [
-        ...openlistSites,
-        ...embySites,
         ...apiSites.map(site => ({
           key: site.key,
           name: site.name,

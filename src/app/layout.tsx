@@ -96,9 +96,6 @@ export default async function RootLayout({
     process.env.NEXT_PUBLIC_BANGUMI_IMAGE_BASE_URL ||
     process.env.BANGUMI_IMAGE_BASE_URL ||
     '';
-  let openListEnabled = false;
-  let embyEnabled = false;
-  let xiaoyaEnabled = false;
   let loginBackgroundImage = '';
   let registerBackgroundImage = '';
   let homeBackgroundImage = '';
@@ -249,23 +246,6 @@ export default async function RootLayout({
     // 高级推荐功能配置：存在已启用视频源脚本时显示
     advancedRecommendationEnabled =
       (await listEnabledSourceScripts()).length > 0;
-    // 检查是否启用了 OpenList 功能
-    openListEnabled = !!(
-      config.OpenListConfig?.Enabled &&
-      config.OpenListConfig?.URL &&
-      config.OpenListConfig?.Username &&
-      config.OpenListConfig?.Password
-    );
-    // 检查是否启用了 Emby 功能（支持多源）
-    embyEnabled = !!(
-      config.EmbyConfig?.Sources &&
-      config.EmbyConfig.Sources.length > 0 &&
-      config.EmbyConfig.Sources.some((s) => s.enabled && s.ServerURL)
-    );
-    // 检查是否启用了小雅功能
-    xiaoyaEnabled = !!(
-      config.XiaoyaConfig?.Enabled && config.XiaoyaConfig?.ServerURL
-    );
     localSettingsSyncMode =
       config.SiteConfig?.LocalSettingsSyncMode === 'manual' ||
       config.SiteConfig?.LocalSettingsSyncMode === 'auto'
@@ -307,13 +287,6 @@ export default async function RootLayout({
       process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',
     VOICE_CHAT_STRATEGY:
       process.env.NEXT_PUBLIC_VOICE_CHAT_STRATEGY || 'webrtc-fallback',
-    OPENLIST_ENABLED: openListEnabled && userFeatureAccess.private_library,
-    EMBY_ENABLED: embyEnabled && userFeatureAccess.emby,
-    XIAOYA_ENABLED: xiaoyaEnabled && userFeatureAccess.xiaoya,
-    PRIVATE_LIBRARY_ENABLED:
-      (openListEnabled && userFeatureAccess.private_library) ||
-      (embyEnabled && userFeatureAccess.emby) ||
-      (xiaoyaEnabled && userFeatureAccess.xiaoya),
     LOGIN_BACKGROUND_IMAGE: loginBackgroundImage,
     REGISTER_BACKGROUND_IMAGE: registerBackgroundImage,
     HOME_BACKGROUND_IMAGE: homeBackgroundImage,
@@ -347,8 +320,6 @@ export default async function RootLayout({
     SUWAYOMI_ENABLED: suwayomiEnabled && userFeatureAccess.manga,
     NETDISK_SEARCH_ENABLED: userFeatureAccess.netdisk_search,
     MAGNET_SEARCH_ENABLED: userFeatureAccess.magnet_search,
-    MAGNET_SAVE_PRIVATE_LIBRARY_ENABLED:
-      userFeatureAccess.magnet_save_private_library,
     NETDISK_TRANSFER_ENABLED: userFeatureAccess.netdisk_transfer,
     NETDISK_TEMP_PLAY_ENABLED: userFeatureAccess.netdisk_temp_play,
     FESTIVE_EFFECT_ENABLED: process.env.FESTIVE_EFFECT_ENABLED === 'true',

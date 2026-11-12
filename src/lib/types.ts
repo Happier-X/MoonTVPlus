@@ -298,19 +298,12 @@ export interface SearchResult {
     fallbackFormat?: string;
     language?: string;
     format?: string; // 实际加载格式，如 vtt / ass / ssa
-    sourceFormat?: string; // Emby 返回的原始字幕格式
     codec?: string;
     isExternal?: boolean;
     renderMode?: 'native' | 'jassub' | 'bitsub';
   }>>; // 字幕列表（按集数索引）
   tmdb_id?: number; // TMDB ID
   rating?: number; // 评分
-  initialEpisodeIndex?: number; // 初始集数索引（用于小雅源从文件点击进入时指定集数）
-  metadataSource?: 'folder' | 'nfo' | 'tmdb' | 'file'; // 元数据来源（用于小雅源判断是否保留fileName）
-  /** OpenList 路径元信息：是否启用 14 分钟播放 URL 续期 */
-  refresh14m?: boolean;
-  /** OpenList 路径元信息：分类 */
-  category?: string;
 }
 
 // 豆瓣数据结构
@@ -406,8 +399,7 @@ export type NotificationType =
   | 'system' // 系统通知
   | 'announcement' // 公告
   | 'movie_request' // 新求片通知（给管理员）
-  | 'request_fulfilled' // 求片已上架通知（给求片用户）
-  | 'anime_subscription_update'; // 追番订阅更新
+  | 'request_fulfilled'; // 求片已上架通知（给求片用户）
 
 // 通知数据结构
 export interface Notification {

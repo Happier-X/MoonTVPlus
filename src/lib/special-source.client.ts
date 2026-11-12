@@ -58,8 +58,7 @@ export function appendSpecialSourceSearchParam(params: URLSearchParams) {
 
 /**
  * 当前站点被标记为特殊源的采集源 key 集合，由 layout 注入 RUNTIME_CONFIG。
- * ponytail: 私人影库（emby/openlist/xiaoya）不在 SpecialSourceApis 里，
- * 与服务端 getAvailableApiSites 的口径保持一致，始终归普通入口。
+ * 与服务端 getAvailableApiSites 的口径保持一致。
  */
 function getSpecialSourceKeys(): Set<string> {
   if (typeof window === 'undefined') return new Set();

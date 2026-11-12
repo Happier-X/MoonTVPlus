@@ -6,7 +6,6 @@ import {
   Heart,
   Info,
   Link,
-  ListPlus,
   PlayCircleIcon,
   Radio,
   Sparkles,
@@ -22,11 +21,9 @@ import React, {
   useEffect,
   useImperativeHandle,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 
-import { isAnimeCategoryText } from '@/lib/anime-keyword-expr';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
   deleteFavorite,
@@ -53,7 +50,6 @@ import {
 import { useLongPress } from '@/hooks/useLongPress';
 
 import AIChatPanel from '@/components/AIChatPanel';
-import AnimeSubscribeModal from '@/components/AnimeSubscribeModal';
 import DetailPanel from '@/components/DetailPanel';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import ImageViewer from '@/components/ImageViewer';
@@ -88,9 +84,7 @@ export interface VideoCardProps {
   type?: string;
   isBangumi?: boolean;
   /** 明确标记为动漫（豆瓣动漫页 / CMS 等） */
-  isAnime?: boolean;
   /** CMS 分类名，用于启发式识别动漫 */
-  typeName?: string;
   isAggregate?: boolean;
   origin?: 'vod' | 'live';
   releaseDate?: string; // 上映日期，格式：YYYY-MM-DD
@@ -136,8 +130,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       rate,
       type = '',
       isBangumi = false,
-      isAnime = false,
-      typeName,
       isAggregate = false,
       origin = 'vod',
       releaseDate,
@@ -157,17 +149,10 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     const watchRoomContext = useWatchRoomContextSafe();
     // 观影室状态下短剧不走竖屏沉浸播放页（/duanju/play 不支持房间同步）
     const isInWatchRoom = Boolean(watchRoomContext?.currentRoom);
-    const [showAnimeSubscribe, setShowAnimeSubscribe] = useState(false);
-    const [animeSubscribeToast, setAnimeSubscribeToast] = useState('');
     const isAdminUser = useMemo(() => {
       const auth = getAuthInfoFromBrowserCookie();
       return auth?.role === 'admin' || auth?.role === 'owner';
     }, []);
-    const resolvedIsAnime = useMemo(
-      () =>
-        Boolean(isBangumi || isAnime || isAnimeCategoryText(typeName)),
-      [isBangumi, isAnime, typeName]
-    );
     const actualTitle = title;
     const actualPoster = poster;
     const netdiskPosterPlaceholder = useMemo(() => {
@@ -946,27 +931,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         });
       }
 
-      // 添加追番订阅（仅管理员 + 判定为动漫）
-      if (
-        isAdminUser &&
-        resolvedIsAnime &&
-        origin !== 'live' &&
-        actualTitle
-      ) {
-        actions.push({
-          id: 'anime-subscribe',
-          label: '添加追番订阅',
-          icon: <ListPlus size={20} />,
-          onClick: () => {
-            setShowMobileActions(false);
-            setTimeout(() => {
-              setShowAnimeSubscribe(true);
-            }, 250);
-          },
-          color: 'primary' as const,
-        });
-      }
-
       return actions;
     }, [
       config,
@@ -991,7 +955,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       tmdb_id,
       openTrailerPicker,
       isAdminUser,
-      resolvedIsAnime,
     ]);
 
     return (
@@ -1524,14 +1487,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                 >
                   <span
                     className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/60 ${
-                      actualSource === 'xiaoya'
-                        ? 'border-blue-500'
-                        : isNetdiskSource(actualSource)
+                      isNetdiskSource(actualSource)
                         ? 'border-purple-500'
-                        : actualSource === 'openlist' ||
-                          actualSource === 'emby' ||
-                          actualSource?.startsWith('emby_')
-                        ? 'border-yellow-500'
                         : origin === 'live'
                         ? 'border-red-500'
                         : 'border-white/60'
@@ -1947,14 +1904,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                           {config.showSourceName && source_name && !cmsData && (
                             <span
                               className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/30 backdrop-blur-sm ${
-                                actualSource === 'xiaoya'
-                                  ? 'border-blue-500'
-                                  : isNetdiskSource(actualSource)
+                                isNetdiskSource(actualSource)
                                   ? 'border-purple-500'
-                                  : actualSource === 'openlist' ||
-                                    actualSource === 'emby' ||
-                                    actualSource?.startsWith('emby_')
-                                  ? 'border-yellow-500'
                                   : 'border-white/60'
                               }`}
                               style={
@@ -2016,10 +1967,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                           className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/30 backdrop-blur-sm ${
                             origin === 'live'
                               ? 'border-red-500'
-                              : actualSource === 'openlist' ||
-                                actualSource === 'emby' ||
-                                actualSource?.startsWith('emby_')
-                              ? 'border-yellow-500'
                               : 'border-white/60'
                           }`}
                           style={
@@ -2246,25 +2193,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             source={source}
           />
         )}
-
-        {/* 添加追番订阅（管理员） */}
-        <AnimeSubscribeModal
-          isOpen={showAnimeSubscribe}
-          onClose={() => setShowAnimeSubscribe(false)}
-          initialTitle={actualTitle}
-          initialLastEpisode={
-            from === 'playrecord' && currentEpisode ? currentEpisode : 0
-          }
-          onSuccess={() => {
-            setAnimeSubscribeToast('已添加追番订阅');
-            window.setTimeout(() => setAnimeSubscribeToast(''), 2500);
-          }}
-        />
-        {animeSubscribeToast ? (
-          <div className='fixed bottom-24 left-1/2 z-[10001] -translate-x-1/2 rounded-full bg-green-600 px-4 py-2 text-sm text-white shadow-lg'>
-            {animeSubscribeToast}
-          </div>
-        ) : null}
 
         {/* 图片查看器 */}
         {showImageViewer && (

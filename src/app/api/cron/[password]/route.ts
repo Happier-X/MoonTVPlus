@@ -2,7 +2,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { checkAnimeSubscriptions } from '@/lib/anime-subscription';
 import { getConfig, refineConfig } from '@/lib/config';
 import { fetchConfigSubscription } from '@/lib/config-subscription';
 import { db, getStorage } from '@/lib/db';
@@ -21,7 +20,6 @@ import {
   setLastGlobalLiveRefreshTime,
 } from '@/lib/live';
 import { MangaChapter, MangaShelfItem } from '@/lib/manga.types';
-import { startOpenListRefresh } from '@/lib/openlist-refresh';
 import { getSuwayomiConfig, loginWithSimpleAuth, SuwayomiClient } from '@/lib/suwayomi.client';
 import { SearchResult } from '@/lib/types';
 
@@ -234,9 +232,7 @@ async function cronJob() {
   // 其余任务并行执行
   await Promise.all([
     refreshAllLiveChannels(),
-    refreshOpenList(),
     refreshRecordAndFavorites(),
-    checkAnimeSubscriptions(),
   ]);
 }
 
@@ -335,17 +331,9 @@ async function refreshRecordAndFavorites() {
       users.push(process.env.USERNAME);
     }
 
-    // 环境变量控制是否跳过特定源（默认为 false，即默认跳过）
-    const includeSpecialSources = process.env.CRON_INCLUDE_SPECIAL_SOURCES === 'true';
-
-    // 检查是否应该跳过该源
-    const shouldSkipSource = (source: string): boolean => {
-      if (includeSpecialSources) {
-        return false; // 如果开启了包含特殊源，则不跳过任何源
-      }
-      // 默认跳过 emby 开头、openlist、xiaoya 和 live 开头的源
-      return source.startsWith('emby') || source === 'openlist' || source === 'xiaoya' || source.startsWith('live');
-    };
+    // 直播源不参与播放记录/收藏刷新
+    const shouldSkipSource = (source: string): boolean =>
+      source.startsWith('live');
 
     // 函数级缓存：key 为 `${source}+${id}`，值为 Promise<VideoDetail | null>
     const detailCache = new Map<string, Promise<SearchResult | null>>();
@@ -795,55 +783,3 @@ async function refreshRecordAndFavorites() {
     console.error('刷新播放记录/收藏任务启动失败', err);
   }
 }
-
-async function refreshOpenList() {
-  try {
-    const config = await getConfig();
-    const openListConfig = config.OpenListConfig;
-
-    // 检查功能是否启用
-    if (!openListConfig || !openListConfig.Enabled) {
-      console.log('跳过 OpenList 扫描：功能未启用');
-      return;
-    }
-
-    // 检查是否配置了 OpenList 和定时扫描
-    if (!openListConfig.URL || !openListConfig.Username || !openListConfig.Password) {
-      console.log('跳过 OpenList 扫描：未配置');
-      return;
-    }
-
-    const scanInterval = openListConfig.ScanInterval || 0;
-    if (scanInterval === 0) {
-      console.log('跳过 OpenList 扫描：定时扫描已关闭');
-      return;
-    }
-
-    // 检查间隔时间是否满足最低要求（60分钟）
-    if (scanInterval < 60) {
-      console.log(`跳过 OpenList 扫描：间隔时间 ${scanInterval} 分钟小于最低要求 60 分钟`);
-      return;
-    }
-
-    // 检查上次扫描时间
-    const lastRefreshTime = openListConfig.LastRefreshTime || 0;
-    const now = Date.now();
-    const timeSinceLastRefresh = now - lastRefreshTime;
-    const intervalMs = scanInterval * 60 * 1000;
-
-    if (timeSinceLastRefresh < intervalMs) {
-      const remainingMinutes = Math.ceil((intervalMs - timeSinceLastRefresh) / 60000);
-      console.log(`跳过 OpenList 扫描：距离上次扫描仅 ${Math.floor(timeSinceLastRefresh / 60000)} 分钟，还需等待 ${remainingMinutes} 分钟`);
-      return;
-    }
-
-    console.log(`开始 OpenList 定时扫描（间隔: ${scanInterval} 分钟）`);
-
-    // 直接调用扫描函数（立即扫描模式，不清空 metainfo）
-    const { taskId } = await startOpenListRefresh(false);
-    console.log('OpenList 定时扫描已启动，任务ID:', taskId);
-  } catch (err) {
-    console.error('OpenList 定时扫描失败:', err);
-  }
-}
-

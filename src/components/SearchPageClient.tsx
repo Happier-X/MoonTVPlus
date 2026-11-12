@@ -24,7 +24,6 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-import { isAnimeCategoryText } from '@/lib/anime-keyword-expr';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
   addSearchHistory,
@@ -101,9 +100,8 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   const [magnetSearchEnabled, setMagnetSearchEnabled] = useState(false);
   // 源站寻片开关（/under 需要它的特殊源版本入口）
   const [sourceSearchEnabled, setSourceSearchEnabled] = useState(false);
-  const [privateLibrarySearchEnabled, setPrivateLibrarySearchEnabled] =
-    useState(false);
   const [featureFlagsReady, setFeatureFlagsReady] = useState(false);
+  const [searchOptionsReady, setSearchOptionsReady] = useState(false);
   // 繁体转简体转换器
   const converterRef = useRef<((text: string) => string) | null>(null);
   // 转换器是否已初始化
@@ -141,9 +139,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   // 精确搜索开关
   const [exactSearch, setExactSearch] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [privateLibraryOnly, setPrivateLibraryOnly] = useState(false);
-  const [privateLibraryOnlyReady, setPrivateLibraryOnlyReady] = useState(false);
-  const privateLibraryOnlyLoadedRef = useRef(false);
   const advancedButtonRefs = useRef<HTMLButtonElement[]>([]);
   const advancedDropdownRefs = useRef<HTMLDivElement[]>([]);
 
@@ -151,7 +146,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   const getCacheKey = (query: string) => {
     const suffixParts = [
       isSpecialSourceContext() ? 'special' : '',
-      privateLibraryOnly ? 'private' : '',
     ].filter(Boolean);
     const suffix = suffixParts.length > 0 ? `_${suffixParts.join('_')}` : '';
     return `search_cache_${query.trim()}${suffix}`;
@@ -378,16 +372,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
 
   // 辅助函数：获取视频类型
   const getType = (item: SearchResult): 'movie' | 'tv' => {
-    // 1. Emby 和 OpenList 源：使用 type_name（基于 TMDB，最可靠）
-    if (
-      item.source === 'emby' ||
-      item.source?.startsWith('emby_') ||
-      item.source === 'openlist'
-    ) {
-      return item.type_name === '电影' ? 'movie' : 'tv';
-    }
-
-    // 2. API 采集源：综合判断
+    // 1. API 采集源：综合判断
     const typeName = item.type_name?.toLowerCase() || '';
 
     // 2.1 明确包含"电影"或"movie"或"片"的，判断为电影
@@ -562,21 +547,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
             .map((item) => [item.source, item.source_name])
         ).entries()
       )
-        .sort((a, b) => {
-          const aIsOpenList = a[0] === 'openlist';
-          const bIsOpenList = b[0] === 'openlist';
-          const aIsEmby = a[0] === 'emby' || a[0].startsWith('emby_');
-          const bIsEmby = b[0] === 'emby' || b[0].startsWith('emby_');
-
-          const aPriority = aIsOpenList ? 100 : aIsEmby ? 90 : 0;
-          const bPriority = bIsOpenList ? 100 : bIsEmby ? 90 : 0;
-
-          if (aPriority !== bPriority) {
-            return bPriority - aPriority;
-          }
-
-          return a[1].localeCompare(b[1]);
-        })
+        .sort((a, b) => a[1].localeCompare(b[1]))
         .map(([value, label]) => ({ label, value })),
     ];
 
@@ -836,12 +807,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   }, [resultDisplayMode]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && privateLibraryOnlyLoadedRef.current) {
-      localStorage.setItem('searchPrivateLibraryOnly', String(privateLibraryOnly));
-    }
-  }, [privateLibraryOnly]);
-
-  useEffect(() => {
     if (!advancedOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -1079,12 +1044,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     setMagnetSearchEnabled(!!runtimeConfig.MAGNET_SEARCH_ENABLED);
     // 与首页口径一致：未显式关闭即为启用
     setSourceSearchEnabled(runtimeConfig.ENABLE_SOURCE_SEARCH !== false);
-    const hasPrivateLibrary = !!runtimeConfig.PRIVATE_LIBRARY_ENABLED;
-    setPrivateLibrarySearchEnabled(hasPrivateLibrary);
-    // 无私人影库权限时，强制关闭"只搜私人影库"（防止 localStorage 残留旧设置继续过滤）
-    if (!hasPrivateLibrary) {
-      setPrivateLibraryOnly(false);
-    }
     setFeatureFlagsReady(true);
 
     // 初始化繁体转简体转换器
@@ -1121,15 +1080,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
         setExactSearch(savedExactSearch === 'true');
       }
 
-      const savedPrivateLibraryOnly = localStorage.getItem(
-        'searchPrivateLibraryOnly'
-      );
-      // /under 特殊源入口只搜影视源，一律关掉「只搜私人影库」（跳过 localStorage 恢复）
-      if (!isSpecialEntry && savedPrivateLibraryOnly !== null) {
-        setPrivateLibraryOnly(savedPrivateLibraryOnly === 'true');
-      }
-      privateLibraryOnlyLoadedRef.current = true;
-      setPrivateLibraryOnlyReady(true);
+      setSearchOptionsReady(true);
     }
 
     // 监听搜索历史更新事件
@@ -1214,8 +1165,8 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   ]);
 
   useEffect(() => {
-    // 等待转换器和私人影库搜索设置初始化完成
-    if (!converterReady || !privateLibraryOnlyReady) {
+    // 等待转换器和搜索设置初始化完成
+    if (!converterReady || !searchOptionsReady) {
       return;
     }
 
@@ -1361,9 +1312,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
 
       if (currentFluidSearch) {
         // 流式搜索：打开新的流式连接
-        const searchUrl = `/api/search/ws?q=${encodeURIComponent(trimmed)}${
-          privateLibraryOnly ? '&privateOnly=1' : ''
-        }`;
+        const searchUrl = `/api/search/ws?q=${encodeURIComponent(trimmed)}`;
         const es = new EventSource(appendSpecialSourceParam(searchUrl));
         eventSourceRef.current = es;
 
@@ -1469,9 +1418,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
         };
       } else {
         // 传统搜索：使用普通接口
-        const searchUrl = `/api/search?q=${encodeURIComponent(trimmed)}${
-          privateLibraryOnly ? '&privateOnly=1' : ''
-        }`;
+        const searchUrl = `/api/search?q=${encodeURIComponent(trimmed)}`;
         fetch(appendSpecialSourceParam(searchUrl))
           .then((response) => response.json())
           .then((data) => {
@@ -1509,8 +1456,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     searchParams,
     forceRefresh,
     converterReady,
-    privateLibraryOnlyReady,
-    privateLibraryOnly,
+    searchOptionsReady,
   ]);
 
   useEffect(() => {
@@ -1976,25 +1922,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                         <div className='absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-4'></div>
                       </div>
                     </label>
-                    {privateLibrarySearchEnabled && !isSpecialEntry && (
-                      <label className='flex cursor-pointer select-none items-center justify-between gap-3 rounded-lg px-1 py-2'>
-                        <span className='text-sm text-gray-700 dark:text-gray-300'>
-                          只搜私人影库
-                        </span>
-                        <div className='relative'>
-                          <input
-                            type='checkbox'
-                            className='peer sr-only'
-                            checked={privateLibraryOnly}
-                            onChange={(e) =>
-                              setPrivateLibraryOnly(e.target.checked)
-                            }
-                          />
-                          <div className='h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-green-500 dark:bg-gray-600'></div>
-                          <div className='absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-4'></div>
-                        </div>
-                      </label>
-                    )}
                     <div className='mt-2 border-t border-gray-200 pt-2 dark:border-gray-700'>
                       <span className='px-1 text-sm text-gray-700 dark:text-gray-300'>
                         显示方式
@@ -2215,25 +2142,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                               <div className='absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-4'></div>
                             </div>
                           </label>
-                          {privateLibrarySearchEnabled && !isSpecialEntry && (
-                            <label className='flex cursor-pointer select-none items-center justify-between gap-3 rounded-lg px-1 py-2'>
-                              <span className='text-sm text-gray-700 dark:text-gray-300'>
-                                只搜私人影库
-                              </span>
-                              <div className='relative'>
-                                <input
-                                  type='checkbox'
-                                  className='peer sr-only'
-                                  checked={privateLibraryOnly}
-                                  onChange={(e) =>
-                                    setPrivateLibraryOnly(e.target.checked)
-                                  }
-                                />
-                                <div className='h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-green-500 dark:bg-gray-600'></div>
-                                <div className='absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-4'></div>
-                              </div>
-                            </label>
-                          )}
                           <div className='mt-2 border-t border-gray-200 pt-2 dark:border-gray-700'>
                             <span className='px-1 text-sm text-gray-700 dark:text-gray-300'>
                               显示方式
@@ -2367,14 +2275,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                                         : ''
                                     }
                                     type={type}
-                                    isAnime={group.some((g) =>
-                                      isAnimeCategoryText(g.type_name, g.class)
-                                    )}
-                                    typeName={
-                                      group.find((g) => g.type_name || g.class)
-                                        ?.type_name ||
-                                      group.find((g) => g.class)?.class
-                                    }
                                   />
                                 </div>
                               );
@@ -2382,10 +2282,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                           : filteredAllResults.map((item) => {
                               const type =
                                 item.episodes.length > 1 ? 'tv' : 'movie';
-                              const itemIsAnime = isAnimeCategoryText(
-                                item.type_name,
-                                item.class
-                              );
 
                               if (resultDisplayMode === 'list') {
                                 return renderListItem({
@@ -2432,8 +2328,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                                     year={item.year}
                                     from='search'
                                     type={type}
-                                    isAnime={itemIsAnime}
-                                    typeName={item.type_name || item.class}
                                   />
                                 </div>
                               );

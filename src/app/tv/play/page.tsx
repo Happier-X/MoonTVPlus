@@ -43,7 +43,7 @@ import {
   saveDanmakuDisplayState,
   searchAnime,
 } from '@/lib/danmaku/api';
-import { isAnimeCategoryText } from '@/lib/anime-keyword-expr';
+import { isAnimeCategoryText } from '@/lib/anime-category';
 import {
   deleteFavorite,
   generateStorageKey,
@@ -528,7 +528,7 @@ function TVPlayClient() {
         const safeIndex = Math.max(
           0,
           Math.min(
-            initialIndex || data.detail.initialEpisodeIndex || 0,
+            initialIndex || 0,
             maxIndex
           )
         );

@@ -361,10 +361,6 @@ export function getNotificationClickUrl(notification: Notification): string {
     return '/movie-request';
   }
 
-  if (notification.type === 'anime_subscription_update') {
-    return '/private-library';
-  }
-
   return '/';
 }
 

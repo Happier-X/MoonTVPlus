@@ -1,11 +1,3 @@
-/** 备用 OpenList 源（可添加无限条，路径用「源名@路径」指定） */
-export interface OpenListExtraSource {
-  name: string; // 源名字，唯一、非空、不含 @
-  url: string; // OpenList 服务器地址
-  username: string;
-  password: string;
-}
-
 export interface AdminConfig {
   ConfigSubscribtion: {
     URL: string;
@@ -173,34 +165,6 @@ export interface AdminConfig {
     // 评分星标样式：视频卡片右上角评分徽章的款式
     rateBadgeStyle?: 'default' | 'flag' | 'medal';
   };
-  OpenListConfig?: {
-    Enabled: boolean; // 是否启用私人影库功能
-    URL: string; // 主 OpenList 服务器地址
-    Username: string; // 账号（用于登录获取Token）
-    Password: string; // 密码（用于登录获取Token）
-    RootPath?: string; // 旧字段：根目录路径（向后兼容，迁移后删除）
-    RootPaths?: string[]; // 根目录路径列表，支持「源名@路径」
-    ExtraSources?: OpenListExtraSource[]; // 备用 OpenList 源列表
-    OfflineDownloadPath: string; // 离线下载目录，支持「源名@路径」，默认 "/"
-    LastRefreshTime?: number; // 上次刷新时间戳
-    ResourceCount?: number; // 资源数量
-    ScanInterval?: number; // 定时扫描间隔（分钟），0表示关闭，最低60分钟
-    ScanMode?: 'torrent' | 'name' | 'hybrid'; // 扫描模式：torrent=种子库匹配，name=名字匹配，hybrid=混合模式（默认）
-    DisableVideoPreview?: boolean; // 禁用预览视频，直接返回直连链接
-    /**
-     * 路径元信息（最长前缀匹配 folder 路径）
-     * key: 规范化路径前缀，如 /videos 可匹配 /videos/某影片；
-     *      也可写「源名@/videos」只对指定源生效（无前缀则对所有源生效）
-     */
-    PathMeta?: {
-      [path: string]: {
-        category: string; // 分类名
-        refresh14m: boolean; // 该路径播放时是否启用 14 分钟 URL 续期
-        proxyPlay: boolean; // 该路径播放链接是否使用服务器代理播放
-        proxyCacheMinutes: number; // 代理播放时链接最终重定向的缓存时长（分钟），默认 60
-      };
-    };
-  };
   NetDiskConfig?: {
     Quark?: {
       Enabled: boolean;
@@ -290,51 +254,6 @@ export interface AdminConfig {
     DefaultMessageNoVideo?: string; // 无视频时的默认消息
     DefaultMessageWithVideo?: string; // 有视频时的默认消息（支持 {title} 替换符）
   };
-  EmbyConfig?: {
-    // 新格式：多源配置（推荐）
-    Sources?: Array<{
-      key: string; // 唯一标识，如 'emby1', 'emby2'
-      name: string; // 显示名称，如 '家庭Emby', '公司Emby'
-      enabled: boolean; // 是否启用
-      ServerURL: string; // Emby服务器地址
-      ApiKey?: string; // API Key（推荐方式）
-      Username?: string; // 用户名（或使用API Key）
-      Password?: string; // 密码
-      UserId?: string; // 用户ID（登录后获取）
-      AuthToken?: string; // 认证令牌（用户名密码登录后获取）
-      Libraries?: string[]; // 要显示的媒体库ID（可选，默认全部）
-      LastSyncTime?: number; // 最后同步时间戳
-      ItemCount?: number; // 媒体项数量
-      isDefault?: boolean; // 是否为默认源（用于向后兼容）
-      // 高级流媒体选项
-      removeEmbyPrefix?: boolean; // 播放链接移除/emby前缀
-      appendMediaSourceId?: boolean; // 拼接MediaSourceId参数
-      transcodeMp4?: boolean; // 转码mp4
-      proxyPlay?: boolean; // 视频播放代理开关
-      customUserAgent?: string; // 自定义User-Agent
-      embyAuthorizationHeader?: string; // 自定义 X-Emby-Authorization 请求头
-    }>;
-    // 旧格式：单源配置（向后兼容）
-    Enabled?: boolean;
-    ServerURL?: string;
-    ApiKey?: string;
-    Username?: string;
-    Password?: string;
-    UserId?: string;
-    AuthToken?: string;
-    Libraries?: string[];
-    embyAuthorizationHeader?: string;
-    LastSyncTime?: number;
-    ItemCount?: number;
-  };
-  XiaoyaConfig?: {
-    Enabled: boolean; // 是否启用
-    ServerURL: string; // Alist 服务器地址
-    Token?: string; // Token 认证（推荐）
-    Username?: string; // 用户名认证（备选）
-    Password?: string; // 密码认证（备选）
-    DisableVideoPreview?: boolean; // 禁用预览视频，直接返回直连链接
-  };
   SuwayomiConfig?: {
     Enabled: boolean; // 是否启用漫画展馆
     ServerURL: string; // Suwayomi 服务地址
@@ -375,33 +294,6 @@ export interface AdminConfig {
     registrationEnabled?: boolean; // 是否启用 Telegram 注册
     notificationsEnabled?: boolean; // 是否启用 Telegram 通知
     defaultNotifications?: boolean; // 新绑定用户默认开启通知
-  };
-  AnimeSubscriptionConfig?: {
-    Enabled: boolean; // 是否启用追番功能
-    DownloadTool?: 'aria2' | 'qBittorrent' | 'Transmission'; // 追番订阅全局下载方式
-    Subscriptions: Array<{
-      id: string;
-      title: string;
-      /** 包含关键词：支持 & | ()；无运算符时逗号=AND */
-      filterText: string;
-      /** 排除关键词：支持 & | ()；无运算符时逗号=OR */
-      excludeText?: string;
-      source: 'acgrip' | 'mikan' | 'dmhy' | 'nyaa';
-      enabled: boolean;
-      /** 单集只下载一次（默认 false） */
-      onePerEpisode?: boolean;
-      /** 缺集重新检索（默认 false） */
-      refillMissingEpisodes?: boolean;
-      /** 自定义集数提取正则（留空用内置规则，首个捕获组作为集数） */
-      episodeRegex?: string;
-      /** 覆盖父目录：留空用「离线下载目录」，填写后为「该路径/番剧名」，可用「源名@」指定备用源 */
-      downloadPath?: string;
-      lastCheckTime: number;
-      lastEpisode: number;
-      createdAt: number;
-      updatedAt: number;
-      createdBy: string;
-    }>;
   };
 }
 

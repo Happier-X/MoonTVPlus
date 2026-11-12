@@ -709,13 +709,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     attemptedSourcesRef.current = new Set();
     videoInfoMapRef.current = new Map();
 
-    // 筛选需要测速的源（排除 openlist/emby/xiaoya）
-    const sourcesToTest = availableSources.filter((source) => {
-      if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') {
-        return false;
-      }
-      return true;
-    });
+    const sourcesToTest = availableSources;
 
     // 分批测速，每批最多5个
     const batchSize = 5;
@@ -768,14 +762,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       )
         return;
 
-      // 筛选出尚未测速的播放源，并排除不需要测速的源（openlist/emby/xiaoya）
+      // 筛选出尚未测速的播放源
       const pendingSources = availableSources.filter((source) => {
         const sourceKey = `${source.source}-${source.id}`;
-        // 跳过已测速的源
-        if (attemptedSourcesRef.current.has(sourceKey)) return false;
-        // 跳过不需要测速的源
-        if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
-        return true;
+        return !attemptedSourcesRef.current.has(sourceKey);
       });
 
       if (pendingSources.length === 0) return;
@@ -808,14 +798,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     if (prevBackgroundLoadingRef.current && !backgroundSourcesLoading) {
       // 如果当前选项卡在换源位置，触发测速
       if (activeTab === 'sources' && optimizationEnabled) {
-        // 筛选出尚未测速的播放源，并排除不需要测速的源（openlist/emby/xiaoya）
+        // 筛选出尚未测速的播放源
         const pendingSources = availableSources.filter((source) => {
           const sourceKey = `${source.source}-${source.id}`;
-          // 跳过已测速的源
-          if (attemptedSourcesRef.current.has(sourceKey)) return false;
-          // 跳过不需要测速的源
-          if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
-          return true;
+          return !attemptedSourcesRef.current.has(sourceKey);
         });
 
         if (pendingSources.length > 0) {
@@ -1474,9 +1460,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
                             <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} ${
-                              source.source === 'xiaoya' ? 'border-blue-500' : isNetdiskSource(source.source) ? 'border-purple-500' : source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
-                           ? 'border-yellow-500'
-                                : 'border-gray-500/60'
+                              isNetdiskSource(source.source) ? 'border-purple-500' : 'border-gray-500/60'
                       }`}>
                               {source.source_name}
                             </span>
@@ -1525,11 +1509,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             </div>
                             {/* 重新测试按钮 */}
                             {(() => {
-                              // 私人影库、Emby 和小雅不显示重新测试按钮
-                              if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') {
-                                return null;
-                              }
-
                               const sourceKey = `${source.source}-${source.id}`;
                               const isTesting = retestingSources.has(sourceKey);
                               const videoInfo = videoInfoMap.get(sourceKey);

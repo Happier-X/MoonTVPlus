@@ -2,7 +2,7 @@
 
 'use client';
 
-import { AlertCircle, ArrowLeft, Cloud, FileText, Heart, Keyboard, Link2, Loader2, Play, RefreshCw, Router, Search, Sparkles, Star, Users, X } from 'lucide-react';
+import { ArrowLeft, Cloud, FileText, Heart, Keyboard, Link2, Loader2, Play, RefreshCw, Router, Search, Sparkles, Star, Users, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Suspense,
@@ -13,7 +13,7 @@ import {
   useState,
 } from 'react';
 
-import { isAnimeCategoryText } from '@/lib/anime-keyword-expr';
+import { isAnimeCategoryText } from '@/lib/anime-category';
 import { createAnime4KRenderer } from '@/lib/anime4k';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
@@ -94,7 +94,6 @@ import {
   convertSubtitleFileToVttObjectUrl,
   CUSTOM_SUBTITLE_ACCEPT,
 } from '@/lib/subtitle-converter';
-import { getTMDBImageUrl } from '@/lib/tmdb.search';
 import { DanmakuFilterConfig, EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import { base58Decode, getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 import {
@@ -116,7 +115,6 @@ import {
 
 import AIChatPanel from '@/components/AIChatPanel';
 import AIComments from '@/components/AIComments';
-import CorrectDialog from '@/components/CorrectDialog';
 import DanmakuFilterSettings from '@/components/DanmakuFilterSettings';
 import DetailPanel from '@/components/DetailPanel';
 import DoubanComments from '@/components/DoubanComments';
@@ -189,7 +187,6 @@ interface SourceSubtitleItem {
   fallbackUrl?: string;
   fallbackFormat?: string;
   format?: string;
-  sourceFormat?: string;
   codec?: string;
   renderMode?: 'native' | 'jassub' | 'bitsub';
 }
@@ -372,9 +369,6 @@ function PlayPageClient() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiDefaultMessageWithVideo, setAiDefaultMessageWithVideo] = useState('');
 
-  // 纠错弹窗状态
-  const [showCorrectDialog, setShowCorrectDialog] = useState(false);
-
   // 详情面板状态
   const [showDetailPanel, setShowDetailPanel] = useState(false);
 
@@ -413,7 +407,7 @@ function PlayPageClient() {
   }, []);
 
   // 抽屉管理：打开指定抽屉时关闭其他抽屉
-  const openDrawer = (drawerName: 'pansou' | 'aiChat' | 'correct' | 'detail') => {
+  const openDrawer = (drawerName: 'pansou' | 'aiChat' | 'detail') => {
     if (!isLargeScreen) {
       // 小屏设备不需要互斥
       switch (drawerName) {
@@ -422,9 +416,6 @@ function PlayPageClient() {
           break;
         case 'aiChat':
           setShowAIChat(true);
-          break;
-        case 'correct':
-          setShowCorrectDialog(true);
           break;
         case 'detail':
           setShowDetailPanel(true);
@@ -436,7 +427,6 @@ function PlayPageClient() {
     // 大屏设备：关闭其他抽屉
     setShowPansouDialog(drawerName === 'pansou');
     setShowAIChat(drawerName === 'aiChat');
-    setShowCorrectDialog(drawerName === 'correct');
     setShowDetailPanel(drawerName === 'detail');
   };
 
@@ -486,13 +476,6 @@ function PlayPageClient() {
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
-    };
-  }, []);
-
-  // 组件卸载时清理定时器
-  useEffect(() => {
-    return () => {
-      clearRefreshTimer();
     };
   }, []);
 
@@ -837,10 +820,9 @@ function PlayPageClient() {
   } | null>(null);
   const [pendingNetdiskTMDBData, setPendingNetdiskTMDBData] = useState<any | null>(null);
 
-  // 当前源和ID - source 直接存储完整格式（如 'emby_wumei' 或 'emby'）
+  // 当前源和ID - source 直接存储完整格式
   const [currentSource, setCurrentSource] = useState(normalizeNetdiskSource(searchParams.get('source')) || '');
   const [currentId, setCurrentId] = useState(searchParams.get('id') || '');
-  const [fileName] = useState(searchParams.get('fileName') || ''); // 小雅源：用户点击的文件名
   const isDirectPlay = currentSource === 'directplay';
 
   useEffect(() => {
@@ -848,31 +830,12 @@ function PlayPageClient() {
     setPendingNetdiskTMDBData(null);
   }, [currentSource, currentId]);
 
-  // 解析 source 参数以获取 embyKey（仅用于 API 调用）
-  const parseSourceForApi = (source: string): { source: string; embyKey?: string } => {
-    source = normalizeNetdiskSource(source);
-    if (source.startsWith('emby_')) {
-      const key = source.substring(5);
-      return { source: 'emby', embyKey: key };
-    }
-    return { source };
-  };
+  const isLazyDetailSource = (source?: string) =>
+    Boolean(source && source.startsWith('script:'));
 
-  const isLazyDetailSource = (source?: string) => {
-    if (!source) return false;
-    return (
-      source === 'openlist' ||
-      source === 'emby' ||
-      source.startsWith('emby_') ||
-      source.startsWith('script:')
-    );
-  };
-
-  /** 网盘挂载类源：openlist / xiaoya / netdisk-* 等挂载网盘，视频无广告，可用原生 HLS 直连播放 */
-  const isNetdiskMountSource = (source?: string | null) => {
-    if (!source) return false;
-    return source === 'openlist' || source === 'xiaoya' || isNetdiskSource(source);
-  };
+  /** 网盘挂载类源：netdisk-* 挂载网盘，视频无广告，可用原生 HLS 直连播放 */
+  const isNetdiskMountSource = (source?: string | null) =>
+    Boolean(source && isNetdiskSource(source));
 
   /** 网盘挂载视频是否启用原生 HLS（仅支持原生 HLS 的浏览器且用户开启时生效） */
   const isNetdiskNativeHlsActive = (source?: string | null) =>
@@ -880,26 +843,18 @@ function PlayPageClient() {
     supportsNativeHls &&
     netdiskHlsPlaybackMode === 'native';
 
-  /** 私人影库/网盘类源：配合 moontvplus-extension 跨域媒体模块，供 Anime4K 等读帧 */
-  const needsPrivateSourceCrossOrigin = (source?: string | null) => {
-    if (!source) return false;
-    return (
-      source === 'openlist' ||
-      source === 'xiaoya' ||
-      source === 'emby' ||
-      source.startsWith('emby_') ||
-      isNetdiskSource(source)
-    );
-  };
+  /** 网盘类源：配合 moontvplus-extension 跨域媒体模块，供 Anime4K 等读帧 */
+  const needsPrivateSourceCrossOrigin = (source?: string | null) =>
+    Boolean(source && isNetdiskSource(source));
 
   const applyVideoCrossOrigin = (
     video: HTMLVideoElement | null,
     source?: string | null
   ) => {
     if (!video) return;
-    // 私人影库/网盘类直链先乐观 CORS 模式加载：配「moontvplus 扩展」注入 ACAO，
-    // Anime4K 才能读帧超分。单文件直链（openlist file）/网盘挂载原生 HLS 也先试
-    // CORS，无 ACAO 的 CDN 首次播放 error 时一次性回退 no-cors（见 error 处理器）。
+    // 网盘类直链先乐观 CORS 模式加载：配「moontvplus 扩展」注入 ACAO，
+    // Anime4K 才能读帧超分。网盘挂载原生 HLS 也先试 CORS，无 ACAO 的 CDN
+    // 首次播放 error 时一次性回退 no-cors（见 error 处理器）。
     if (
       needsPrivateSourceCrossOrigin(source ?? currentSourceRef.current) &&
       !mediaCorsFallbackRef.current
@@ -1883,8 +1838,8 @@ function PlayPageClient() {
 
     const extractEpNum = (title?: string): number | null => {
       if (!title) return null;
-      const emby = title.match(/[Ss]\d+[Ee](\d+)/);
-      if (emby) return parseInt(emby[1], 10);
+      const sxxExx = title.match(/[Ss]\d+[Ee](\d+)/);
+      if (sxxExx) return parseInt(sxxExx[1], 10);
       const zh = title.match(/^(\d+)$|第?\s*(\d+)\s*[集话話]?/);
       return zh ? parseInt(zh[1] || zh[2], 10) : null;
     };
@@ -2019,7 +1974,7 @@ function PlayPageClient() {
     harmonyHlsPlaybackMode === 'native' &&
     externalPlayerAdBlock;
 
-  // 网盘挂载（openlist / xiaoya / netdisk-*）原生 HLS：Edge/Safari 可原生播放 m3u8，
+  // 网盘挂载（netdisk-*）原生 HLS：Edge/Safari 可原生播放 m3u8，
   // 直连网盘 CDN，无需代理与去广告，播放更快。仅对支持原生 HLS 的浏览器启用。
   const [supportsNativeHls] = useState(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -2048,20 +2003,11 @@ function PlayPageClient() {
   // 视频清晰度列表
   const [videoQualities, setVideoQualities] = useState<Array<{ name: string, url: string }>>([]);
 
-  // Xiaoya链接刷新相关状态
-  const [isRefreshingUrl, setIsRefreshingUrl] = useState(false); // 是否正在刷新链接
-  const retryCountRef = useRef(0); // 重试计数
-  const lastRefreshTimeRef = useRef(0); // 上次刷新时间
-  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null); // 14分钟定时器
-  const currentXiaoyaUrlRef = useRef<string>(''); // 当前xiaoya原始URL（用于刷新）
-  const videoMediaTypeRef = useRef<'hls' | 'file' | ''>(''); // 播放链接媒体类型（openlist 探测后注入，用于单文件直连分流）
   // 当前视频是否已因 CORS 失败回退 no-cors（无扩展注入 ACAO 的 CDN 直链）。
   // 先乐观设置 crossOrigin（配 moontvplus-extension 注入 ACAO 供 Anime4K 读帧），
   // 首次播放 error 时一次性回退，之后不再恢复 crossOrigin。切集/换源时重置。
   const mediaCorsFallbackRef = useRef(false);
   const isInitialLoadRef = useRef(true); // 标记是否为首次加载
-  // xiaoya 仅 m3u8 可续期；openlist 由 refresh14m 决定。用于 startRefreshTimer 自身兜底校验
-  const linkRefreshEligibleRef = useRef(false);
   const suppressPlayRecordJumpOnNextEpisodeChangeRef = useRef(false); // 主动切集时不显示播放记录跳转提示
 
   // 视频源代理模式状态
@@ -2133,7 +2079,6 @@ function PlayPageClient() {
 
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
-      currentXiaoyaUrlRef.current = '';
       proxyAttemptedRef.current = false;
       resumeTimeRef.current = currentPlayTime > 0 ? currentPlayTime : null;
       setVideoQualities([]);
@@ -2166,10 +2111,7 @@ function PlayPageClient() {
     !videoUrl.startsWith('blob:') &&
     !isM3u8LikeUrl(videoUrl) &&
     (
-      detail.source === 'openlist' ||
-      isNetdiskSource(detail.source) ||
-      detail.source === 'xiaoya' ||
-      detail.source.startsWith('emby')
+      isNetdiskSource(detail.source)
     )
   );
 
@@ -2652,7 +2594,6 @@ function PlayPageClient() {
   const getSourceSubtitleFormat = (subtitle?: SourceSubtitleItem | null) => {
     return (
       subtitle?.format ||
-      subtitle?.sourceFormat ||
       subtitle?.codec ||
       ''
     ).toLowerCase();
@@ -3205,15 +3146,6 @@ function PlayPageClient() {
       return;
     }
 
-    // openlist 的 lazy 播放地址或已确认的单文件直链（如 mkv），解析前无法探测分辨率（内部 hls.js XHR 还会触发 CORS 误报），跳过
-    if (
-      episodeUrl.startsWith('/api/openlist/play') ||
-      videoMediaTypeRef.current === 'file'
-    ) {
-      setCurrentSourceVideoInfo(null);
-      return;
-    }
-
     // 简单的正则或者后缀判断，如果明确不是 m3u8 (比如 mp4)，则不走 m3u8 代理
     const isM3u8 = episodeUrl.toLowerCase().includes('.m3u') || !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
 
@@ -3699,478 +3631,11 @@ function PlayPageClient() {
     }
   };
 
-  /**
-   * 判断当前是否应启用 14 分钟链接续期
-   * xiaoya：始终启用；openlist：PathMeta.refresh14m 为 true
-   */
-  const shouldEnableLinkRefresh = () => {
-    const lazyUrl = currentXiaoyaUrlRef.current;
-    if (!lazyUrl) return false;
-
-    if (lazyUrl.startsWith('/api/xiaoya/play')) {
-      return true;
-    }
-
-    if (lazyUrl.startsWith('/api/openlist/play')) {
-      return Boolean(detailRef.current?.refresh14m);
-    }
-
-    return false;
-  };
-
-  /**
-   * 是否像 HLS/m3u8 播放地址（xiaoya 仍只在此场景启 14 分钟定时器）
-   */
-  const isM3u8LikePlayUrl = (url: string) => {
-    if (!url) return false;
-    const lower = url.toLowerCase();
-    return (
-      lower.includes('.m3u8') ||
-      lower.includes('.m3u') ||
-      lower.includes('/m3u8/') ||
-      lower.includes('m3u8')
-    );
-  };
-
-  /**
-   * 是否应在拿到真实地址后启动 14 分钟定时器
-   * - xiaoya：保持原逻辑，仅 m3u8 启
-   * - openlist：PathMeta.refresh14m 开启即可（签名 URL 常无扩展名）
-   */
-  const shouldStartLinkRefreshTimer = (resolvedPlayUrl?: string) => {
-    if (!shouldEnableLinkRefresh()) {
-      linkRefreshEligibleRef.current = false;
-      return false;
-    }
-    const lazyUrl = currentXiaoyaUrlRef.current;
-    // openlist：PathMeta.refresh14m 已通过 shouldEnableLinkRefresh；签名 URL 常无扩展名
-    if (lazyUrl?.startsWith('/api/openlist/play')) {
-      linkRefreshEligibleRef.current = true;
-      return true;
-    }
-    // xiaoya：保持原逻辑，仅 m3u8 启定时器
-    const ok = isM3u8LikePlayUrl(resolvedPlayUrl || '');
-    linkRefreshEligibleRef.current = ok;
-    return ok;
-  };
-
-  /**
-   * 获取当前播放用的 video / hls 实例（定时器不依赖创建时闭包）
-   */
-  const getPlaybackMedia = (preferredHls?: any, preferredVideo?: HTMLVideoElement) => {
-    const video =
-      preferredVideo ||
-      (artPlayerRef.current?.video as HTMLVideoElement | undefined) ||
-      null;
-    const hls = preferredHls || (video as any)?.hls || null;
-    return { video, hls };
-  };
-
-  /**
-   * 刷新成功后的统一收尾：提示、重置重试、重启定时器
-   */
-  const finishLinkRefresh = (
-    isScheduled: boolean,
-    preferredHls?: any,
-    preferredVideo?: HTMLVideoElement
-  ) => {
-    setIsRefreshingUrl(false);
-    if (artPlayerRef.current) {
-      artPlayerRef.current.notice.show = isScheduled
-        ? '链接已自动刷新'
-        : '链接已过期并自动刷新';
-    }
-    retryCountRef.current = 0;
-    startRefreshTimer(preferredHls, preferredVideo);
-  };
-
-  /**
-   * 刷新 xiaoya / openlist 链接（静默刷新，尽量不打断播放）
-   * - HLS：用 hls.loadSource 换源
-   * - 直链（mp4 等）：直接改 video.src
-   * hls / video 可选；定时器触发时会从 artPlayer 重新取
-   */
-  const refreshXiaoyaUrl = async (
-    preferredHls?: any,
-    preferredVideo?: HTMLVideoElement,
-    isScheduled: boolean = false
-  ) => {
-    // 防抖：距离上次刷新不足3秒则不刷新
-    const now = Date.now();
-    if (now - lastRefreshTimeRef.current < 3000) {
-      console.log('[链接刷新] 防抖跳过');
-      return false;
-    }
-
-    // 重试次数限制（仅对错误触发的刷新）
-    if (!isScheduled && retryCountRef.current >= 3) {
-      console.error('[链接刷新] 重试次数已达上限');
-      setVideoError('链接已过期且刷新失败，请手动刷新页面');
-      const { hls } = getPlaybackMedia(preferredHls, preferredVideo);
-      try {
-        hls?.destroy?.();
-      } catch {
-        // ignore
-      }
-      return false;
-    }
-
-    // 检查是否有原始URL
-    if (!currentXiaoyaUrlRef.current) {
-      console.warn('[链接刷新] 无原始URL，跳过刷新');
-      return false;
-    }
-
-    if (!shouldEnableLinkRefresh()) {
-      console.log('[链接刷新] 当前路径未开启 refresh14m，跳过');
-      return false;
-    }
-
-    console.log(`[链接刷新] 开始刷新 (${isScheduled ? '定时' : '错误触发'})`);
-    setIsRefreshingUrl(true);
-
-    if (!isScheduled) {
-      retryCountRef.current++;
-    }
-    lastRefreshTimeRef.current = now;
-
-    try {
-      // 先请求新链接；请求期间继续播放，进度要在换源前一刻再记录，
-      // 否则恢复会回退到请求开始时的时间点（倒退几秒）
-      const separator = currentXiaoyaUrlRef.current.includes('?') ? '&' : '?';
-      const fetchUrl = `${currentXiaoyaUrlRef.current}${separator}format=json&t=${Date.now()}`;
-
-      const response = await fetch(fetchUrl);
-      const data = await response.json();
-
-      if (!data.url) {
-        throw new Error('未获取到有效链接');
-      }
-
-      // play 响应可带回 refresh14m，配置热更新后仍一致
-      if (
-        typeof data.refresh14m === 'boolean' &&
-        currentXiaoyaUrlRef.current.startsWith('/api/openlist/play')
-      ) {
-        if (detailRef.current?.source === 'openlist') {
-          detailRef.current.refresh14m = data.refresh14m;
-        }
-        if (!data.refresh14m) {
-          currentXiaoyaUrlRef.current = '';
-          clearRefreshTimer();
-          setIsRefreshingUrl(false);
-          console.log('[链接刷新] play 响应 refresh14m=false，停止续期');
-          return false;
-        }
-      }
-
-      // 保存清晰度列表（若有）
-      if (data.qualities && data.qualities.length > 0) {
-        setVideoQualities(data.qualities);
-      }
-
-      console.log('[链接刷新] 获取到新链接');
-
-      // 链接就绪后再取 media，并在此刻记录进度（换源前最后一刻）
-      const { video, hls } = getPlaybackMedia(preferredHls, preferredVideo);
-      if (!video) {
-        throw new Error('播放器尚未就绪');
-      }
-
-      const currentTime = video.currentTime;
-      const isPaused = video.paused;
-      console.log(
-        `[链接刷新] 换源前记录进度 (${isScheduled ? '定时' : '错误触发'}):`,
-        currentTime
-      );
-
-      // 优先走 HLS 换源；没有 hls 实例时按 progressive 直链处理
-      if (hls && typeof hls.loadSource === 'function') {
-        try {
-          hls.stopLoad();
-        } catch {
-          // ignore
-        }
-        hls.loadSource(data.url);
-
-        await new Promise<void>((resolve, reject) => {
-          const HlsEvents = (hls.constructor as any).Events;
-          let settled = false;
-          let finished = false;
-
-          const cleanup = () => {
-            try {
-              hls.off(HlsEvents.MANIFEST_PARSED, onManifestParsed);
-            } catch {
-              // ignore
-            }
-            window.clearTimeout(timeoutId);
-          };
-
-          const complete = () => {
-            if (finished) return;
-            finished = true;
-            finishLinkRefresh(isScheduled, hls, video);
-            resolve();
-          };
-
-          const onManifestParsed = () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-
-            try {
-              hls.startLoad(currentTime);
-            } catch {
-              // ignore
-            }
-
-            const restorePlayback = () => {
-              if (currentTime > 0) {
-                try {
-                  video.currentTime = currentTime;
-                } catch {
-                  // ignore
-                }
-              }
-
-              const afterSeek = () => {
-                console.log('[链接刷新] HLS 刷新完成，恢复到:', video.currentTime);
-                if (!isPaused) {
-                  video.play().catch((err) => {
-                    console.warn('[链接刷新] 自动播放失败:', err);
-                  });
-                } else {
-                  video.pause();
-                }
-                complete();
-              };
-
-              if (currentTime > 0) {
-                video.addEventListener('seeked', afterSeek, { once: true });
-                // seeked 偶发不触发时兜底
-                window.setTimeout(() => {
-                  afterSeek();
-                }, 1500);
-              } else {
-                afterSeek();
-              }
-            };
-
-            if (video.readyState >= 2) {
-              restorePlayback();
-            } else {
-              video.addEventListener('loadeddata', restorePlayback, { once: true });
-              window.setTimeout(() => {
-                restorePlayback();
-              }, 3000);
-            }
-          };
-
-          hls.once(HlsEvents.MANIFEST_PARSED, onManifestParsed);
-
-          const timeoutId = window.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            reject(new Error('加载超时'));
-          }, 10000);
-        });
-
-        return true;
-      }
-
-      // progressive / 原生播放：直接换 src 并恢复进度
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let finished = false;
-        const cleanup = () => {
-          video.removeEventListener('loadeddata', onLoaded);
-          video.removeEventListener('error', onError);
-          window.clearTimeout(timeoutId);
-        };
-
-        const complete = () => {
-          if (finished) return;
-          finished = true;
-          finishLinkRefresh(isScheduled, null, video);
-          resolve();
-        };
-
-        const onLoaded = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-
-          if (currentTime > 0) {
-            try {
-              video.currentTime = currentTime;
-            } catch {
-              // ignore
-            }
-          }
-
-          const afterSeek = () => {
-            console.log('[链接刷新] 直链刷新完成，恢复到:', video.currentTime);
-            if (!isPaused) {
-              video.play().catch((err) => {
-                console.warn('[链接刷新] 自动播放失败:', err);
-              });
-            } else {
-              video.pause();
-            }
-            complete();
-          };
-
-          if (currentTime > 0) {
-            video.addEventListener('seeked', afterSeek, { once: true });
-            window.setTimeout(afterSeek, 1500);
-          } else {
-            afterSeek();
-          }
-        };
-
-        const onError = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error('直链加载失败'));
-        };
-
-        video.addEventListener('loadeddata', onLoaded, { once: true });
-        video.addEventListener('error', onError, { once: true });
-        const timeoutId = window.setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error('加载超时'));
-        }, 10000);
-
-        try {
-          video.src = data.url;
-          video.load();
-        } catch (err) {
-          settled = true;
-          cleanup();
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
-
-      return true;
-    } catch (error) {
-      console.error('[链接刷新] 刷新失败:', error);
-      setIsRefreshingUrl(false);
-
-      // 如果是定时刷新失败，不显示错误（继续使用旧链接）
-      if (isScheduled) {
-        console.warn('[链接刷新] 定时刷新失败，继续使用旧链接');
-        // 5分钟后再试一次
-        setTimeout(() => {
-          if (currentXiaoyaUrlRef.current && shouldEnableLinkRefresh()) {
-            refreshXiaoyaUrl(undefined, undefined, true);
-          }
-        }, 5 * 60 * 1000);
-        return false;
-      }
-
-      // 错误触发的刷新失败，如果还有重试次数，延迟后再试
-      if (retryCountRef.current < 3) {
-        console.log(`[链接刷新] 2秒后重试 (${retryCountRef.current}/3)`);
-        setTimeout(() => {
-          if (currentXiaoyaUrlRef.current && shouldEnableLinkRefresh()) {
-            refreshXiaoyaUrl(undefined, undefined, false);
-          }
-        }, 2000);
-      } else {
-        setVideoError('链接刷新失败，请手动刷新页面');
-        const { hls } = getPlaybackMedia(preferredHls, preferredVideo);
-        try {
-          hls?.destroy?.();
-        } catch {
-          // ignore
-        }
-      }
-
-      return false;
-    }
-  };
-
-  /**
-   * 启动14分钟定时刷新器
-   * xiaoya：始终启用；openlist：仅当 detail.refresh14m 为 true
-   * 不依赖 hls 是否已就绪；到期时再取当前播放器实例
-   */
-  const startRefreshTimer = (preferredHls?: any, preferredVideo?: HTMLVideoElement) => {
-    // 清除旧定时器
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-
-    // 无原始可刷新 URL 则跳过
-    if (!currentXiaoyaUrlRef.current) {
-      return;
-    }
-
-    if (!shouldEnableLinkRefresh()) {
-      const isOpenlistPlayUrl = currentXiaoyaUrlRef.current.startsWith(
-        '/api/openlist/play'
-      );
-      if (isOpenlistPlayUrl) {
-        console.log('[定时刷新] OpenList 路径未开启 refresh14m，跳过');
-      }
-      linkRefreshEligibleRef.current = false;
-      return;
-    }
-
-    // xiaoya：仅 m3u8 可启（由 shouldStartLinkRefreshTimer 写入 eligible）
-    // openlist：eligible 在 refresh14m 判定时已置 true
-    const isOpenlistPlayUrl = currentXiaoyaUrlRef.current.startsWith(
-      '/api/openlist/play'
-    );
-    if (!isOpenlistPlayUrl && !linkRefreshEligibleRef.current) {
-      console.log('[定时刷新] xiaoya 非 m3u8，跳过定时器（保持原逻辑）');
-      return;
-    }
-    if (isOpenlistPlayUrl) {
-      linkRefreshEligibleRef.current = true;
-    }
-
-    console.log('[定时刷新] 启动14分钟定时器');
-
-    // 14分钟 = 840000毫秒
-    refreshTimerRef.current = setTimeout(() => {
-      console.log('[定时刷新] 14分钟到期，开始刷新');
-      if (!currentXiaoyaUrlRef.current || !shouldEnableLinkRefresh()) {
-        return;
-      }
-      // 优先用调用时传入的实例，否则从当前播放器取
-      refreshXiaoyaUrl(preferredHls, preferredVideo, true);
-    }, 14 * 60 * 1000);
-  };
-
-  /**
-   * 清除刷新定时器
-   */
-  const clearRefreshTimer = () => {
-    if (refreshTimerRef.current) {
-      console.log('[定时刷新] 清除定时器');
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-  };
-
   // 更新视频地址
   const updateVideoUrl = async (
     detailData: SearchResult | null,
     episodeIndex: number
   ) => {
-    // 重置刷新相关状态
-    retryCountRef.current = 0;
-    lastRefreshTimeRef.current = 0;
-    currentXiaoyaUrlRef.current = ''; // 清空旧的原始URL
-    linkRefreshEligibleRef.current = false;
-    clearRefreshTimer(); // 清除旧的定时器
     isInitialLoadRef.current = true; // 重置为首次加载
 
     // 动态设置 referrer policy：不发送 Referer
@@ -4201,39 +3666,12 @@ function PlayPageClient() {
     const isEpisodeSwitchRequest = lastVideoRequestKeyRef.current !== requestKey;
     lastVideoRequestKeyRef.current = requestKey;
     const requestSeq = ++videoUrlRequestSeqRef.current;
-    videoMediaTypeRef.current = '';
     mediaCorsFallbackRef.current = false;
 
     let newUrl = detailData?.episodes[episodeIndex] || '';
     let nextPlaybackSourceBadge: PlaybackSourceBadge = null;
-    const isXiaoyaLazyPlayUrl = newUrl.startsWith('/api/xiaoya/play');
-
-    if (isEpisodeSwitchRequest && isXiaoyaLazyPlayUrl) {
-      setVideoLoadingStage('episodeChanging');
-      setIsVideoLoading(true);
-      setVideoError(null);
-      setCorsFailedUrl(null);
-
-      if (artPlayerRef.current?.video) {
-        try {
-          const video = artPlayerRef.current.video as HTMLVideoElement;
-          video.pause();
-          video.removeAttribute('src');
-          video.load();
-        } catch (error) {
-          console.warn('切集时清空旧视频源失败:', error);
-        }
-      }
-
-      if (videoUrl) {
-        setVideoUrl('');
-      }
-    }
-
-    // 如果是小雅或 openlist 接口，先请求获取真实 URL
+    // 网盘类接口先请求获取真实 URL
     const isSpecialLazyPlayUrl =
-      isXiaoyaLazyPlayUrl ||
-      newUrl.startsWith('/api/openlist/play') ||
       newUrl.startsWith('/api/netdisk/115/play') ||
       newUrl.startsWith('/api/netdisk/123/play') ||
       newUrl.startsWith('/api/netdisk/quark/play') ||
@@ -4243,16 +3681,6 @@ function PlayPageClient() {
 
     if (isSpecialLazyPlayUrl) {
       try {
-        // 保存原始 lazy URL（用于后续刷新）
-        // xiaoya：始终可刷新；openlist：先保存，再以 play 响应的 refresh14m 最终裁定
-        const originalLazyUrl = newUrl;
-        if (
-          originalLazyUrl.startsWith('/api/xiaoya/play') ||
-          originalLazyUrl.startsWith('/api/openlist/play')
-        ) {
-          currentXiaoyaUrlRef.current = originalLazyUrl;
-        }
-
         // 添加 format=json 参数
         const separator = newUrl.includes('?') ? '&' : '?';
         const fetchUrl = `${newUrl}${separator}format=json`;
@@ -4264,28 +3692,6 @@ function PlayPageClient() {
         }
         if (data.url) {
           newUrl = data.url;
-          // 记录服务端探测出的媒体类型（openlist: hls/file），供单文件直连分流
-          if (originalLazyUrl.startsWith('/api/openlist/play')) {
-            videoMediaTypeRef.current =
-              data.mediaType === 'hls' || data.mediaType === 'file'
-                ? data.mediaType
-                : '';
-          }
-          // play 响应可带回 refresh14m，覆盖 detail（配置热更新后仍一致）
-          if (originalLazyUrl.startsWith('/api/openlist/play')) {
-            const refresh14m =
-              typeof data.refresh14m === 'boolean'
-                ? data.refresh14m
-                : Boolean(detailData?.refresh14m);
-            if (detailData) {
-              detailData.refresh14m = refresh14m;
-            }
-            if (detailRef.current?.source === 'openlist') {
-              detailRef.current.refresh14m = refresh14m;
-            }
-            // 未开启续期时清空，避免误启定时器
-            currentXiaoyaUrlRef.current = refresh14m ? originalLazyUrl : '';
-          }
           // 保存清晰度列表
           if (data.qualities && data.qualities.length > 0) {
             setVideoQualities(data.qualities);
@@ -4293,18 +3699,6 @@ function PlayPageClient() {
             setVideoQualities([]);
           }
 
-          // 拿到真实播放地址后立刻启动 14 分钟续期（避免仅依赖 MANIFEST_PARSED）
-          // xiaoya：仅 m3u8；openlist：refresh14m 即可（签名链常无扩展名）
-          if (
-            currentXiaoyaUrlRef.current &&
-            shouldStartLinkRefreshTimer(newUrl)
-          ) {
-            isInitialLoadRef.current = false;
-            startRefreshTimer();
-          }
-        } else if (originalLazyUrl.startsWith('/api/openlist/play')) {
-          // 未拿到 url 时不保留 lazy url，避免无效续期
-          currentXiaoyaUrlRef.current = '';
         }
       } catch (error) {
         if (requestSeq !== videoUrlRequestSeqRef.current) {
@@ -4312,10 +3706,9 @@ function PlayPageClient() {
         }
         console.error('获取播放链接失败:', error);
         setVideoQualities([]);
-        currentXiaoyaUrlRef.current = ''; // 获取失败，清空
       }
     } else {
-      // 非小雅/openlist 源，清空清晰度列表
+      // 非网盘类源，清空清晰度列表
       setVideoQualities([]);
     }
 
@@ -4605,10 +3998,9 @@ function PlayPageClient() {
       (/Safari/i.test(userAgent) &&
         !/Chrome|Chromium|Edg|OPR|Android/i.test(userAgent));
     const isHlsLikeSource =
-      videoMediaTypeRef.current !== 'file' &&
-      (/\.m3u8?($|\?)/i.test(url) ||
-        url.includes('/api/proxy-m3u8') ||
-        url.includes('/api/proxy/vod/m3u8'));
+      /\.m3u8?($|\?)/i.test(url) ||
+      url.includes('/api/proxy-m3u8') ||
+      url.includes('/api/proxy/vod/m3u8');
 
     if (isSafari && isHlsJsActive && isHlsLikeSource) {
       // HLS 由 hls.js 接管时，不能再给 <video> 塞原始 m3u8 source，
@@ -4646,7 +4038,7 @@ function PlayPageClient() {
     (video as any).playsInline = true;
     (video as any).webkitPlaysInline = true;
 
-    // openlist/emby/xiaoya/netdisk：CORS 模式加载，需配套「moontvplus 扩展」注入 ACAO 后 Anime4K 才能读帧
+    // 网盘类源：CORS 模式加载，需配套「moontvplus 扩展」注入 ACAO 后 Anime4K 才能读帧
     applyVideoCrossOrigin(video, currentSourceRef.current);
   };
 
@@ -4780,9 +4172,6 @@ function PlayPageClient() {
     revokeCustomSubtitle();
     // 位图字幕渲染器可能独立于 customSubtitle 存在（源字幕切换路径），兜底销毁
     clearBitsubSubtitle();
-
-    // 清除刷新定时器
-    clearRefreshTimer();
 
     // 先清理Anime4K，避免GPU纹理错误
     await cleanupAnime4K();
@@ -5184,23 +4573,19 @@ function PlayPageClient() {
     const fetchSourceDetail = async (
       source: string,
       id: string,
-      title: string,
-      fileNameParam?: string
+      title: string
     ): Promise<SearchResult[]> => {
       try {
-        let url = appendSpecialSourceParam(`/api/source-detail?source=${source}&id=${id}&title=${encodeURIComponent(title)}`);
-        // 如果有fileName参数（小雅源），添加到URL
-        if (fileNameParam) {
-          url += `&fileName=${encodeURIComponent(fileNameParam)}`;
-        }
+        const url = appendSpecialSourceParam(
+          `/api/source-detail?source=${source}&id=${id}&title=${encodeURIComponent(title)}`
+        );
         const detailResponse = await fetch(url);
         if (!detailResponse.ok) {
           throw new Error('获取视频详情失败');
         }
         const detailData = (await detailResponse.json()) as SearchResult;
-        const sourcesWithCorrections = applyCorrectionsToSources([detailData]);
-        setAvailableSources(sourcesWithCorrections);
-        return sourcesWithCorrections;
+        setAvailableSources([detailData]);
+        return [detailData];
       } catch (err) {
         console.error('获取视频详情失败:', err);
         return [];
@@ -5219,12 +4604,7 @@ function PlayPageClient() {
 
     // 辅助函数：获取视频类型
     const getType = (item: SearchResult): 'movie' | 'tv' => {
-      // 1. Emby 和 OpenList 源：使用 type_name（基于 TMDB，最可靠）
-      if (item.source === 'emby' || item.source?.startsWith('emby_') || item.source === 'openlist') {
-        return item.type_name === '电影' ? 'movie' : 'tv';
-      }
-
-      // 2. API 采集源：综合判断
+      // 1. API 采集源：综合判断
       const typeName = item.type_name?.toLowerCase() || '';
 
       // 2.1 明确包含"电影"或"movie"或"片"的，判断为电影
@@ -5423,7 +4803,7 @@ function PlayPageClient() {
 
           const cachedResults = filterSourcesForCurrentVideo(cachedPayload.results);
           fallbackCachedResults = cachedResults;
-          setAvailableSources(applyCorrectionsToSources(cachedResults));
+          setAvailableSources(cachedResults);
 
           if (cachedPayload.status === 'complete') {
             setHasCompletedSearchRequest(true);
@@ -5446,7 +4826,7 @@ function PlayPageClient() {
         setFallbackRecommendations(buildFallbackRecommendations(allResults, query));
 
         const results = filterSourcesForCurrentVideo(allResults);
-        setAvailableSources(applyCorrectionsToSources(results));
+        setAvailableSources(results);
         return results;
       } catch (err) {
         setSourceSearchError(err instanceof Error ? err.message : '搜索失败');
@@ -5466,9 +4846,7 @@ function PlayPageClient() {
         return [];
       }
 
-      return applyCorrectionsToSources(
-        filterSourcesForCurrentVideo(cachedPayload.results)
-      );
+      return filterSourcesForCurrentVideo(cachedPayload.results);
     };
 
     const initAll = async () => {
@@ -5528,7 +4906,6 @@ function PlayPageClient() {
         newUrl.searchParams.set('source', 'directplay');
         newUrl.searchParams.set('id', currentId);
         newUrl.searchParams.delete('prefer');
-        newUrl.searchParams.delete('fileName');
         window.history.replaceState({}, '', newUrl.toString());
 
         setLoadingStage('ready');
@@ -5570,13 +4947,10 @@ function PlayPageClient() {
         } else {
           // 先快速获取当前源的详情
           try {
-            // currentSource 已经是完整格式（如 'emby_wumei'）
-            // 如果是小雅源且有fileName参数，传递给API
             const currentSourceDetail = await fetchSourceDetail(
               currentSource,
               currentId,
-              searchTitle || videoTitle,
-              currentSource === 'xiaoya' ? fileName : undefined
+              searchTitle || videoTitle
             );
             if (currentSourceDetail.length > 0) {
               detailData = currentSourceDetail[0];
@@ -5601,7 +4975,7 @@ function PlayPageClient() {
             }
           });
           setAvailableSources(
-            applyCorrectionsToSources(Array.from(mergedSources.values()))
+            Array.from(mergedSources.values())
           );
           setBackgroundSourcesLoading(false);
         }).catch((err) => {
@@ -5654,28 +5028,12 @@ function PlayPageClient() {
         setLoadingStage('preferring');
         setLoadingMessage('⚡ 正在优选最佳播放源...');
 
-        // 过滤掉 openlist、所有 emby 源和 xiaoya 源，它们不参与测速
-        const sourcesToTest = sourcesInfo.filter(s => {
-          // 检查是否为 openlist
-          if (s.source === 'openlist') return false;
+        // 脚本源详情懒加载，不参与测速
+        const sourcesToTest = sourcesInfo.filter(
+          (s) => !s.source.startsWith('script:')
+        );
 
-          // 检查是否为 emby 源（包括 emby 和 emby_xxx 格式）
-          if (s.source === 'emby' || s.source.startsWith('emby_')) return false;
-
-          // 检查是否为 xiaoya 源
-          if (s.source === 'xiaoya') return false;
-
-          // 脚本源详情懒加载，不参与测速
-          if (s.source.startsWith('script:')) return false;
-
-          return true;
-        });
-
-        const excludedSources = sourcesInfo.filter(s =>
-          s.source === 'openlist' ||
-          s.source === 'emby' ||
-          s.source.startsWith('emby_') ||
-          s.source === 'xiaoya' ||
+        const excludedSources = sourcesInfo.filter((s) =>
           s.source.startsWith('script:')
         );
 
@@ -5705,19 +5063,6 @@ function PlayPageClient() {
       setCurrentSource(detailData.source);
       setCurrentId(detailData.id);
 
-      // 如果是小雅源，检查并应用纠错信息
-      if (detailData.source === 'xiaoya') {
-        const correction = getXiaoyaCorrection(detailData.source, detailData.id);
-        if (correction) {
-          console.log('发现小雅源纠错信息，正在应用...', correction);
-          detailData = applyCorrection(detailData, correction);
-          // 同时设置纠错后的描述
-          if (correction.overview) {
-            setCorrectedDesc(correction.overview);
-          }
-        }
-      }
-
       // 更新所有相关状态（在应用纠错信息之后）
       setVideoYear(detailData.year);
       setVideoTitle(detailData.title || videoTitleRef.current);
@@ -5737,10 +5082,6 @@ function PlayPageClient() {
       newUrl.searchParams.set('year', detailData.year);
       newUrl.searchParams.set('title', detailData.title);
       newUrl.searchParams.delete('prefer');
-      // 只有当元数据不是从文件获取时，才删除fileName参数
-      if (detailData.metadataSource !== 'file') {
-        newUrl.searchParams.delete('fileName');
-      }
       window.history.replaceState({}, '', newUrl.toString());
 
       setLoadingStage('ready');
@@ -5761,57 +5102,17 @@ function PlayPageClient() {
 
         // 确定初始集数索引
         let initialIndex = 0;
-        let shouldResumeTime = false;
 
         if (record) {
-          // 有播放记录
-          const recordIndex = record.index - 1;
-          const recordTime = record.play_time;
-
-          // 如果有initialEpisodeIndex（用户从文件点击进入）
-          if (detailData.initialEpisodeIndex !== undefined) {
-            // 如果播放记录的集数和点击的文件集数一致，则使用播放记录的时间
-            if (recordIndex === detailData.initialEpisodeIndex) {
-              initialIndex = recordIndex;
-              shouldResumeTime = true;
-              resumeTimeRef.current = recordTime;
-              console.log('[Play] 播放记录集数与点击文件一致，恢复播放进度:', recordTime);
-            } else {
-              // 否则使用点击的文件集数，从头开始播放
-              initialIndex = detailData.initialEpisodeIndex;
-              const localEpisodeTime = loadLocalEpisodeProgress(
-                detailEpisodeProgressContentKey,
-                initialIndex
-              );
-              resumeTimeRef.current = localEpisodeTime;
-              console.log('[Play] 使用点击的文件集数:', initialIndex);
-            }
-          } else {
-            // 没有initialEpisodeIndex，使用播放记录
-            initialIndex = recordIndex;
-            shouldResumeTime = true;
-            resumeTimeRef.current = recordTime;
-            console.log('[Play] 使用播放记录集数:', initialIndex);
-          }
+          initialIndex = record.index - 1;
+          resumeTimeRef.current = record.play_time;
+          console.log('[Play] 使用播放记录集数:', initialIndex);
         } else {
-          // 没有播放记录
-          if (detailData.initialEpisodeIndex !== undefined) {
-            // 使用点击的文件集数
-            initialIndex = detailData.initialEpisodeIndex;
-            resumeTimeRef.current = loadLocalEpisodeProgress(
-              detailEpisodeProgressContentKey,
-              initialIndex
-            );
-            console.log('[Play] 没有播放记录，使用点击的文件集数:', initialIndex);
-          } else {
-            // 默认从第0集开始
-            initialIndex = 0;
-            resumeTimeRef.current = loadLocalEpisodeProgress(
-              detailEpisodeProgressContentKey,
-              initialIndex
-            );
-            console.log('[Play] 没有播放记录，从第0集开始');
-          }
+          resumeTimeRef.current = loadLocalEpisodeProgress(
+            detailEpisodeProgressContentKey,
+            initialIndex
+          );
+          console.log('[Play] 没有播放记录，从第0集开始');
         }
 
         // 更新当前选集索引
@@ -6085,33 +5386,10 @@ function PlayPageClient() {
       newUrl.searchParams.set('title', newDetail.title || newTitle);
       window.history.replaceState({}, '', newUrl.toString());
 
-      // 如果是小雅源，检查并应用纠错信息
-      let finalTitle = newDetail.title || newTitle;
-      let finalCover = newDetail.poster;
-      let finalDesc = '';
-
-      if (newDetail.source === 'xiaoya') {
-        const correction = getXiaoyaCorrection(newDetail.source, newDetail.id);
-        if (correction) {
-          console.log('换源到小雅源，发现纠错信息，正在应用...', correction);
-          if (correction.title) {
-            finalTitle = correction.title;
-          }
-          if (correction.posterPath) {
-            finalCover = processImageUrl(getTMDBImageUrl(correction.posterPath));
-          }
-          if (correction.overview) {
-            finalDesc = correction.overview;
-          }
-          // 应用纠错信息到 newDetail
-          newDetail = applyCorrection(newDetail, correction);
-        }
-      }
-
-      setVideoTitle(finalTitle);
+      setVideoTitle(newDetail.title || newTitle);
       setVideoYear(newDetail.year);
-      setVideoCover(finalCover);
-      setCorrectedDesc(finalDesc);
+      setVideoCover(newDetail.poster);
+      setCorrectedDesc('');
       setVideoDoubanId(newDetail.douban_id || 0);
 
       if (isSameEpisodeSwitch && resumeTime && resumeTime > 1) {
@@ -6125,10 +5403,10 @@ function PlayPageClient() {
 
         try {
           const migratedRecord = {
-            title: finalTitle,
+            title: newDetail.title || newTitle,
             source_name: newDetail.source_name || '',
             year: newDetail.year || '',
-            cover: finalCover || '',
+            cover: newDetail.poster || '',
             index: targetIndex + 1,
             total_episodes: newDetail.episodes?.length || 1,
             play_time: Math.floor(resumeTime),
@@ -6381,10 +5659,10 @@ function PlayPageClient() {
     const extractEpisodeNumber = (title: string): number | null => {
       if (!title) return null;
 
-      // 优先匹配 Emby 格式：S01E01, S02E09 等
-      const embyMatch = title.match(/[Ss]\d+[Ee](\d+)/);
-      if (embyMatch) {
-        return parseInt(embyMatch[1], 10);
+      // 优先匹配 S01E01 / S02E09 这类集号
+      const sxxExxMatch = title.match(/[Ss]\d+[Ee](\d+)/);
+      if (sxxExxMatch) {
+        return parseInt(sxxExxMatch[1], 10);
       }
 
       // 降级到原本的策略：纯数字或"第X集/话"格式
@@ -7234,45 +6512,6 @@ function PlayPageClient() {
     }
   };
 
-  // 纠错成功后的回调
-  const handleCorrectSuccess = () => {
-    if (!detail || detail.source !== 'xiaoya') return;
-
-    // 从 localStorage 读取纠错信息
-    const correction = getXiaoyaCorrection(detail.source, detail.id);
-    if (correction) {
-      console.log('应用纠错信息:', correction);
-
-      // 只更新显示相关的状态，不更新 detail（避免触发其他 useEffect）
-      if (correction.title) {
-        setVideoTitle(correction.title);
-      }
-      if (correction.posterPath) {
-        const fullPosterUrl = processImageUrl(getTMDBImageUrl(correction.posterPath));
-        setVideoCover(fullPosterUrl);
-      }
-      if (correction.overview) {
-        setCorrectedDesc(correction.overview);
-      }
-      if (correction.doubanId) {
-        const doubanIdNum = typeof correction.doubanId === 'string'
-          ? parseInt(correction.doubanId, 10)
-          : correction.doubanId;
-        setVideoDoubanId(doubanIdNum);
-      }
-
-      // 更新 detailRef，这样其他地方使用 detailRef 时能获取到最新信息
-      if (detailRef.current) {
-        detailRef.current = applyCorrection(detailRef.current, correction);
-      }
-
-      // 更新 availableSources 中的小雅源信息
-      setAvailableSources(prevSources => applyCorrectionsToSources(prevSources));
-
-      console.log('已应用纠错信息');
-    }
-  };
-
   useEffect(() => {
     if (
       !videoUrl ||
@@ -7345,8 +6584,6 @@ function PlayPageClient() {
     // Artplayer 通过 URL 扩展名自动检测类型，但代理 URL（如 /api/proxy-m3u8?url=...）没有 .m3u8 扩展名
     const getVideoType = (url: string): string | undefined => {
       if (!url) return undefined;
-      // 单文件直链（mkv/mp4 等，mediaType=file）：走原生播放，勿强声明 m3u8
-      if (videoMediaTypeRef.current === 'file') return undefined;
       // 如果 URL 路径中已包含 .m3u8 扩展名，Artplayer 可自动检测，无需显式设置
       const urlPath = url.split('?')[0];
       if (urlPath.includes('.m3u8')) return undefined;
@@ -7840,7 +7077,6 @@ function PlayPageClient() {
               (video as any).playsInline = true;
               (video as any).webkitPlaysInline = true;
 
-              // 监听Manifest加载完成事件，启动xiaoya链接定时刷新
               hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 console.log('[HLS] Manifest解析完成');
 
@@ -7854,17 +7090,6 @@ function PlayPageClient() {
                     console.warn('[HLS] play after manifest parsed failed:', error);
                   }
                 }
-
-                // 兜底：若 updateVideoUrl 时尚未启定时器，在 manifest 解析后再启
-                // xiaoya：仅 m3u8；openlist：refresh14m 即可（此回调本身已在 HLS 路径）
-                if (
-                  isInitialLoadRef.current &&
-                  currentXiaoyaUrlRef.current &&
-                  shouldStartLinkRefreshTimer(url)
-                ) {
-                  isInitialLoadRef.current = false;
-                  startRefreshTimer(hls, video);
-                }
               });
 
               hls.on(Hls.Events.ERROR, function (event: any, data: any) {
@@ -7877,16 +7102,6 @@ function PlayPageClient() {
                         console.log('Manifest 加载失败：可能是 403/404 或 CORS 错误');
 
                         const statusCode = data.response?.code || data.response?.status;
-
-                        // 如果是403且是xiaoya源的m3u8，尝试自动刷新
-                        if (statusCode === 403 && currentXiaoyaUrlRef.current) {
-                          const isM3u8 = url.includes('.m3u8') || url.includes('m3u8');
-                          if (isM3u8) {
-                            console.log('[HLS错误] 检测到403，尝试刷新链接');
-                            refreshXiaoyaUrl(hls, video, false);
-                            return; // 不执行后续的错误处理
-                          }
-                        }
 
                         // 原有的错误处理逻辑
                         hls.destroy();
@@ -10145,8 +9360,7 @@ function PlayPageClient() {
               (artPlayerRef.current?.currentTime || 0) === 0 &&
               fallbackVideo.crossOrigin === 'anonymous' &&
               !mediaCorsFallbackRef.current &&
-              (videoMediaTypeRef.current === 'file' ||
-                isNetdiskNativeHlsActive(currentSourceRef.current))
+              isNetdiskNativeHlsActive(currentSourceRef.current)
             ) {
               mediaCorsFallbackRef.current = true;
               console.warn(
@@ -11074,19 +10288,6 @@ function PlayPageClient() {
                   </div>
                 )}
 
-                {/* 链接刷新提示（右上角，无遮罩） */}
-                {isRefreshingUrl && (
-                  <div className='absolute top-3 right-3 z-50 pointer-events-none'>
-                    <div className='bg-black/70 text-white px-3 py-1.5 rounded-md flex items-center gap-2 text-sm border border-green-500/30 shadow-lg'>
-                      <svg className='animate-spin h-4 w-4' viewBox='0 0 24 24'>
-                        <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4' fill='none' />
-                        <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z' />
-                      </svg>
-                      <span>正在刷新链接...</span>
-                    </div>
-                  </div>
-                )}
-
                 {/* 弹幕加载蒙层 */}
                 {danmakuLoading && (
                   <div className='absolute top-0 right-0 m-4 bg-black/80 backdrop-blur-sm rounded-lg px-4 py-2 z-[600] flex items-center gap-2 border border-green-500/30'>
@@ -11341,7 +10542,6 @@ function PlayPageClient() {
                                 });
                                 const y = videoYear || detail?.year;
                                 if (y) params.set('year', y);
-                                if (fileName) params.set('fileName', fileName);
                                 router.push(`/duanju/play?${params.toString()}`);
                               }}
                               className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-emerald-400 flex-shrink-0'
@@ -11822,19 +11022,6 @@ function PlayPageClient() {
                         详
                       </button>
                     )}
-                    {/* 纠错按钮 - 仅小雅源显示 */}
-                    {detail && detail.source === 'xiaoya' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDrawer('correct');
-                        }}
-                        className='flex-shrink-0 hover:opacity-80 transition-opacity'
-                        title='纠错'
-                      >
-                        <AlertCircle className='h-6 w-6 text-gray-700 dark:text-gray-300' />
-                      </button>
-                    )}
                     {/* 豆瓣评分显示 */}
                     {doubanRating && doubanRating.value > 0 && (
                       <div className='flex items-center gap-2 text-base font-normal'>
@@ -11916,7 +11103,7 @@ function PlayPageClient() {
                     )}
                     {detail?.source_name && (
                       <span
-                        className={`relative group cursor-pointer border px-2 py-[1px] rounded ${detail.source === 'xiaoya' ? 'border-blue-500' : isNetdiskSource(detail.source) ? 'border-purple-500' : detail.source === 'openlist' || detail.source === 'emby' || detail.source?.startsWith('emby_') ? 'border-yellow-500' : 'border-gray-500/60'
+                        className={`relative group cursor-pointer border px-2 py-[1px] rounded ${isNetdiskSource(detail.source) ? 'border-purple-500' : 'border-gray-500/60'
                           }`}
                         onClick={fetchCurrentSourceVideoInfo}
                       >
@@ -12255,32 +11442,6 @@ function PlayPageClient() {
         />
       )}
 
-      {/* 纠错弹窗 - 仅小雅源显示 */}
-      {detail && detail.source === 'xiaoya' && (
-        <CorrectDialog
-          isOpen={showCorrectDialog}
-          onClose={() => setShowCorrectDialog(false)}
-          videoKey={`${detail.source}_${detail.id}`}
-          currentTitle={detail.title}
-          currentVideo={{
-            tmdbId: detail.tmdb_id,
-            doubanId: detail.douban_id ? String(detail.douban_id) : undefined,
-            poster: detail.poster,
-            releaseDate: detail.year,
-            overview: detail.desc,
-            voteAverage: detail.rating,
-            mediaType: detail.type_name === '电影' ? 'movie' : 'tv',
-          }}
-          source="xiaoya"
-          onCorrect={() => {
-            // 纠错成功后的回调
-            handleCorrectSuccess();
-          }}
-          useDrawer={isLargeScreen}
-          drawerWidth='w-[400px]'
-        />
-      )}
-
       {/* 详情面板 */}
       {detail && (
         <DetailPanel
@@ -12289,42 +11450,26 @@ function PlayPageClient() {
           title={detail.title}
           poster={detail.poster}
           doubanId={
-            // 特殊源使用 tmdb，其他使用 cms（通过 doubanId）
-            // 如果有豆瓣ID且不为0，传入doubanId
-            detail.source === 'openlist' ||
-              isNetdiskSource(detail.source) ||
-              detail.source?.startsWith('emby') ||
-              detail.source === 'xiaoya'
+            // 网盘类源用 tmdb，其他用 cms（通过 doubanId）
+            isNetdiskSource(detail.source)
               ? undefined
               : detail.douban_id && detail.douban_id !== 0
                 ? detail.douban_id
                 : undefined
           }
-          tmdbId={
-            // 特殊源使用 tmdb
-            detail.source === 'openlist' ||
-              isNetdiskSource(detail.source) ||
-              detail.source?.startsWith('emby') ||
-              detail.source === 'xiaoya'
-              ? detail.tmdb_id
-              : undefined
-          }
+          tmdbId={isNetdiskSource(detail.source) ? detail.tmdb_id : undefined}
           type={detail.type_name === '电影' ? 'movie' : 'tv'}
           year={detail.year}
           currentEpisode={currentEpisodeIndex + 1}
           cmsData={
-            // 非特殊源使用 cms 数据
-            // 但如果有豆瓣ID且不为0，则不传入cmsData，优先使用豆瓣数据
-            detail.source !== 'openlist' &&
-              !isNetdiskSource(detail.source) &&
-              !detail.source?.startsWith('emby') &&
-              detail.source !== 'xiaoya' &&
-              !(detail.douban_id && detail.douban_id !== 0)
+            // 非网盘源用 cms 数据；有豆瓣ID且不为 0 时不传，优先豆瓣
+            !isNetdiskSource(detail.source) &&
+            !(detail.douban_id && detail.douban_id !== 0)
               ? {
-                desc: detail.desc,
-                episodes: detail.episodes,
-                episodes_titles: detail.episodes_titles,
-              }
+                  desc: detail.desc,
+                  episodes: detail.episodes,
+                  episodes_titles: detail.episodes_titles,
+                }
               : undefined
           }
           sourceId={detail.id}
@@ -12336,48 +11481,6 @@ function PlayPageClient() {
     </PageLayout>
   );
 }
-
-// 从 localStorage 读取小雅源的纠错信息
-const getXiaoyaCorrection = (source: string, id: string) => {
-  try {
-    const storageKey = `xiaoya_correction_${source}_${id}`;
-    const correctionJson = localStorage.getItem(storageKey);
-    if (correctionJson) {
-      return JSON.parse(correctionJson);
-    }
-  } catch (error) {
-    console.error('读取纠错信息失败:', error);
-  }
-  return null;
-};
-
-// 应用纠错信息到 detail 对象
-const applyCorrection = (detail: SearchResult, correction: any): SearchResult => {
-  return {
-    ...detail,
-    title: correction.title || detail.title,
-    poster: correction.posterPath ? processImageUrl(getTMDBImageUrl(correction.posterPath)) : detail.poster,
-    year: correction.releaseDate || detail.year,
-    desc: correction.overview || detail.desc,
-    rating: correction.voteAverage || detail.rating,
-    tmdb_id: correction.tmdbId || detail.tmdb_id,
-    douban_id: correction.doubanId ? (typeof correction.doubanId === 'string' ? parseInt(correction.doubanId, 10) : correction.doubanId) : detail.douban_id,
-    type_name: correction.mediaType === 'movie' ? '电影' : (correction.mediaType === 'tv' ? '电视剧' : detail.type_name),
-  };
-};
-
-// 批量应用纠错信息到源列表
-const applyCorrectionsToSources = (sources: SearchResult[]): SearchResult[] => {
-  return sources.map(source => {
-    if (source.source === 'xiaoya') {
-      const correction = getXiaoyaCorrection(source.source, source.id);
-      if (correction) {
-        return applyCorrection(source, correction);
-      }
-    }
-    return source;
-  });
-};
 
 // FavoriteIcon 组件
 const FavoriteIcon = ({ filled }: { filled: boolean }) => {

@@ -76,8 +76,6 @@ export async function fetchTVDetail(params: {
 export async function resolveTVEpisodeUrl(rawUrl: string, source?: string, proxyMode?: boolean) {
   let url = rawUrl;
   const lazyPrefixes = [
-    '/api/xiaoya/play',
-    '/api/openlist/play',
     '/api/netdisk/115/play',
     '/api/netdisk/123/play',
     '/api/netdisk/quark/play',

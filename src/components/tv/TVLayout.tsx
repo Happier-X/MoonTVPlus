@@ -2,7 +2,6 @@
 
 import {
   Film,
-  Heart,
   Home,
   MonitorPlay,
   Radio,
@@ -25,7 +24,6 @@ const navItems = [
   { label: '动漫', href: '/tv/anime', icon: Sparkles },
   { label: '综艺', href: '/tv/variety', icon: MonitorPlay },
   { label: '直播', href: '/tv/live', icon: Radio },
-  { label: '私人影库', href: '/tv/private', icon: Heart },
   { label: '我的', href: '/tv/me', icon: User },
 ];
 

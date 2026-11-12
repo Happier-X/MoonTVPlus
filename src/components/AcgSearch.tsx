@@ -5,14 +5,12 @@ import {
   Activity,
   AlertCircle,
   Copy,
-  Download,
   ExternalLink,
   Loader2,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
-import OpenListSourceSelect from '@/components/OpenListSourceSelect';
 import Toast, { ToastProps } from '@/components/Toast';
 
 interface AcgSearchItem {
@@ -54,7 +52,6 @@ interface AcgSearchProps {
 }
 
 type AcgSearchSource = 'acgrip' | 'mikan' | 'dmhy' | 'nyaa';
-type DownloadTool = 'aria2' | 'Transmission' | 'qBittorrent';
 
 /** 把可能的 xml 对象/空值收成稳定字符串，避免 key 变成 [object Object] */
 function asItemText(value: unknown): string {
@@ -84,12 +81,6 @@ function getAcgItemId(item: AcgSearchItem, index?: number): string {
   if (typeof index === 'number') return `${base}#${index}`;
   return base;
 }
-
-const downloadToolOptions: Array<{ value: DownloadTool; label: string }> = [
-  { value: 'aria2', label: 'aria2' },
-  { value: 'qBittorrent', label: 'qBittorrent' },
-  { value: 'Transmission', label: 'Transmission' },
-];
 
 const ACG_SOURCE_STORAGE_KEY = 'acgSearchSource';
 const acgSourceOptions: Array<{ label: string; value: AcgSearchSource }> = [
@@ -122,14 +113,7 @@ export default function AcgSearch({
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [copyingId, setCopyingId] = useState<string | null>(null);
-  const [showNameDialog, setShowNameDialog] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<AcgSearchItem | null>(null);
-  const [customName, setCustomName] = useState('');
-  const [downloadTool, setDownloadTool] = useState<DownloadTool>('aria2');
-  const [downloadSource, setDownloadSource] = useState('');
-  const [downloadPath, setDownloadPath] = useState('');
   const [toast, setToast] = useState<ToastProps | null>(null);
   const [healthMap, setHealthMap] = useState<Record<string, MagnetHealthView>>(
     {}
@@ -441,66 +425,6 @@ export default function AcgSearch({
     }
   };
 
-  // 打开命名弹窗
-  const handleOpenDownloadDialog = (item: AcgSearchItem, index: number) => {
-    setSelectedItem({ ...item, guid: getAcgItemId(item, index) });
-    setCustomName(keyword.trim());
-    setShowNameDialog(true);
-  };
-
-  // 确认下载
-  const handleConfirmDownload = async () => {
-    if (!selectedItem || !customName.trim()) {
-      return;
-    }
-
-    setDownloadingId(selectedItem.guid);
-    setShowNameDialog(false);
-
-    try {
-      const response = await fetch('/api/acg/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: selectedItem.torrentUrl,
-          name: customName.trim(),
-          tool: downloadTool,
-          source: downloadSource || undefined,
-          path: downloadPath.trim() || undefined,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || '添加下载任务失败');
-      }
-
-      setToast({
-        message: data.path
-          ? `${data.message || '已添加到离线下载队列'}：${data.path}`
-          : data.message || '已添加到离线下载队列',
-        type: 'success',
-        onClose: () => setToast(null),
-      });
-    } catch (err: any) {
-      setToast({
-        message: err.message || '添加下载任务失败',
-        type: 'error',
-        onClose: () => setToast(null),
-      });
-    } finally {
-      setDownloadingId(null);
-      setSelectedItem(null);
-      setCustomName('');
-      setDownloadTool('aria2');
-      setDownloadSource('');
-      setDownloadPath('');
-    }
-  };
-
   // 复制磁链：原样复制 RSS 里的链接（磁链复制磁链，.torrent 复制 .torrent），纯前端不走服务器
   const handleCopyMagnet = async (item: AcgSearchItem, index: number) => {
     const itemId = getAcgItemId(item, index);
@@ -636,24 +560,6 @@ export default function AcgSearch({
               {/* 操作按钮 */}
               <div className='flex flex-wrap items-center gap-2'>
                 <button
-                  onClick={() => handleOpenDownloadDialog(item, index)}
-                  disabled={downloadingId === itemId}
-                  className='flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-                  title='存到私人影库'
-                >
-                  {downloadingId === itemId ? (
-                    <>
-                      <Loader2 className='h-4 w-4 animate-spin' />
-                      <span>下载中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className='h-4 w-4' />
-                      <span>存到私人影库</span>
-                    </>
-                  )}
-                </button>
-                <button
                   onClick={() => handleCheckHealth(item, index)}
                   disabled={!item.torrentUrl || isHealthChecking}
                   className='flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-sky-600 text-white text-sm hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
@@ -715,77 +621,6 @@ export default function AcgSearch({
           </div>
         )}
 
-        {/* 命名弹窗 */}
-        {showNameDialog && (
-          <div className='fixed inset-0 z-[1000] flex items-center justify-center bg-black/50'>
-            <div className='bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl'>
-              <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4'>
-                设置资源名称
-              </h3>
-              <input
-                type='text'
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder='请输入资源名称'
-                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
-                autoFocus
-              />
-              <label className='mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300'>
-                下载方式
-              </label>
-              <select
-                value={downloadTool}
-                onChange={(e) => setDownloadTool(e.target.value as DownloadTool)}
-                className='mt-1 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
-              >
-                {downloadToolOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <OpenListSourceSelect
-                value={downloadSource}
-                onChange={setDownloadSource}
-              />
-              <label className='mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300'>
-                覆盖路径
-              </label>
-              <input
-                type='text'
-                value={downloadPath}
-                onChange={(e) => setDownloadPath(e.target.value)}
-                placeholder='留空使用离线下载目录'
-                className='mt-1 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
-              />
-              <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-                可选；最终保存到「该目录/资源名称」
-              </p>
-              <div className='mt-4 flex gap-2 justify-end'>
-                <button
-                  onClick={() => {
-                    setShowNameDialog(false);
-                    setSelectedItem(null);
-                    setCustomName('');
-                    setDownloadTool('aria2');
-                    setDownloadSource('');
-                    setDownloadPath('');
-                  }}
-                  className='px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition-colors'
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleConfirmDownload}
-                  disabled={!customName.trim()}
-                  className='px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-                >
-                  确定
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </>
     );
   };

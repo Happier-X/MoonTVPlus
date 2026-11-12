@@ -491,24 +491,8 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     }
 
-    // 检查是否有旧格式Emby配置需要迁移
-    const needsEmbyMigration =
-      adminConfig.EmbyConfig &&
-      adminConfig.EmbyConfig.ServerURL &&
-      !adminConfig.EmbyConfig.Sources;
-
     adminConfig = configSelfCheck(adminConfig);
     cachedConfig = adminConfig;
-
-    // 如果进行了Emby配置迁移，保存到数据库
-    if (!dbReadFailed && needsEmbyMigration) {
-      try {
-        await db.saveAdminConfig(adminConfig);
-        console.log('[Config] Emby配置迁移已保存到数据库');
-      } catch (error) {
-        console.error('[Config] 保存迁移后的配置失败:', error);
-      }
-    }
 
     // 自动迁移用户（如果配置中有用户且V2存储支持）
     // 过滤掉站长后检查是否有需要迁移的用户
@@ -735,68 +719,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     adminConfig.LiveRefreshIntervalHours
   );
 
-  if (adminConfig.OpenListConfig) {
-    // 兼容已废弃的「离线下载独立 OpenList 源」字段（仅存在于旧配置里）
-    const ol = adminConfig.OpenListConfig as typeof adminConfig.OpenListConfig & {
-      OfflineDownloadUseCustomSource?: boolean;
-      OfflineDownloadURL?: string;
-      OfflineDownloadUsername?: string;
-      OfflineDownloadPassword?: string;
-    };
-
-    if (!ol.RootPaths) {
-      ol.RootPaths = ol.RootPath ? [ol.RootPath] : ['/'];
-    }
-    if (!ol.OfflineDownloadPath) {
-      ol.OfflineDownloadPath = '/';
-    }
-
-    // 迁移：旧的独立离线下载源 → 备用源列表 + 离线下载目录加「源名@」前缀
-    if (!Array.isArray(ol.ExtraSources)) {
-      ol.ExtraSources = [];
-      if (ol.OfflineDownloadUseCustomSource && ol.OfflineDownloadURL) {
-        const name = '离线下载';
-        ol.ExtraSources.push({
-          name,
-          url: ol.OfflineDownloadURL,
-          username: ol.OfflineDownloadUsername || '',
-          password: ol.OfflineDownloadPassword || '',
-        });
-        if (!(ol.OfflineDownloadPath || '').includes('@')) {
-          ol.OfflineDownloadPath = `${name}@${ol.OfflineDownloadPath || '/'}`;
-        }
-      }
-    }
-
-    // 清理已废弃字段（下次保存后不再落库）
-    delete ol.OfflineDownloadUseCustomSource;
-    delete ol.OfflineDownloadURL;
-    delete ol.OfflineDownloadUsername;
-    delete ol.OfflineDownloadPassword;
-
-    if (adminConfig.OpenListConfig.PathMeta === undefined) {
-      adminConfig.OpenListConfig.PathMeta = {};
-    } else {
-      // 补齐新字段默认值（代理播放开关、缓存时长）
-      // 旧配置可能缺少新字段，运行期做兜底（类型上已声明为必填）
-      for (const entry of Object.values(
-        adminConfig.OpenListConfig.PathMeta
-      ) as Array<{
-        category: string;
-        refresh14m: boolean;
-        proxyPlay?: boolean;
-        proxyCacheMinutes?: number;
-      }>) {
-        if (entry.proxyPlay === undefined) {
-          entry.proxyPlay = false;
-        }
-        if (entry.proxyCacheMinutes === undefined) {
-          entry.proxyCacheMinutes = 60;
-        }
-      }
-    }
-  }
-
   // 用户信息已迁移到新版数据库
   // 这里只保留站长用户用于兼容性，其他用户从数据库读取
   const ownerUser = process.env.USERNAME;
@@ -855,49 +777,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     seenLiveKeys.add(live.key);
     return true;
   });
-
-  // Emby配置迁移：将旧格式迁移到新格式
-  if (adminConfig.EmbyConfig) {
-    // 如果是旧格式（有ServerURL但没有Sources）
-    if (adminConfig.EmbyConfig.ServerURL && !adminConfig.EmbyConfig.Sources) {
-      console.log('[Config] 检测到旧格式Emby配置，自动迁移到新格式');
-      const oldConfig = adminConfig.EmbyConfig;
-      adminConfig.EmbyConfig = {
-        Sources: [
-          {
-            key: 'default',
-            name: 'Emby',
-            enabled: oldConfig.Enabled ?? false,
-            ServerURL: oldConfig.ServerURL || '',
-            ApiKey: oldConfig.ApiKey,
-            Username: oldConfig.Username,
-            Password: oldConfig.Password,
-            UserId: oldConfig.UserId,
-            AuthToken: oldConfig.AuthToken,
-            Libraries: oldConfig.Libraries,
-            embyAuthorizationHeader: oldConfig.embyAuthorizationHeader,
-            LastSyncTime: oldConfig.LastSyncTime,
-            ItemCount: oldConfig.ItemCount,
-            isDefault: true,
-          },
-        ],
-      };
-    }
-
-    // Emby源去重
-    if (adminConfig.EmbyConfig?.Sources) {
-      const seenEmbyKeys = new Set<string>();
-      adminConfig.EmbyConfig.Sources = adminConfig.EmbyConfig.Sources.filter(
-        (source) => {
-          if (seenEmbyKeys.has(source.key)) {
-            return false;
-          }
-          seenEmbyKeys.add(source.key);
-          return true;
-        }
-      );
-    }
-  }
 
   if (!adminConfig.SuwayomiConfig) {
     adminConfig.SuwayomiConfig = {
@@ -1082,45 +961,10 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     site.OIDCIssuer = normalizeApiBaseUrl(site.OIDCIssuer);
   }
 
-  if (adminConfig.OpenListConfig) {
-    adminConfig.OpenListConfig.URL = normalizeApiBaseUrl(
-      adminConfig.OpenListConfig.URL
-    );
-    if (Array.isArray(adminConfig.OpenListConfig.ExtraSources)) {
-      adminConfig.OpenListConfig.ExtraSources =
-        adminConfig.OpenListConfig.ExtraSources.map((s) => ({
-          ...s,
-          url: normalizeApiBaseUrl(s.url),
-        }));
-    }
-  }
-
-  if (adminConfig.XiaoyaConfig) {
-    adminConfig.XiaoyaConfig.ServerURL = normalizeApiBaseUrl(
-      adminConfig.XiaoyaConfig.ServerURL
-    );
-  }
-
   if (adminConfig.SuwayomiConfig) {
     adminConfig.SuwayomiConfig.ServerURL = normalizeApiBaseUrl(
       adminConfig.SuwayomiConfig.ServerURL
     );
-  }
-
-  if (adminConfig.EmbyConfig) {
-    if (adminConfig.EmbyConfig.ServerURL) {
-      adminConfig.EmbyConfig.ServerURL = normalizeApiBaseUrl(
-        adminConfig.EmbyConfig.ServerURL
-      );
-    }
-    if (Array.isArray(adminConfig.EmbyConfig.Sources)) {
-      adminConfig.EmbyConfig.Sources = adminConfig.EmbyConfig.Sources.map(
-        (source) => ({
-          ...source,
-          ServerURL: normalizeApiBaseUrl(source.ServerURL),
-        })
-      );
-    }
   }
 
   if (adminConfig.AIConfig) {
@@ -1159,6 +1003,13 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   // 音乐与电子书功能已移除：旧配置里的字段在下次保存配置时一并清掉
   delete (adminConfig as unknown as Record<string, unknown>).MusicConfig;
   delete (adminConfig as unknown as Record<string, unknown>).OPDSConfig;
+
+  // 私人影库（OpenList / Emby / 小雅）与追番订阅已移除：旧配置里的字段同样清掉
+  delete (adminConfig as unknown as Record<string, unknown>).OpenListConfig;
+  delete (adminConfig as unknown as Record<string, unknown>).EmbyConfig;
+  delete (adminConfig as unknown as Record<string, unknown>).XiaoyaConfig;
+  delete (adminConfig as unknown as Record<string, unknown>)
+    .AnimeSubscriptionConfig;
 
   return adminConfig;
 }
