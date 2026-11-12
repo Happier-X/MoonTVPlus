@@ -37,11 +37,19 @@ import com.moontvplus.phone.feature.common.ComingSoonScreen
 import com.moontvplus.phone.feature.home.HomeScreen
 import com.moontvplus.phone.feature.home.HomeTarget
 import com.moontvplus.phone.feature.login.LoginScreen
+import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 /** 桌面图标的「服务器设置」快捷方式走这个 action。 */
 const val ACTION_OPEN_SETTINGS = "com.moontvplus.phone.OPEN_SETTINGS"
+
+/** 已登录后的页面栈；M4 起再加播放页。 */
+private sealed interface AppRoute {
+    data object Home : AppRoute
+    data class Search(val query: String?) : AppRoute
+    data class Detail(val source: String, val videoId: String, val title: String) : AppRoute
+}
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -73,7 +81,7 @@ private fun MoonTvApp(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val editingServer by viewModel.editingServer.collectAsStateWithLifecycle()
-    var comingSoon by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
 
     LaunchedEffect(openSettingsRequest.value) {
         if (openSettingsRequest.value) {
@@ -82,7 +90,7 @@ private fun MoonTvApp(
         }
     }
 
-    BackHandler(enabled = comingSoon != null) { comingSoon = null }
+    BackHandler(enabled = currentRoute !is AppRoute.Home) { currentRoute = AppRoute.Home }
 
     val darkTheme = when (settings.themeMode) {
         "light" -> false
@@ -111,34 +119,34 @@ private fun MoonTvApp(
                         onLoggedIn = viewModel::onLoggedIn,
                         onChangeServer = viewModel::changeServer,
                     )
-                    is AppUiState.LoggedIn -> {
-                        val pending = comingSoon
-                        if (pending != null) {
-                            ComingSoonScreen(
-                                title = pending.first,
-                                detail = pending.second,
-                                onBack = { comingSoon = null },
-                            )
-                        } else {
-                            HomeScreen(
-                                siteName = current.siteName,
-                                onOpenCard = { target ->
-                                    comingSoon = when (target) {
-                                        is HomeTarget.SourceSearch ->
-                                            "选源：${target.title}" to "搜索页与选源列表在下一步接入"
-                                        is HomeTarget.Detail ->
-                                            "详情：${target.videoId}" to "详情页与播放在下一步接入"
-                                        is HomeTarget.Resume ->
-                                            "继续观看 · 第 ${target.index} 集" to "详情页与播放在下一步接入"
-                                    }
-                                },
-                                onOpenSearch = {
-                                    comingSoon = "搜索" to "流式搜索在下一步接入"
-                                },
-                                onLogout = viewModel::logout,
-                                onChangeServer = viewModel::changeServer,
-                            )
-                        }
+                    is AppUiState.LoggedIn -> when (val route = currentRoute) {
+                        is AppRoute.Search -> SearchScreen(
+                            initialQuery = route.query,
+                            onBack = { currentRoute = AppRoute.Home },
+                            onOpenDetail = { source, videoId, title ->
+                                currentRoute = AppRoute.Detail(source, videoId, title)
+                            },
+                        )
+                        is AppRoute.Detail -> ComingSoonScreen(
+                            title = route.title.ifBlank { "详情" },
+                            detail = "详情页与播放器在下一步接入",
+                            onBack = { currentRoute = AppRoute.Home },
+                        )
+                        is AppRoute.Home -> HomeScreen(
+                            siteName = current.siteName,
+                            onOpenCard = { target ->
+                                currentRoute = when (target) {
+                                    is HomeTarget.SourceSearch -> AppRoute.Search(target.title)
+                                    is HomeTarget.Detail ->
+                                        AppRoute.Detail(target.source, target.videoId, target.videoId)
+                                    is HomeTarget.Resume ->
+                                        AppRoute.Detail(target.source, target.videoId, "继续观看")
+                                }
+                            },
+                            onOpenSearch = { currentRoute = AppRoute.Search(null) },
+                            onLogout = viewModel::logout,
+                            onChangeServer = viewModel::changeServer,
+                        )
                     }
                 }
             }

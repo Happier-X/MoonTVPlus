@@ -9,8 +9,12 @@ import com.moontvplus.phone.core.model.PlayRecord
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.ServerConfig
 import com.moontvplus.phone.core.model.TmdbItem
+import kotlinx.serialization.Serializable
+import okhttp3.ResponseBody
+import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Query
@@ -57,4 +61,39 @@ interface MoonApi {
 
     @GET("api/playrecords")
     suspend fun playRecords(): Response<Map<String, PlayRecord>>
+
+    // ---- 搜索 ----
+
+    /** 普通搜索：所有源聚合成一次响应，用作 SSE 断流时的回退。 */
+    @GET("api/search")
+    suspend fun search(@Query("q") keyword: String): Response<SearchResponse>
+
+    /** 流式搜索：SSE，事件体只有 `data: {...}`。 */
+    @GET("api/search/ws")
+    fun searchStream(@Query("q") keyword: String): Call<ResponseBody>
+
+    @GET("api/searchhistory")
+    suspend fun searchHistory(): Response<List<String>>
+
+    @POST("api/searchhistory")
+    suspend fun addSearchHistory(@Body body: SearchHistoryRequest): Response<Unit>
+
+    @DELETE("api/searchhistory")
+    suspend fun removeSearchHistory(@Query("keyword") keyword: String): Response<Unit>
+
+    // ---- 详情 ----
+
+    /** 返回结构与搜索结果一致，episodes 里就是可播放地址。 */
+    @GET("api/source-detail")
+    suspend fun sourceDetail(
+        @Query("source") source: String,
+        @Query("id") videoId: String,
+    ): Response<SearchResult>
 }
+
+@Serializable
+data class SearchResponse(val results: List<SearchResult> = emptyList())
+
+@Serializable
+data class SearchHistoryRequest(val keyword: String)
+
