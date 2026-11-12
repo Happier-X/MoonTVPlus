@@ -1,5 +1,6 @@
-package com.moontvplus.phone.desktop
+package com.moontvplus.ui.component
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,45 +17,60 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.Image
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** 进程内的图片缓存：桌面端没有 Coil，海报直接走共享 OkHttp（会带上鉴权）。 */
-private val imageCache = mutableMapOf<String, ImageBitmap>()
+/**
+ * 桌面端的图片加载器。
+ *
+ * 桌面没有 Coil，海报直接走共享 OkHttp（会带上 Authorization），
+ * 用 skiko 解码成 Compose 位图；解码结果按 URL 缓存在进程里。
+ */
+object DesktopImageLoader {
+    /** 由桌面入口注入 `graph.mediaClient`。 */
+    var client: OkHttpClient? = null
+
+    private val cache = LinkedHashMap<String, ImageBitmap>(256, 0.75f, true)
+
+    fun get(url: String): ImageBitmap? = synchronized(cache) { cache[url] }
+
+    fun put(url: String, bitmap: ImageBitmap) = synchronized(cache) {
+        cache[url] = bitmap
+        if (cache.size > 400) {
+            val oldest = cache.keys.firstOrNull()
+            if (oldest != null) cache.remove(oldest)
+        }
+    }
+}
 
 @Composable
-fun RemoteImage(
+actual fun NetworkImage(
     url: String?,
-    client: OkHttpClient,
     contentDescription: String?,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
+    contentScale: ContentScale,
 ) {
-    var bitmap by remember(url) { mutableStateOf(url?.let { imageCache[it] }) }
+    var bitmap by remember(url) { mutableStateOf(url?.let { DesktopImageLoader.get(it) }) }
 
     LaunchedEffect(url) {
         if (url.isNullOrBlank() || bitmap != null) return@LaunchedEffect
+        val client = DesktopImageLoader.client ?: return@LaunchedEffect
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val request = Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
+                client.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) return@use null
                     val bytes = response.body?.bytes() ?: return@use null
                     org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
                 }
-            }.getOrNull()?.also { imageCache[url] = it }
+            }.getOrNull()?.also { DesktopImageLoader.put(url, it) }
         }
     }
 
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         val image = bitmap
@@ -62,15 +78,11 @@ fun RemoteImage(
             Image(
                 bitmap = image,
                 contentDescription = contentDescription,
-                contentScale = ContentScale.Crop,
+                contentScale = contentScale,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Text(
-                text = "…",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

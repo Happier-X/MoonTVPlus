@@ -17,5 +17,6 @@ dependencyResolutionManagement {
 rootProject.name = "MoonTVPlusMobile"
 
 include(":shared")
+include(":ui")
 include(":app")
 include(":desktop")

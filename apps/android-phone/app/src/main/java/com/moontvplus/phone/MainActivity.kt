@@ -14,33 +14,38 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.moontvplus.phone.di.appContainer
 import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.ui.theme.MoonTvTheme
 import com.moontvplus.phone.feature.AppUiState
 import com.moontvplus.phone.feature.AppViewModel
 import com.moontvplus.phone.feature.detail.DetailScreen
-import com.moontvplus.phone.feature.home.HomeScreen
-import com.moontvplus.phone.feature.home.HomeTarget
 import com.moontvplus.phone.feature.login.LoginScreen
 import com.moontvplus.phone.feature.player.PlayerActivity
 import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
+import com.moontvplus.ui.app.MoonTvController
+import com.moontvplus.ui.app.MoonTvShell
+import com.moontvplus.ui.model.OpenTarget
 
 /** 桌面图标的「服务器设置」快捷方式走这个 action。 */
 const val ACTION_OPEN_SETTINGS = "com.moontvplus.phone.OPEN_SETTINGS"
@@ -93,6 +98,7 @@ private fun MoonTvApp(
     val editingServer by viewModel.editingServer.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
+    var showSettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(openSettingsRequest.value) {
         if (openSettingsRequest.value) {
@@ -114,6 +120,21 @@ private fun MoonTvApp(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
+            if (showSettings) {
+                SettingsDialog(
+                    siteName = (state as? AppUiState.LoggedIn)?.siteName.orEmpty(),
+                    onDismiss = { showSettings = false },
+                    onLogout = {
+                        showSettings = false
+                        viewModel.logout()
+                    },
+                    onChangeServer = {
+                        showSettings = false
+                        viewModel.changeServer()
+                    },
+                )
+            }
+
             if (editingServer) {
                 ServerSetupScreen(
                     onDone = viewModel::onServerSaved,
@@ -156,26 +177,62 @@ private fun MoonTvApp(
                                 )
                             },
                         )
-                        is AppRoute.Home -> HomeScreen(
-                            siteName = current.siteName,
-                            onOpenCard = { target ->
-                                currentRoute = when (target) {
-                                    is HomeTarget.SourceSearch -> AppRoute.Search(target.title)
-                                    is HomeTarget.Detail ->
-                                        AppRoute.Detail(target.source, target.videoId, target.videoId)
-                                    is HomeTarget.Resume ->
-                                        AppRoute.Detail(target.source, target.videoId, "继续观看")
-                                }
-                            },
-                            onOpenSearch = { currentRoute = AppRoute.Search(null) },
-                            onLogout = viewModel::logout,
-                            onChangeServer = viewModel::changeServer,
-                        )
+                        is AppRoute.Home -> {
+                            // 登录之后的外壳、首页、分类页都用共享 UI，和桌面端同一套
+                            val container = appContainer(context)
+                            val scope = rememberCoroutineScope()
+                            val shell = remember(container) { MoonTvController(container.graph, scope) }
+                            LaunchedEffect(shell) { shell.enterShell() }
+
+                            MoonTvShell(
+                                controller = shell,
+                                darkTheme = darkTheme,
+                                onOpenTarget = { target ->
+                                    currentRoute = when (target) {
+                                        is OpenTarget.Douban -> AppRoute.Search(target.title)
+                                        is OpenTarget.Video ->
+                                            AppRoute.Detail(target.source, target.id, target.title)
+                                        is OpenTarget.Resume ->
+                                            AppRoute.Detail(target.source, target.id, target.title)
+                                    }
+                                },
+                                onOpenSearch = { currentRoute = AppRoute.Search(null) },
+                                onOpenSettings = { showSettings = true },
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SettingsDialog(
+    siteName: String,
+    onDismiss: () -> Unit,
+    onLogout: () -> Unit,
+    onChangeServer: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(siteName.ifBlank { "设置" }) },
+        text = {
+            Column {
+                Text(
+                    text = "收藏、播放历史与设置页还在原生侧逐步接入，这里先提供账号相关操作。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onChangeServer) { Text("更换服务器") }
+        },
+        dismissButton = {
+            TextButton(onClick = onLogout) { Text("退出登录") }
+        },
+    )
 }
 
 @Composable

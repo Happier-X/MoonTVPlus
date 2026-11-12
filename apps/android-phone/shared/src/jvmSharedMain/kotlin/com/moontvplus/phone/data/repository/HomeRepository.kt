@@ -100,9 +100,14 @@ class HomeRepository(
         )
     }
 
+    /** 分类页：电影 / 剧集 / 动漫 / 综艺都走同一个豆瓣分类接口。 */
+    suspend fun category(kind: String, category: String, type: String): List<DoubanItem> =
+        withContext(Dispatchers.IO) {
+            api.doubanCategories(kind, category, type).requireBody().list
+        }
+
     /** 继续观看：服务端播放记录按保存时间倒序。 */
-    suspend fun continueWatching(): Result<List<ContinueItem>> = withContext(Dispatchers.IO) {
-        safeFetch {
+    suspend fun continueWatching(): Result<List<ContinueItem>> = withContext(Dispatchers.IO) {        safeFetch {
             api.playRecords().requireBody()
                 .map { (key, record) -> ContinueItem(key, record) }
                 .sortedByDescending { it.record.saveTime }

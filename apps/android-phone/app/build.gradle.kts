@@ -126,6 +126,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
 
     implementation(project(":shared"))
+    implementation(project(":ui"))
 
     implementation(platform("com.squareup.okhttp3:okhttp-bom:4.12.0"))
     implementation("com.squareup.okhttp3:okhttp")
