@@ -6,6 +6,7 @@ import com.moontvplus.phone.core.model.DoubanCategoriesResponse
 import com.moontvplus.phone.core.model.LoginRequest
 import com.moontvplus.phone.core.model.LoginResponse
 import com.moontvplus.phone.core.model.PlayRecord
+import com.moontvplus.phone.core.model.SavePlayRecordRequest
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.ServerConfig
 import com.moontvplus.phone.core.model.TmdbItem
@@ -61,6 +62,9 @@ interface MoonApi {
 
     @GET("api/playrecords")
     suspend fun playRecords(): Response<Map<String, PlayRecord>>
+
+    @POST("api/playrecords")
+    suspend fun savePlayRecord(@Body body: SavePlayRecordRequest): Response<Unit>
 
     // ---- 搜索 ----
 

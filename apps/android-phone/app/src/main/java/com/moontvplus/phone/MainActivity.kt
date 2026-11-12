@@ -27,16 +27,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.ui.theme.MoonTvTheme
 import com.moontvplus.phone.feature.AppUiState
 import com.moontvplus.phone.feature.AppViewModel
-import com.moontvplus.phone.feature.common.ComingSoonScreen
+import com.moontvplus.phone.feature.detail.DetailScreen
 import com.moontvplus.phone.feature.home.HomeScreen
 import com.moontvplus.phone.feature.home.HomeTarget
 import com.moontvplus.phone.feature.login.LoginScreen
+import com.moontvplus.phone.feature.player.PlayerActivity
 import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -81,6 +83,7 @@ private fun MoonTvApp(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val editingServer by viewModel.editingServer.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
 
     LaunchedEffect(openSettingsRequest.value) {
@@ -127,10 +130,23 @@ private fun MoonTvApp(
                                 currentRoute = AppRoute.Detail(source, videoId, title)
                             },
                         )
-                        is AppRoute.Detail -> ComingSoonScreen(
-                            title = route.title.ifBlank { "详情" },
-                            detail = "详情页与播放器在下一步接入",
+                        is AppRoute.Detail -> DetailScreen(
+                            source = route.source,
+                            videoId = route.videoId,
+                            fallbackTitle = route.title,
                             onBack = { currentRoute = AppRoute.Home },
+                            onPlay = { index, positionMs ->
+                                context.startActivity(
+                                    PlayerActivity.intent(
+                                        context = context,
+                                        source = route.source,
+                                        videoId = route.videoId,
+                                        title = route.title,
+                                        index = index,
+                                        positionMs = positionMs,
+                                    )
+                                )
+                            },
                         )
                         is AppRoute.Home -> HomeScreen(
                             siteName = current.siteName,

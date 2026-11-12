@@ -144,6 +144,23 @@ data class PlayRecord(
     val isFinished: Boolean get() = totalEpisodes > 0 && index >= totalEpisodes
 }
 
+/** 上报播放记录用的请求体，字段名必须与服务端一致。 */
+@Serializable
+data class PlayRecordBody(
+    val title: String,
+    @SerialName("source_name") val sourceName: String,
+    val year: String = "",
+    val cover: String = "",
+    val index: Int = 1,
+    @SerialName("total_episodes") val totalEpisodes: Int = 0,
+    @SerialName("play_time") val playTime: Double = 0.0,
+    @SerialName("total_time") val totalTime: Double = 0.0,
+    @SerialName("save_time") val saveTime: Long = 0L,
+)
+
+@Serializable
+data class SavePlayRecordRequest(val key: String, val record: PlayRecordBody)
+
 /** 播放记录 + 它的 map key（`"<source>+<id>"`）。 */
 data class ContinueItem(val key: String, val record: PlayRecord) {
     val source: String get() = key.substringBefore('+')
