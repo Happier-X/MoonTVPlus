@@ -200,6 +200,23 @@ private fun MoonTvApp(
                                             AppRoute.Detail(target.source, target.id, target.title)
                                     }
                                 },
+                                onPlay = { request ->
+                                    // 共享详情页的「播放」交给原生播放器（ExoPlayer + PiP）
+                                    context.startActivity(
+                                        PlayerActivity.intent(
+                                            context = context,
+                                            source = request.source,
+                                            videoId = request.videoId,
+                                            title = request.title,
+                                            index = request.index + 1,
+                                            positionMs = if (request.index == shell.detail.resumeIndex) {
+                                                shell.detail.resumePositionMs
+                                            } else {
+                                                0L
+                                            },
+                                        )
+                                    )
+                                },
                                 onOpenSearch = { currentRoute = AppRoute.Search(null) },
                                 onOpenSettings = { showSettings = true },
                             )

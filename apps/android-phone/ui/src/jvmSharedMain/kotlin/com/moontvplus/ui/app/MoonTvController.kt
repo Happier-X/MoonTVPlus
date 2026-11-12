@@ -312,6 +312,7 @@ class MoonTvController(
                         episodes = episodes,
                         favorite = favorite,
                         resumeIndex = resumeIndex,
+                        resumePositionMs = ((record?.playTime ?: 0.0) * 1000).toLong().coerceAtLeast(0L),
                         hasResume = (record?.playTime ?: 0.0) > 0.0 && episodes.isNotEmpty(),
                         playHint = playHint,
                     )

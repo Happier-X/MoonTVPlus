@@ -46,6 +46,8 @@ data class DetailUiState(
     val favorite: Boolean = false,
     val favoriteBusy: Boolean = false,
     val resumeIndex: Int = 0,
+    /** 续播位置（毫秒），只有 [hasResume] 为 true 时有意义 */
+    val resumePositionMs: Long = 0L,
     val hasResume: Boolean = false,
     val playHint: String? = null,
 )
