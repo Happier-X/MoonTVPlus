@@ -597,7 +597,7 @@ export default function BannerCarousel({
 
           <div className='flex items-center gap-2 md:gap-3 text-sm md:text-base text-white/90 flex-wrap'>
             {currentItem.vote_average > 0 && (
-              <span className='px-2 py-1 bg-yellow-500 text-black font-semibold rounded'>
+              <span className='w-[30px] h-[30px] shrink-0 rounded-full bg-[#E91E63] text-white text-[13px] font-bold flex items-center justify-center shadow-[0_2px_6px_rgba(0,0,0,0.3)]'>
                 {currentItem.vote_average.toFixed(1)}
               </span>
             )}
@@ -643,7 +643,7 @@ export default function BannerCarousel({
               e.stopPropagation();
               handlePlay(currentItem.title);
             }}
-            className='hidden md:flex items-center gap-2 px-6 py-3 bg-gray-500/30 hover:bg-gray-500/50 backdrop-blur-sm text-white font-semibold rounded-lg transition-all pointer-events-auto'
+            className='hidden md:flex items-center gap-2 px-6 py-3 bg-green-500/90 hover:bg-green-400 backdrop-blur-sm text-white font-semibold rounded-lg transition-all pointer-events-auto shadow-[0_4px_14px_rgba(39,174,96,0.35)]'
           >
             <Play className='w-5 h-5 fill-white' />
             立即播放

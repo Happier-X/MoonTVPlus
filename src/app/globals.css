@@ -1206,3 +1206,43 @@ html[data-loading-style='grid'] .mtv-err-box {
     transform: scale(0.85);
   }
 }
+
+/* ---- Selene 评分角标：所有样式统一成粉色圆形 ---- */
+/* Selene 的 video_card 用 30x30 圆点 + #E91E63 底 + 白色 12 号粗体，
+   这里把 default / flag / medal 三套装饰（星星、绶带、旗形裁剪）统一覆盖掉。 */
+.mtv-rate,
+.mtv-rate-flag,
+.mtv-rate-medal {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin: 0;
+  clip-path: none;
+  border-radius: 999px;
+  background: #e91e63;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: none;
+  border: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 3;
+}
+.mtv-rate.hi,
+.mtv-rate.mid,
+.mtv-rate.lo {
+  background: #e91e63;
+  color: #fff;
+}
+.mtv-rate .mtv-rate-stars,
+.mtv-rate .mtv-rate-ribbons,
+.mtv-rate .mtv-rate-disc {
+  display: none !important;
+}
