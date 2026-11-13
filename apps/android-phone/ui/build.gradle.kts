@@ -43,6 +43,15 @@ kotlin {
             }
         }
 
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test-junit"))
+                implementation(compose.desktop.uiTestJUnit4)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+                implementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+            }
+        }
+
         /** Android 的海报加载用 Coil（复用已配好鉴权的 ImageLoader）。 */
         val androidMain by getting {
             dependsOn(jvmSharedMain)

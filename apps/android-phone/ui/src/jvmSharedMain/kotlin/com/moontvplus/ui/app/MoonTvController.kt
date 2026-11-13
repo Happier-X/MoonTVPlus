@@ -188,6 +188,8 @@ class MoonTvController(
 
     fun selectTab(next: MainTab) {
         if (tab == next) return
+        // 底部导航是平级切换，不算一层返回
+        tabBackStack.clear()
         tab = next
         when {
             next == MainTab.HOME -> if (home.sections.isEmpty()) refreshHome()
@@ -197,12 +199,38 @@ class MoonTvController(
 
     // ---- 页面栈 ------------------------------------------------------------
 
+    /** 页面栈里的一项：页面本身 + 离开详情时保存的详情状态，返回时原样还原。 */
+    private data class Page(val screen: ShellScreen, val detail: DetailUiState? = null)
+
+    private val backStack = ArrayList<Page>()
+
+    /** 「查看更多」跳分类页时记下来源标签页，返回时退回去；底部导航切换不计入。 */
+    private val tabBackStack = ArrayList<MainTab>()
+
+    /**
+     * 每次导航自增。按标题搜索是异步的，回来时若用户已经返回，
+     * token 对不上就直接丢弃结果，避免把用户重新拽回详情页。
+     */
+    private var navigationToken = 0
+
     var screen by mutableStateOf<ShellScreen>(ShellScreen.Main)
         private set
     var detail by mutableStateOf(DetailUiState())
         private set
     var library by mutableStateOf(LibraryUiState())
         private set
+
+    private fun push(next: ShellScreen) {
+        navigationToken++
+        if (next == screen) return
+        if (screen is ShellScreen.Detail && next is ShellScreen.Detail) {
+            // 详情页之间互相跳（例如搜索完补上真实片源）就原地替换，不叠返回栈
+            screen = next
+            return
+        }
+        backStack.add(Page(screen, if (screen is ShellScreen.Detail) detail else null))
+        screen = next
+    }
 
     /** 详情页用未代理的原始封面，写收藏时服务端要的是原始地址。 */
     private var detailRawPoster: String? = null
@@ -232,10 +260,13 @@ class MoonTvController(
             intercept(title)
             return
         }
-        screen = ShellScreen.Detail("", "", title)
+        push(ShellScreen.Detail("", "", title))
+        val token = navigationToken
         detail = DetailUiState(loading = true, title = title, playHint = "正在搜索片源…")
         scope.launch {
             val result = graph.searchRepository.searchOnce(title)
+            // 搜索期间用户已经返回或去了别的页面：结果作废
+            if (token != navigationToken) return@launch
             val best = result.getOrNull()
                 ?.filter { it.id.isNotBlank() && it.episodes.isNotEmpty() }
                 ?.maxByOrNull { it.weight ?: 0.0 }
@@ -246,7 +277,6 @@ class MoonTvController(
                     title = title,
                     error = result.exceptionOrNull()?.message ?: "没有搜到可播放的片源",
                 )
-                screen = ShellScreen.Detail("", "", title)
                 return@launch
             }
             openDetail(
@@ -258,12 +288,13 @@ class MoonTvController(
     }
 
     fun openDetail(source: String, videoId: String, title: String) {
-        screen = ShellScreen.Detail(source, videoId, title)
+        // 详情页之间互相跳时不叠加返回栈，只在从主界面/收藏页进入时记一层
+        push(ShellScreen.Detail(source, videoId, title))
         loadDetail(source, videoId, title)
     }
 
     fun openLibrary(tab: LibraryTab = LibraryTab.FAVORITES) {
-        screen = ShellScreen.Library
+        push(ShellScreen.Library)
         library = library.copy(tab = tab, loading = true, error = null)
         loadLibrary()
     }
@@ -272,7 +303,39 @@ class MoonTvController(
         library = library.copy(tab = tab)
     }
 
+    /** 首页区块的「更多」：跳分类页，同时记住来源标签页，返回时退回原页。 */
+    fun openSectionTab(next: MainTab) {
+        if (tab == next) return
+        if (tabBackStack.isEmpty() || tabBackStack.last() != tab) tabBackStack.add(tab)
+        navigationToken++
+        tab = next
+        if (next == MainTab.HOME) {
+            if (home.sections.isEmpty()) refreshHome()
+        } else if (next.isBrowse && browse.items.isEmpty()) {
+            loadBrowse(next)
+        }
+    }
+
+    /**
+     * 返回上一页：
+     * 详情 / 收藏页 → 出栈回到进入前的那一页；
+     * 主界面 → 先退回「查看更多」之前的标签页；
+     * 都没有 → 停留在主界面。
+     */
     fun back() {
+        navigationToken++
+        if (backStack.isNotEmpty()) {
+            val page = backStack.removeAt(backStack.lastIndex)
+            screen = page.screen
+            detail = page.detail ?: DetailUiState()
+            // 在详情页可能改过收藏，退回收藏页时静默刷新一次列表
+            if (page.screen == ShellScreen.Library) loadLibrary()
+            return
+        }
+        if (screen == ShellScreen.Main && tabBackStack.isNotEmpty()) {
+            tab = tabBackStack.removeAt(tabBackStack.lastIndex)
+            return
+        }
         screen = ShellScreen.Main
         detail = DetailUiState()
     }

@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +47,7 @@ import com.moontvplus.phone.feature.server.ServerSetupScreen
 import com.moontvplus.ui.app.MoonTvController
 import com.moontvplus.ui.app.MoonTvShell
 import com.moontvplus.ui.model.OpenTarget
+import com.moontvplus.ui.model.ShellScreen
 
 /** 桌面图标的「服务器设置」快捷方式走这个 action。 */
 const val ACTION_OPEN_SETTINGS = "com.moontvplus.phone.OPEN_SETTINGS"
@@ -107,7 +109,19 @@ private fun MoonTvApp(
         }
     }
 
-    BackHandler(enabled = currentRoute !is AppRoute.Home) { currentRoute = AppRoute.Home }
+    // 共享外壳里的详情 / 收藏页也要吃掉系统返回键，先退共享页面，再退原生路由
+    var shellController by remember { mutableStateOf<MoonTvController?>(null) }
+    BackHandler(
+        enabled = currentRoute !is AppRoute.Home || shellController?.screen != null &&
+            shellController?.screen != ShellScreen.Main,
+    ) {
+        val shell = shellController
+        if (currentRoute == AppRoute.Home && shell != null && shell.screen != ShellScreen.Main) {
+            shell.back()
+        } else {
+            currentRoute = AppRoute.Home
+        }
+    }
 
     val darkTheme = when (settings.themeMode) {
         "light" -> false
@@ -182,6 +196,7 @@ private fun MoonTvApp(
                             val container = appContainer(context)
                             val scope = rememberCoroutineScope()
                             val shell = remember(container) { MoonTvController(container.graph, scope) }
+                            SideEffect { shellController = shell }
                             LaunchedEffect(shell) {
                                 // 安卓端保留自己的搜索页（能挑源），豆瓣卡片走它
                                 shell.onNeedSearch = { title -> currentRoute = AppRoute.Search(title) }

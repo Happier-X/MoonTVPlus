@@ -160,8 +160,8 @@ private fun MainShell(
                     state = controller.home,
                     onItemClick = { item -> controller.open(item.target) },
                     onMore = { section ->
-                        // 「更多」跳到对应分类页
-                        sectionToTab(section.id)?.let(controller::selectTab)
+                        // 「更多」跳到对应分类页；返回时回到原来的标签页
+                        sectionToTab(section.id)?.let(controller::openSectionTab)
                     },
                 )
 
