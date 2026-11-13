@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -134,107 +135,112 @@ private fun MoonTvApp(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-            if (showSettings) {
-                SettingsDialog(
-                    siteName = (state as? AppUiState.LoggedIn)?.siteName.orEmpty(),
-                    onDismiss = { showSettings = false },
-                    onLogout = {
-                        showSettings = false
-                        viewModel.logout()
-                    },
-                    onChangeServer = {
-                        showSettings = false
-                        viewModel.changeServer()
-                    },
-                )
-            }
+            // 主 Activity 的所有页面统一避让并消费系统安全区域。
+            // 子页面已有的 safeDrawingPadding 只会处理尚未消费的部分，不会重复留白。
+            // 播放器使用独立 Activity，仍由它自己控制全屏画面与控件边距。
+            Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                if (showSettings) {
+                    SettingsDialog(
+                        siteName = (state as? AppUiState.LoggedIn)?.siteName.orEmpty(),
+                        onDismiss = { showSettings = false },
+                        onLogout = {
+                            showSettings = false
+                            viewModel.logout()
+                        },
+                        onChangeServer = {
+                            showSettings = false
+                            viewModel.changeServer()
+                        },
+                    )
+                }
 
-            if (editingServer) {
-                ServerSetupScreen(
-                    onDone = viewModel::onServerSaved,
-                    onCancel = viewModel::closeServerEditor,
-                )
-            } else {
-                when (val current = state) {
-                    is AppUiState.Loading -> LoadingBox()
-                    is AppUiState.NeedServer -> ServerSetupScreen(
+                if (editingServer) {
+                    ServerSetupScreen(
                         onDone = viewModel::onServerSaved,
+                        onCancel = viewModel::closeServerEditor,
                     )
-                    is AppUiState.NeedLogin -> LoginScreen(
-                        reason = current.reason,
-                        onLoggedIn = viewModel::onLoggedIn,
-                        onChangeServer = viewModel::changeServer,
-                    )
-                    is AppUiState.LoggedIn -> when (val route = currentRoute) {
-                        is AppRoute.Search -> SearchScreen(
-                            initialQuery = route.query,
-                            onBack = { currentRoute = AppRoute.Home },
-                            onOpenDetail = { source, videoId, title ->
-                                currentRoute = AppRoute.Detail(source, videoId, title)
-                            },
+                } else {
+                    when (val current = state) {
+                        is AppUiState.Loading -> LoadingBox()
+                        is AppUiState.NeedServer -> ServerSetupScreen(
+                            onDone = viewModel::onServerSaved,
                         )
-                        is AppRoute.Detail -> DetailScreen(
-                            source = route.source,
-                            videoId = route.videoId,
-                            fallbackTitle = route.title,
-                            onBack = { currentRoute = AppRoute.Home },
-                            onPlay = { index, positionMs ->
-                                context.startActivity(
-                                    PlayerActivity.intent(
-                                        context = context,
-                                        source = route.source,
-                                        videoId = route.videoId,
-                                        title = route.title,
-                                        index = index,
-                                        positionMs = positionMs,
-                                    )
-                                )
-                            },
+                        is AppUiState.NeedLogin -> LoginScreen(
+                            reason = current.reason,
+                            onLoggedIn = viewModel::onLoggedIn,
+                            onChangeServer = viewModel::changeServer,
                         )
-                        is AppRoute.Home -> {
-                            // 登录之后的外壳、首页、分类页都用共享 UI，和桌面端同一套
-                            val container = appContainer(context)
-                            val scope = rememberCoroutineScope()
-                            val shell = remember(container) { MoonTvController(container.graph, scope) }
-                            SideEffect { shellController = shell }
-                            LaunchedEffect(shell) {
-                                // 安卓端保留自己的搜索页（能挑源），豆瓣卡片走它
-                                shell.onNeedSearch = { title -> currentRoute = AppRoute.Search(title) }
-                                shell.enterShell()
-                            }
-
-                            MoonTvShell(
-                                controller = shell,
-                                darkTheme = darkTheme,
-                                onOpenTarget = { target ->
-                                    currentRoute = when (target) {
-                                        is OpenTarget.Douban -> AppRoute.Search(target.title)
-                                        is OpenTarget.Video ->
-                                            AppRoute.Detail(target.source, target.id, target.title)
-                                        is OpenTarget.Resume ->
-                                            AppRoute.Detail(target.source, target.id, target.title)
-                                    }
+                        is AppUiState.LoggedIn -> when (val route = currentRoute) {
+                            is AppRoute.Search -> SearchScreen(
+                                initialQuery = route.query,
+                                onBack = { currentRoute = AppRoute.Home },
+                                onOpenDetail = { source, videoId, title ->
+                                    currentRoute = AppRoute.Detail(source, videoId, title)
                                 },
-                                onPlay = { request ->
-                                    // 共享详情页的「播放」交给原生播放器（ExoPlayer + PiP）
+                            )
+                            is AppRoute.Detail -> DetailScreen(
+                                source = route.source,
+                                videoId = route.videoId,
+                                fallbackTitle = route.title,
+                                onBack = { currentRoute = AppRoute.Home },
+                                onPlay = { index, positionMs ->
                                     context.startActivity(
                                         PlayerActivity.intent(
                                             context = context,
-                                            source = request.source,
-                                            videoId = request.videoId,
-                                            title = request.title,
-                                            index = request.index + 1,
-                                            positionMs = if (request.index == shell.detail.resumeIndex) {
-                                                shell.detail.resumePositionMs
-                                            } else {
-                                                0L
-                                            },
+                                            source = route.source,
+                                            videoId = route.videoId,
+                                            title = route.title,
+                                            index = index,
+                                            positionMs = positionMs,
                                         )
                                     )
                                 },
-                                onOpenSearch = { currentRoute = AppRoute.Search(null) },
-                                onOpenSettings = { showSettings = true },
                             )
+                            is AppRoute.Home -> {
+                                // 登录之后的外壳、首页、分类页都用共享 UI，和桌面端同一套
+                                val container = appContainer(context)
+                                val scope = rememberCoroutineScope()
+                                val shell = remember(container) { MoonTvController(container.graph, scope) }
+                                SideEffect { shellController = shell }
+                                LaunchedEffect(shell) {
+                                    // 安卓端保留自己的搜索页（能挑源），豆瓣卡片走它
+                                    shell.onNeedSearch = { title -> currentRoute = AppRoute.Search(title) }
+                                    shell.enterShell()
+                                }
+
+                                MoonTvShell(
+                                    controller = shell,
+                                    darkTheme = darkTheme,
+                                    onOpenTarget = { target ->
+                                        currentRoute = when (target) {
+                                            is OpenTarget.Douban -> AppRoute.Search(target.title)
+                                            is OpenTarget.Video ->
+                                                AppRoute.Detail(target.source, target.id, target.title)
+                                            is OpenTarget.Resume ->
+                                                AppRoute.Detail(target.source, target.id, target.title)
+                                        }
+                                    },
+                                    onPlay = { request ->
+                                        // 共享详情页的「播放」交给原生播放器（ExoPlayer + PiP）
+                                        context.startActivity(
+                                            PlayerActivity.intent(
+                                                context = context,
+                                                source = request.source,
+                                                videoId = request.videoId,
+                                                title = request.title,
+                                                index = request.index + 1,
+                                                positionMs = if (request.index == shell.detail.resumeIndex) {
+                                                    shell.detail.resumePositionMs
+                                                } else {
+                                                    0L
+                                                },
+                                            )
+                                        )
+                                    },
+                                    onOpenSearch = { currentRoute = AppRoute.Search(null) },
+                                    onOpenSettings = { showSettings = true },
+                                )
+                            }
                         }
                     }
                 }
