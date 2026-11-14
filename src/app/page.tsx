@@ -53,10 +53,10 @@ function HomeClient() {
   const { announcement, announcementDisplayMode } = useSite();
   // 首页模块配置状态
   const [homeModules, setHomeModules] = useState<HomeModule[]>([
-    { id: 'hotTvShows', name: '热门剧集', enabled: true, order: 0 },
-    { id: 'hotMovies', name: '热门电影', enabled: true, order: 1 },
-    { id: 'hotDuanju', name: '热播短剧', enabled: true, order: 2 },
-    { id: 'bangumiCalendar', name: '新番放送', enabled: true, order: 3 },
+    { id: 'hotMovies', name: '热门电影', enabled: true, order: 0 },
+    { id: 'hotDuanju', name: '热播短剧', enabled: true, order: 1 },
+    { id: 'bangumiCalendar', name: '新番放送', enabled: true, order: 2 },
+    { id: 'hotTvShows', name: '热门剧集', enabled: true, order: 3 },
     { id: 'hotVarietyShows', name: '热门综艺', enabled: true, order: 4 },
     { id: 'upcomingContent', name: '即将上映', enabled: true, order: 5 },
   ]);
