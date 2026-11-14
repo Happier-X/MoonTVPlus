@@ -124,25 +124,6 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
       const { source, id, title } = notification.metadata;
       router.push(`/play?source=${source}&id=${id}&title=${encodeURIComponent(title)}`);
       onClose();
-    } else if (notification.type === 'manga_update' && notification.metadata) {
-      const { sourceId, mangaId, title, cover, sourceName } = notification.metadata;
-      const params = new URLSearchParams({
-        sourceId,
-        mangaId,
-        title: title || '',
-        cover: cover || '',
-        sourceName: sourceName || '',
-      });
-      router.push(`/manga/detail?${params.toString()}`);
-      onClose();
-    } else if (notification.type === 'movie_request') {
-      // 获取用户角色
-      const authInfo = getAuthInfoFromBrowserCookie();
-      const isAdmin = authInfo?.role === 'owner' || authInfo?.role === 'admin';
-
-      // 管理员跳转到管理面板，普通用户跳转到我的求片
-      router.push(isAdmin ? '/admin' : '/movie-request');
-      onClose();
     }
   };
 

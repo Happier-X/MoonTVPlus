@@ -1,7 +1,6 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import {
   DanmakuFilterConfig,
   Favorite,
@@ -574,90 +573,6 @@ export class DbManager {
 
   async deleteSearchHistory(userName: string, keyword?: string): Promise<void> {
     await this.storage.deleteSearchHistory(userName, keyword);
-  }
-
-  // ---------- 漫画书架 ----------
-  async getMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<MangaShelfItem | null> {
-    return this.storage.getMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
-
-  async saveMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string,
-    item: MangaShelfItem
-  ): Promise<void> {
-    await this.storage.setMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId),
-      item
-    );
-  }
-
-  async getAllMangaShelf(
-    userName: string
-  ): Promise<{ [key: string]: MangaShelfItem }> {
-    return this.storage.getAllMangaShelf(userName);
-  }
-
-  async deleteMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<void> {
-    await this.storage.deleteMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
-
-  // ---------- 漫画阅读历史 ----------
-  async getMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<MangaReadRecord | null> {
-    return this.storage.getMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
-
-  async saveMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string,
-    record: MangaReadRecord
-  ): Promise<void> {
-    await this.storage.setMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId),
-      record
-    );
-  }
-
-  async getAllMangaReadRecords(
-    userName: string
-  ): Promise<{ [key: string]: MangaReadRecord }> {
-    return this.storage.getAllMangaReadRecords(userName);
-  }
-
-  async deleteMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<void> {
-    await this.storage.deleteMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
   }
 
   // 获取全部用户名

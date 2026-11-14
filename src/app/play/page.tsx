@@ -74,7 +74,6 @@ import {
   pruneLocalEpisodeProgressStorage,
   saveLocalEpisodeProgress,
 } from '@/lib/episode-progress';
-import { isNetdiskSource, normalizeNetdiskSource } from '@/lib/netdisk/source';
 import {
   calculateSeekTime,
   DEFAULT_QUICK_FORWARD_SECONDS,
@@ -126,7 +125,6 @@ import LoadingStyle, {
   type LoadingStep,
 } from '@/components/LoadingStyle';
 import PageLayout from '@/components/PageLayout';
-import PansouSearch from '@/components/PansouSearch';
 import ProxyImage from '@/components/ProxyImage';
 import { useSite } from '@/components/SiteProvider';
 import SmartRecommendations from '@/components/SmartRecommendations';
@@ -168,7 +166,6 @@ interface SearchCachePayload {
 type CustomSubtitleEngine = 'native' | 'jassub' | 'bitsub';
 type PlaybackSourceBadge = 'local' | 'offline' | null;
 type HarmonyHlsPlaybackMode = 'hlsjs' | 'native';
-type NetdiskHlsPlaybackMode = 'hlsjs' | 'native';
 
 interface CustomSubtitleState {
   name: string;
@@ -204,7 +201,6 @@ interface JassubSubtitleInstance {
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const HARMONY_HLS_PLAYBACK_MODE_KEY = 'harmony_hls_playback_mode';
-const NETDISK_HLS_PLAYBACK_MODE_KEY = 'netdisk_hls_playback_mode';
 const JASSUB_ASSET_BASE = '/assets/jassub';
 const JASSUB_CJK_FONT_FAMILY = 'noto sans cjk sc';
 const JASSUB_CJK_FONT_URL = `${JASSUB_ASSET_BASE}/NotoSansCJK-Regular.ttc`;
@@ -286,7 +282,6 @@ const VIDEO_LOAD_STEPS: LoadingStep[] = [
 ];
 
 function PlayPageClient() {
-  const LOCAL_TRANSCODER_BASE_URL = 'http://localhost:19080';
   const router = useRouter();
   const searchParams = useSearchParams();
   const enableComments = useEnableComments();
@@ -360,9 +355,6 @@ function PlayPageClient() {
   // 收藏状态
   const [favorited, setFavorited] = useState(false);
 
-  // 网盘搜索弹窗状态
-  const [showPansouDialog, setShowPansouDialog] = useState(false);
-  const [netdiskSearchEnabled, setNetdiskSearchEnabled] = useState(false);
 
   // AI问片状态
   const [showAIChat, setShowAIChat] = useState(false);
@@ -407,13 +399,10 @@ function PlayPageClient() {
   }, []);
 
   // 抽屉管理：打开指定抽屉时关闭其他抽屉
-  const openDrawer = (drawerName: 'pansou' | 'aiChat' | 'detail') => {
+  const openDrawer = (drawerName: 'aiChat' | 'detail') => {
     if (!isLargeScreen) {
       // 小屏设备不需要互斥
       switch (drawerName) {
-        case 'pansou':
-          setShowPansouDialog(true);
-          break;
         case 'aiChat':
           setShowAIChat(true);
           break;
@@ -425,7 +414,6 @@ function PlayPageClient() {
     }
 
     // 大屏设备：关闭其他抽屉
-    setShowPansouDialog(drawerName === 'pansou');
     setShowAIChat(drawerName === 'aiChat');
     setShowDetailPanel(drawerName === 'detail');
   };
@@ -443,14 +431,6 @@ function PlayPageClient() {
       if (defaultMsg) {
         setAiDefaultMessageWithVideo(defaultMsg);
       }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setNetdiskSearchEnabled(
-        !!(window as any).RUNTIME_CONFIG?.NETDISK_SEARCH_ENABLED
-      );
     }
   }, []);
 
@@ -731,7 +711,6 @@ function PlayPageClient() {
   const [showDanmakuFilterSettings, setShowDanmakuFilterSettings] = useState(false);
   const [currentSearchKeyword, setCurrentSearchKeyword] = useState<string>(''); // 当前搜索使用的关键词
   const [toast, setToast] = useState<ToastProps | null>(null);
-  const [isTranscoding, setIsTranscoding] = useState(false);
 
   useEffect(() => {
     danmakuSettingsRef.current = danmakuSettings;
@@ -812,61 +791,13 @@ function PlayPageClient() {
 
   // 纠错后的描述信息（用于显示，不触发 detail 更新）
   const [correctedDesc, setCorrectedDesc] = useState<string>('');
-  const [netdiskTMDBMeta, setNetdiskTMDBMeta] = useState<{
-    desc?: string;
-    poster?: string;
-    year?: string;
-    tmdbId?: number;
-  } | null>(null);
-  const [pendingNetdiskTMDBData, setPendingNetdiskTMDBData] = useState<any | null>(null);
-
   // 当前源和ID - source 直接存储完整格式
-  const [currentSource, setCurrentSource] = useState(normalizeNetdiskSource(searchParams.get('source')) || '');
+  const [currentSource, setCurrentSource] = useState(searchParams.get('source') || '');
   const [currentId, setCurrentId] = useState(searchParams.get('id') || '');
   const isDirectPlay = currentSource === 'directplay';
 
-  useEffect(() => {
-    setNetdiskTMDBMeta(null);
-    setPendingNetdiskTMDBData(null);
-  }, [currentSource, currentId]);
-
   const isLazyDetailSource = (source?: string) =>
     Boolean(source && source.startsWith('script:'));
-
-  /** 网盘挂载类源：netdisk-* 挂载网盘，视频无广告，可用原生 HLS 直连播放 */
-  const isNetdiskMountSource = (source?: string | null) =>
-    Boolean(source && isNetdiskSource(source));
-
-  /** 网盘挂载视频是否启用原生 HLS（仅支持原生 HLS 的浏览器且用户开启时生效） */
-  const isNetdiskNativeHlsActive = (source?: string | null) =>
-    isNetdiskMountSource(source) &&
-    supportsNativeHls &&
-    netdiskHlsPlaybackMode === 'native';
-
-  /** 网盘类源：配合 moontvplus-extension 跨域媒体模块，供 Anime4K 等读帧 */
-  const needsPrivateSourceCrossOrigin = (source?: string | null) =>
-    Boolean(source && isNetdiskSource(source));
-
-  const applyVideoCrossOrigin = (
-    video: HTMLVideoElement | null,
-    source?: string | null
-  ) => {
-    if (!video) return;
-    // 网盘类直链先乐观 CORS 模式加载：配「moontvplus 扩展」注入 ACAO，
-    // Anime4K 才能读帧超分。网盘挂载原生 HLS 也先试 CORS，无 ACAO 的 CDN
-    // 首次播放 error 时一次性回退 no-cors（见 error 处理器）。
-    if (
-      needsPrivateSourceCrossOrigin(source ?? currentSourceRef.current) &&
-      !mediaCorsFallbackRef.current
-    ) {
-      if (video.crossOrigin !== 'anonymous') {
-        video.crossOrigin = 'anonymous';
-      }
-    } else if (video.crossOrigin) {
-      // 切回普通源时去掉，避免无 CORS 的 CDN 在 CORS 模式下播挂
-      video.crossOrigin = null;
-    }
-  };
 
   const isM3u8LikeUrl = (url?: string) => {
     if (!url) return false;
@@ -1586,7 +1517,6 @@ function PlayPageClient() {
             if (!videoDoubanId || videoDoubanId === 0) {
               populateDoubanFieldsFromTMDB(detailsCache);
             }
-            populatePlayMetadataFromTMDB(detailsCache);
             return;
           }
         }
@@ -1615,7 +1545,6 @@ function PlayPageClient() {
         if (!videoDoubanId || videoDoubanId === 0) {
           populateDoubanFieldsFromTMDB(result);
         }
-        populatePlayMetadataFromTMDB(result);
 
         // 保存title到tmdbId的映射到localStorage（1个月）
         if (result.tmdbId) {
@@ -1636,58 +1565,7 @@ function PlayPageClient() {
       }
     };
 
-    const populatePlayMetadataFromTMDB = (tmdbData: any) => {
-      const currentDetail = detailRef.current;
-      if (!currentDetail || !isNetdiskSource(currentDetail.source)) {
-        setPendingNetdiskTMDBData(tmdbData);
-        return;
-      }
-
-      const tmdbYear = tmdbData.releaseDate?.split('-')[0] || '';
-      const shouldReplaceDesc =
-        !currentDetail.desc ||
-        currentDetail.desc.startsWith('临时播放目录：') ||
-        currentDetail.desc.startsWith('移动云盘分享：');
-
-      const resolvedTmdbId = typeof tmdbData.tmdbId === 'string'
-        ? Number(String(tmdbData.tmdbId).split(':')[1] || 0)
-        : tmdbData.tmdbId;
-
-      setNetdiskTMDBMeta({
-        desc: shouldReplaceDesc ? (tmdbData.overview || currentDetail.desc) : currentDetail.desc,
-        poster: currentDetail.poster || tmdbData.poster || '',
-        year: currentDetail.year || tmdbYear,
-        tmdbId: currentDetail.tmdb_id || resolvedTmdbId,
-      });
-
-      setDetail((prev) => {
-        if (!prev || !isNetdiskSource(prev.source)) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          poster: prev.poster || tmdbData.poster || '',
-          year: prev.year || tmdbYear,
-          desc: shouldReplaceDesc ? (tmdbData.overview || prev.desc) : prev.desc,
-          tmdb_id: prev.tmdb_id || resolvedTmdbId,
-        };
-      });
-
-      if (tmdbData.overview && (!correctedDesc || currentDetail.desc?.startsWith('临时播放目录：'))) {
-        setCorrectedDesc(tmdbData.overview);
-      }
-
-      if (tmdbData.poster && !currentDetail.poster) {
-        setVideoCover(processImageUrl(tmdbData.poster));
-      }
-
-      if (tmdbYear && !currentDetail.year) {
-        setVideoYear(tmdbYear);
-      }
-    };
-
-    // 辅助函数：使用TMDb数据填充豆瓣字段
+      // 辅助函数：使用TMDb数据填充豆瓣字段
     const populateDoubanFieldsFromTMDB = (tmdbData: any) => {
       // 设置评分
       if (tmdbData.rating) {
@@ -1896,53 +1774,6 @@ function PlayPageClient() {
     loadTmdbEpisodeNames,
   ]);
 
-  useEffect(() => {
-    if (
-      pendingNetdiskTMDBData &&
-      isNetdiskSource(detail?.source)
-    ) {
-      const currentDetail = detail;
-      if (!currentDetail) {
-        return;
-      }
-      const pending = pendingNetdiskTMDBData;
-      setPendingNetdiskTMDBData(null);
-      const tmdbYear = pending.releaseDate?.split('-')[0] || '';
-      const shouldReplaceDesc =
-        !currentDetail.desc ||
-        currentDetail.desc.startsWith('临时播放目录：') ||
-        currentDetail.desc.startsWith('移动云盘分享：');
-      const resolvedTmdbId = typeof pending.tmdbId === 'string'
-        ? Number(String(pending.tmdbId).split(':')[1] || 0)
-        : pending.tmdbId;
-
-      setNetdiskTMDBMeta({
-        desc: shouldReplaceDesc ? (pending.overview || currentDetail.desc) : currentDetail.desc,
-        poster: currentDetail.poster || pending.poster || '',
-        year: currentDetail.year || tmdbYear,
-        tmdbId: currentDetail.tmdb_id || resolvedTmdbId,
-      });
-
-      setDetail((prev) => prev && isNetdiskSource(prev.source) ? {
-        ...prev,
-        poster: prev.poster || pending.poster || '',
-        year: prev.year || tmdbYear,
-        desc: shouldReplaceDesc ? (pending.overview || prev.desc) : prev.desc,
-        tmdb_id: prev.tmdb_id || resolvedTmdbId,
-      } : prev);
-
-      if (pending.poster && !currentDetail.poster) {
-        setVideoCover(processImageUrl(pending.poster));
-      }
-      if (tmdbYear && !currentDetail.year) {
-        setVideoYear(tmdbYear);
-      }
-      if (pending.overview) {
-        setCorrectedDesc(pending.overview);
-      }
-    }
-  }, [pendingNetdiskTMDBData, detail]);
-
   // 视频播放地址
   const [videoUrl, setVideoUrl] = useState('');
   const [playbackSourceBadge, setPlaybackSourceBadge] = useState<PlaybackSourceBadge>(null);
@@ -1974,146 +1805,14 @@ function PlayPageClient() {
     harmonyHlsPlaybackMode === 'native' &&
     externalPlayerAdBlock;
 
-  // 网盘挂载（netdisk-*）原生 HLS：Edge/Safari 可原生播放 m3u8，
-  // 直连网盘 CDN，无需代理与去广告，播放更快。仅对支持原生 HLS 的浏览器启用。
-  const [supportsNativeHls] = useState(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') {
-      return false;
-    }
-    try {
-      const video = document.createElement('video');
-      const result = video.canPlayType?.('application/vnd.apple.mpegurl');
-      return result === 'probably' || result === 'maybe';
-    } catch {
-      return false;
-    }
-  });
-  const [netdiskHlsPlaybackMode, setNetdiskHlsPlaybackMode] =
-    useState<NetdiskHlsPlaybackMode>(() => {
-      if (!supportsNativeHls) return 'hlsjs';
-      try {
-        return localStorage.getItem(NETDISK_HLS_PLAYBACK_MODE_KEY) === 'hlsjs'
-          ? 'hlsjs'
-          : 'native';
-      } catch {
-        return 'native';
-      }
-    });
-
   // 视频清晰度列表
   const [videoQualities, setVideoQualities] = useState<Array<{ name: string, url: string }>>([]);
 
-  // 当前视频是否已因 CORS 失败回退 no-cors（无扩展注入 ACAO 的 CDN 直链）。
-  // 先乐观设置 crossOrigin（配 moontvplus-extension 注入 ACAO 供 Anime4K 读帧），
-  // 首次播放 error 时一次性回退，之后不再恢复 crossOrigin。切集/换源时重置。
-  const mediaCorsFallbackRef = useRef(false);
   const isInitialLoadRef = useRef(true); // 标记是否为首次加载
   const suppressPlayRecordJumpOnNextEpisodeChangeRef = useRef(false); // 主动切集时不显示播放记录跳转提示
 
   // 视频源代理模式状态
   const [sourceProxyMode, setSourceProxyMode] = useState(false);
-
-  const resolveCurrentExternalPlaybackUrl = async () => {
-    let urlToUse = videoUrl;
-    if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
-      urlToUse = detail.episodes[currentEpisodeIndex];
-    }
-
-    if (!urlToUse) {
-      return null;
-    }
-
-    return buildAbsoluteUrl(urlToUse);
-  };
-
-  const handleCreateTranscodeSession = async () => {
-    if (isTranscoding) return;
-
-    try {
-      setIsTranscoding(true);
-      const currentPlayTime = artPlayerRef.current?.currentTime || 0;
-
-      const sourceUrl = await resolveCurrentExternalPlaybackUrl();
-      if (!sourceUrl) {
-        throw new Error('当前没有可转码的播放链接');
-      }
-
-      const requestHeaders: Record<string, string> = {};
-      if (sourceUrl.startsWith(window.location.origin)) {
-        if (document.cookie) {
-          requestHeaders.Cookie = document.cookie;
-        }
-        requestHeaders.Referer = `${window.location.origin}/`;
-      }
-
-      let response: Response;
-      try {
-        response = await fetch(`${LOCAL_TRANSCODER_BASE_URL}/v1/sessions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            url: sourceUrl,
-            headers: Object.keys(requestHeaders).length > 0 ? requestHeaders : undefined,
-            subtitle: {
-              mode: 'burn_embedded',
-              stream: 'auto',
-            },
-            refresh: false,
-          }),
-        });
-      } catch {
-        throw new Error('转码服务连接失败');
-      }
-
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.error || data?.message || `转码请求失败 (${response.status})`);
-      }
-
-      const playUrl = data?.playlist_url || data?.play_url;
-      if (!playUrl) {
-        throw new Error('转码器未返回播放地址');
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-
-      proxyAttemptedRef.current = false;
-      resumeTimeRef.current = currentPlayTime > 0 ? currentPlayTime : null;
-      setVideoQualities([]);
-      setVideoError(null);
-      setCorsFailedUrl(null);
-      setIsVideoLoading(true);
-      setVideoLoadingStage('sourceChanging');
-      setPlaybackSourceBadge(null);
-      setVideoUrl(playUrl);
-      setToast({
-        message: '转码任务已创建，等待 3 秒后已切换到转码地址',
-        type: 'success',
-        onClose: () => setToast(null),
-      });
-    } catch (error) {
-      console.error('创建转码任务失败:', error);
-      setToast({
-        message: error instanceof Error ? error.message : '创建转码任务失败',
-        type: 'error',
-        onClose: () => setToast(null),
-      });
-    } finally {
-      setIsTranscoding(false);
-    }
-  };
-
-  const showExternalTranscodeButton = Boolean(
-    detail &&
-    videoUrl &&
-    !videoUrl.startsWith('blob:') &&
-    !isM3u8LikeUrl(videoUrl) &&
-    (
-      isNetdiskSource(detail.source)
-    )
-  );
 
   // TMDB 分集名。TMDB(zh-CN)对无本地化标题的集数会返回「第 N 集」占位，
   // 与弹幕一样用 cleanEpisodeDisplayName 去集号：整列去号后无实质内容视为无有效名字（null），
@@ -2494,8 +2193,6 @@ function PlayPageClient() {
   }, []);
   const activeHarmonyHlsPlaybackModeRef =
     useRef<HarmonyHlsPlaybackMode | null>(null);
-  const activeNetdiskHlsPlaybackModeRef =
-    useRef<NetdiskHlsPlaybackMode | null>(null);
   const activeNativeHlsAdBlockRef = useRef<boolean | null>(null);
   const syncAnime4KCanvasFlip = (flip?: string) => {
     const canvas = anime4kRef.current?.canvas as HTMLCanvasElement | undefined;
@@ -3666,19 +3363,11 @@ function PlayPageClient() {
     const isEpisodeSwitchRequest = lastVideoRequestKeyRef.current !== requestKey;
     lastVideoRequestKeyRef.current = requestKey;
     const requestSeq = ++videoUrlRequestSeqRef.current;
-    mediaCorsFallbackRef.current = false;
 
     let newUrl = detailData?.episodes[episodeIndex] || '';
     let nextPlaybackSourceBadge: PlaybackSourceBadge = null;
-    // 网盘类接口先请求获取真实 URL
-    const isSpecialLazyPlayUrl =
-      newUrl.startsWith('/api/netdisk/115/play') ||
-      newUrl.startsWith('/api/netdisk/123/play') ||
-      newUrl.startsWith('/api/netdisk/quark/play') ||
-      newUrl.startsWith('/api/netdisk/uc/play') ||
-      newUrl.startsWith('/api/netdisk/baidu/play') ||
-      newUrl.startsWith('/api/source-script/play');
-
+    // 脚本源懒加载播放地址需要先请求真实 URL
+    const isSpecialLazyPlayUrl = newUrl.startsWith('/api/source-script/play');
     if (isSpecialLazyPlayUrl) {
       try {
         // 添加 format=json 参数
@@ -3708,7 +3397,7 @@ function PlayPageClient() {
         setVideoQualities([]);
       }
     } else {
-      // 非网盘类源，清空清晰度列表
+      // 非转码源，清空清晰度列表
       setVideoQualities([]);
     }
 
@@ -4038,8 +3727,6 @@ function PlayPageClient() {
     (video as any).playsInline = true;
     (video as any).webkitPlaysInline = true;
 
-    // 网盘类源：CORS 模式加载，需配套「moontvplus 扩展」注入 ACAO 后 Anime4K 才能读帧
-    applyVideoCrossOrigin(video, currentSourceRef.current);
   };
 
   const prepareHarmonyHlsReinit = () => {
@@ -4115,19 +3802,6 @@ function PlayPageClient() {
       // 隐私模式等场景可能禁用 localStorage，但不应阻止本次切换。
     }
     setHarmonyHlsPlaybackMode(mode);
-  };
-
-  const switchNetdiskHlsPlaybackMode = (mode: NetdiskHlsPlaybackMode) => {
-    if (mode === netdiskHlsPlaybackMode) return;
-
-    prepareHarmonyHlsReinit();
-
-    try {
-      localStorage.setItem(NETDISK_HLS_PLAYBACK_MODE_KEY, mode);
-    } catch {
-      // 隐私模式等场景可能禁用 localStorage，但不应阻止本次切换。
-    }
-    setNetdiskHlsPlaybackMode(mode);
   };
 
   const toggleToolbarAdBlock = () => {
@@ -5154,7 +4828,7 @@ function PlayPageClient() {
 
   // 监听 URL 参数变化，处理换源和换视频（用于房员跟随房主操作）
   useEffect(() => {
-    const urlSource = normalizeNetdiskSource(searchParams.get('source'));
+    const urlSource = searchParams.get('source');
     const urlId = searchParams.get('id');
 
     // 只在URL参数存在且与当前状态不同时才处理
@@ -6600,19 +6274,11 @@ function PlayPageClient() {
         (harmonyHlsPlaybackMode === 'native' &&
           activeNativeHlsAdBlockRef.current !== nativeHlsAdBlockEnabled));
 
-    // 网盘挂载切换 HLS 模式时同样需要整体重建（customType 闭包捕获旧模式）
-    const needsNetdiskHlsModeReinit =
-      isNetdiskMountSource(currentSourceRef.current) &&
-      supportsNativeHls &&
-      activeNetdiskHlsPlaybackModeRef.current !== null &&
-      activeNetdiskHlsPlaybackModeRef.current !== netdiskHlsPlaybackMode;
-
     // 非WebKit浏览器且播放器已存在，使用switch方法切换
     if (
       !isWebkit &&
       artPlayerRef.current &&
-      !needsHarmonyHlsModeReinit &&
-      !needsNetdiskHlsModeReinit
+      !needsHarmonyHlsModeReinit
     ) {
       // 显式设置类型，确保代理 URL 能被 HLS.js 正确处理
       const videoType = getVideoType(videoUrl);
@@ -6620,13 +6286,6 @@ function PlayPageClient() {
         artPlayerRef.current.option.type = videoType;
       } else {
         artPlayerRef.current.option.type = '';
-      }
-      // switch 前先对齐 crossOrigin，避免私人影库直链以非 CORS 模式缓存后无法超分
-      if (artPlayerRef.current?.video) {
-        applyVideoCrossOrigin(
-          artPlayerRef.current.video as HTMLVideoElement,
-          currentSourceRef.current
-        );
       }
       // switch 自身不回收上一个 HLS 实例，只有新地址仍是 m3u8 时 customType 才会接管并销毁它。
       // 切到直链（mp4 等）时旧实例会残留并继续拉分片，所以这里统一先销毁。
@@ -6646,9 +6305,7 @@ function PlayPageClient() {
       artPlayerRef.current.poster = videoCover;
       if (artPlayerRef.current?.video) {
         const exposedVideoUrl =
-          isNetdiskNativeHlsActive(currentSourceRef.current)
-            ? videoUrl
-            : isHarmonyOS && harmonyHlsPlaybackMode === 'native'
+          isHarmonyOS && harmonyHlsPlaybackMode === 'native'
               ? buildNativeHlsPlaybackUrl(videoUrl)
               : videoUrl;
         ensureVideoSource(
@@ -6900,33 +6557,10 @@ function PlayPageClient() {
             playsInline: true,
             'webkit-playsinline': 'true',
             referrerpolicy: 'no-referrer',
-            // 私人影库/网盘直链：配合同级 moontvplus-extension 注入 ACAO，供 Anime4K 读帧。
-            // 单文件直链（mediaType=file）与网盘挂载原生 HLS 也先乐观 CORS，
-            // 无 ACAO 的 CDN 首次播放 error 时一次性回退 no-cors（见 error 处理器）。
-            ...(needsPrivateSourceCrossOrigin(currentSourceRef.current) &&
-            !mediaCorsFallbackRef.current
-              ? { crossOrigin: 'anonymous' }
-              : {}),
           } as any,
           // HLS 支持配置
           customType: {
             m3u8: function (video: HTMLVideoElement, url: string) {
-              // 网盘挂载原生 HLS：直接把 m3u8 交给浏览器原生播放器（Edge/Safari），
-              // 直连网盘 CDN，无需代理与去广告。此时 video 已乐观带上 crossOrigin
-              // （配合扩展注入 ACAO 供 Anime4K 读帧）；无 ACAO 时首次播放 error
-              // 会触发一次性 no-cors 回退，见 error 处理器。
-              if (isNetdiskNativeHlsActive(currentSourceRef.current)) {
-                if (video.hls) {
-                  video.hls.destroy();
-                  delete video.hls;
-                }
-
-                video.src = url;
-                ensureVideoSource(video, url);
-                video.load();
-                return;
-              }
-
               if (isHarmonyOS && harmonyHlsPlaybackMode === 'native') {
                 if (video.hls) {
                   video.hls.destroy();
@@ -9349,43 +8983,6 @@ function PlayPageClient() {
 
         artPlayerRef.current.on('error', (err: any) => {
           console.error('播放器错误:', err);
-          // CORS 回退（单文件直链/网盘挂载原生 HLS）：乐观设置的 crossOrigin 在
-          // 无 ACAO 的 CDN 上首次播放即失败，去掉 crossOrigin 以 no-cors 重试一次。
-          // 必须放在 currentTime 守卫与 HLS 分流之前，覆盖原生 HLS 的 m3u8 失败。
-          {
-            const fallbackVideo = artPlayerRef.current
-              ?.video as HTMLVideoElement | undefined;
-            if (
-              fallbackVideo &&
-              (artPlayerRef.current?.currentTime || 0) === 0 &&
-              fallbackVideo.crossOrigin === 'anonymous' &&
-              !mediaCorsFallbackRef.current &&
-              isNetdiskNativeHlsActive(currentSourceRef.current)
-            ) {
-              mediaCorsFallbackRef.current = true;
-              console.warn(
-                '[play] CORS 模式播放失败，回退 no-cors（无扩展/无 ACAO 的 CDN）'
-              );
-              try {
-                fallbackVideo.crossOrigin = null;
-              } catch {
-                // ignore
-              }
-              const fallbackUrl =
-                artPlayerRef.current?.option?.url || videoUrl;
-              ensureVideoSource(fallbackVideo, fallbackUrl);
-              fallbackVideo.load();
-              try {
-                const playPromise = fallbackVideo.play();
-                if (playPromise && typeof playPromise.catch === 'function') {
-                  playPromise.catch(() => {});
-                }
-              } catch {
-                // ignore
-              }
-              return;
-            }
-          }
           // 如果已经成功播放过一段时间，忽略后续错误（可能是短暂网络波动）
           if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
             return;
@@ -9595,19 +9192,11 @@ function PlayPageClient() {
           ? harmonyHlsPlaybackMode
           : 'hlsjs';
         activeNativeHlsAdBlockRef.current = nativeHlsAdBlockEnabled;
-        activeNetdiskHlsPlaybackModeRef.current = isNetdiskMountSource(
-          currentSourceRef.current
-        )
-          ? netdiskHlsPlaybackMode
-          : null;
-
         if (artPlayerRef.current?.video) {
           const exposedVideoUrl =
-            isNetdiskNativeHlsActive(currentSourceRef.current)
-              ? videoUrl
-              : isHarmonyOS && harmonyHlsPlaybackMode === 'native'
-                ? buildNativeHlsPlaybackUrl(videoUrl)
-                : videoUrl;
+            isHarmonyOS && harmonyHlsPlaybackMode === 'native'
+              ? buildNativeHlsPlaybackUrl(videoUrl)
+              : videoUrl;
           ensureVideoSource(
             artPlayerRef.current.video as HTMLVideoElement,
             exposedVideoUrl
@@ -9627,7 +9216,6 @@ function PlayPageClient() {
     blockAdEnabled,
     harmonyHlsPlaybackMode,
     nativeHlsAdBlockEnabled,
-    netdiskHlsPlaybackMode,
   ]);
 
   // 当组件卸载时清理定时器、Wake Lock 和播放器资源
@@ -10499,31 +10087,6 @@ function PlayPageClient() {
                           </button>
                         )}
 
-                        {showExternalTranscodeButton && (
-                          <button
-                            onClick={async (e) => {
-                              e.preventDefault();
-                              await handleCreateTranscodeSession();
-                            }}
-                            disabled={isTranscoding}
-                            className={`group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md overflow-hidden border flex-shrink-0 ${
-                              isTranscoding
-                                ? 'bg-amber-400 text-white border-amber-400 cursor-wait'
-                                : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 cursor-pointer'
-                            }`}
-                            title='转码播放'
-                          >
-                            {isTranscoding ? (
-                              <Loader2 className='w-4 h-4 flex-shrink-0 text-white animate-spin' />
-                            ) : (
-                              <Router className='w-4 h-4 flex-shrink-0 text-white' />
-                            )}
-                            <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-white'>
-                              {isTranscoding ? '转码中' : '转码'}
-                            </span>
-                          </button>
-                        )}
-
                         {/* 短剧模式：分类名命中短剧时，切到竖屏沉浸播放页
                             （本地设置禁用竖屏模式、或处于观影室内时不出这个入口） */}
                         {currentSource &&
@@ -10856,55 +10419,6 @@ function PlayPageClient() {
                         </button>
                       )}
 
-                      {/* 网盘挂载原生 HLS 开关：关闭 HLS.js 使用浏览器原生 HLS 直连，更快且无需代理/去广告 */}
-                      {isNetdiskMountSource(currentSource) &&
-                        supportsNativeHls &&
-                        isHlsPlaybackUrl(videoUrl) && (
-                          <button
-                            type='button'
-                            onClick={() =>
-                              switchNetdiskHlsPlaybackMode(
-                                netdiskHlsPlaybackMode === 'native'
-                                  ? 'hlsjs'
-                                  : 'native'
-                              )
-                            }
-                            aria-pressed={netdiskHlsPlaybackMode === 'native'}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer border flex-shrink-0 ${netdiskHlsPlaybackMode === 'native'
-                              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white border-emerald-400'
-                              : 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
-                              }`}
-                            title={
-                              netdiskHlsPlaybackMode === 'native'
-                                ? '原生 HLS 已开启（直连网盘，最快），点击切换为 HLS.js'
-                                : '原生 HLS 已关闭（当前使用 HLS.js），点击切换为原生直连'
-                            }
-                          >
-                            <svg
-                              className='w-4 h-4 flex-shrink-0'
-                              fill='none'
-                              stroke='currentColor'
-                              viewBox='0 0 24 24'
-                            >
-                              {netdiskHlsPlaybackMode === 'native' ? (
-                                <path
-                                  strokeLinecap='round'
-                                  strokeLinejoin='round'
-                                  strokeWidth='2'
-                                  d='M13 10V3L4 14h7v7l9-11h-7z'
-                                />
-                              ) : (
-                                <path
-                                  strokeLinecap='round'
-                                  strokeLinejoin='round'
-                                  strokeWidth='2'
-                                  d='M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636'
-                                />
-                              )}
-                            </svg>
-                            <span className='whitespace-nowrap'>原生HLS</span>
-                          </button>
-                        )}
                     </div>
                   </div>
                 </div>
@@ -10983,19 +10497,6 @@ function PlayPageClient() {
                     >
                       <FavoriteIcon filled={favorited} />
                     </button>
-                    {/* 网盘搜索按钮 */}
-                    {netdiskSearchEnabled && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDrawer('pansou');
-                        }}
-                        className='flex-shrink-0 hover:opacity-80 transition-opacity'
-                        title='搜索网盘资源'
-                      >
-                        <Cloud className='h-6 w-6 text-gray-700 dark:text-gray-300' />
-                      </button>
-                    )}
                     {/* AI问片按钮 */}
                     {aiEnabled && detail && (
                       <button
@@ -11098,13 +10599,12 @@ function PlayPageClient() {
                       </span>
                     )}
                     {/* 优先使用 doubanYear，如果没有则使用 detail.year 或 videoYear */}
-                    {(doubanYear || netdiskTMDBMeta?.year || detail?.year || videoYear) && (
-                      <span>{doubanYear || netdiskTMDBMeta?.year || detail?.year || videoYear}</span>
+                    {(doubanYear || detail?.year || videoYear) && (
+                      <span>{doubanYear || detail?.year || videoYear}</span>
                     )}
                     {detail?.source_name && (
                       <span
-                        className={`relative group cursor-pointer border px-2 py-[1px] rounded ${isNetdiskSource(detail.source) ? 'border-purple-500' : 'border-gray-500/60'
-                          }`}
+                        className={`relative group cursor-pointer border px-2 py-[1px] rounded 'border-gray-500/60'`}
                         onClick={fetchCurrentSourceVideoInfo}
                       >
                         {detail.source_name}
@@ -11123,7 +10623,7 @@ function PlayPageClient() {
                     {detail?.type_name && <span>{detail.type_name}</span>}
                   </div>
                   {/* 剧情简介 */}
-                  {(doubanCardSubtitle || netdiskTMDBMeta?.desc || correctedDesc || detail?.desc) && (
+                  {(doubanCardSubtitle || correctedDesc || detail?.desc) && (
                     <div
                       className={`mt-0 text-base leading-relaxed opacity-90 overflow-y-auto pr-2 flex-1 min-h-0 scrollbar-hide ${tmdbBackdrop ? 'text-white' : ''}`}
                       style={{ whiteSpace: 'pre-line' }}
@@ -11134,7 +10634,7 @@ function PlayPageClient() {
                           {doubanCardSubtitle}
                         </div>
                       )}
-                      {netdiskTMDBMeta?.desc || correctedDesc || detail?.desc}
+                      {correctedDesc || detail?.desc}
                     </div>
                   )}
                 </div>
@@ -11179,15 +10679,9 @@ function PlayPageClient() {
                         )}
                       </>
                     ) : (
-                      isNetdiskSource(detail?.source) ? (
-                        <div className='flex flex-col items-center justify-center text-gray-500 dark:text-gray-400'>
-                          <Cloud className='w-16 h-16 opacity-80' />
-                        </div>
-                      ) : (
                         <span className='text-gray-600 dark:text-gray-400'>
                           封面图片
                         </span>
-                      )
                     )}
                   </div>
                 </div>
@@ -11375,56 +10869,6 @@ function PlayPageClient() {
         </div>
       )}
 
-      {/* 网盘搜索弹窗 */}
-      {showPansouDialog && (
-        isLargeScreen ? (
-          <Drawer
-            isOpen={showPansouDialog}
-            onClose={() => setShowPansouDialog(false)}
-            title={`搜索网盘资源: ${detail?.title || ''}`}
-            width='w-[400px]'
-          >
-            <div className='p-4'>
-              <PansouSearch
-                keyword={detail?.title || ''}
-                triggerSearch={showPansouDialog}
-              />
-            </div>
-          </Drawer>
-        ) : (
-          <div
-            className='fixed inset-0 z-[10000] flex items-center justify-center bg-black/50'
-            onClick={() => setShowPansouDialog(false)}
-          >
-            <div
-              className='relative w-full max-w-4xl max-h-[80vh] overflow-y-auto bg-white dark:bg-gray-900 rounded-lg shadow-xl m-4'
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* 弹窗头部 */}
-              <div className='sticky top-0 z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'>
-                <h2 className='text-xl font-bold text-gray-900 dark:text-gray-100'>
-                  搜索网盘资源: {detail?.title || ''}
-                </h2>
-                <button
-                  onClick={() => setShowPansouDialog(false)}
-                  className='p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors'
-                >
-                  <X className='h-5 w-5 text-gray-600 dark:text-gray-400' />
-                </button>
-              </div>
-
-              {/* 弹窗内容 */}
-              <div className='p-4'>
-                <PansouSearch
-                  keyword={detail?.title || ''}
-                  triggerSearch={showPansouDialog}
-                />
-              </div>
-            </div>
-          </div>
-        )
-      )}
-
       {/* AI问片面板 */}
       {aiEnabled && detail && (
         <AIChatPanel
@@ -11450,20 +10894,15 @@ function PlayPageClient() {
           title={detail.title}
           poster={detail.poster}
           doubanId={
-            // 网盘类源用 tmdb，其他用 cms（通过 doubanId）
-            isNetdiskSource(detail.source)
-              ? undefined
-              : detail.douban_id && detail.douban_id !== 0
-                ? detail.douban_id
-                : undefined
+            detail.douban_id && detail.douban_id !== 0
+              ? detail.douban_id
+              : undefined
           }
-          tmdbId={isNetdiskSource(detail.source) ? detail.tmdb_id : undefined}
+          tmdbId={undefined}
           type={detail.type_name === '电影' ? 'movie' : 'tv'}
           year={detail.year}
           currentEpisode={currentEpisodeIndex + 1}
           cmsData={
-            // 非网盘源用 cms 数据；有豆瓣ID且不为 0 时不传，优先豆瓣
-            !isNetdiskSource(detail.source) &&
             !(detail.douban_id && detail.douban_id !== 0)
               ? {
                   desc: detail.desc,

@@ -14,7 +14,7 @@ export const runtime = 'nodejs';
 
 /**
  * POST /api/acg/health
- * 单条磁力/种子 Tracker scrape 测活（动漫磁链搜索 / 网盘搜索磁力类型共用）
+ * 单条磁力/种子 Tracker scrape 测活（动漫磁链搜索使用）
  * body: { url: string, skipCache?: boolean }
  * 全站同时测活上限：环境变量 MAGNET_HEALTH_MAX_CONCURRENT（默认 10）
  */
@@ -25,9 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '无权限访问' }, { status: 403 });
     }
 
-    const canUse =
-      (await hasFeaturePermission(authInfo.username, 'magnet_search')) ||
-      (await hasFeaturePermission(authInfo.username, 'netdisk_search'));
+    const canUse =(await hasFeaturePermission(authInfo.username, 'magnet_search'));
     if (!canUse) {
       return NextResponse.json({ error: '无权限访问' }, { status: 403 });
     }

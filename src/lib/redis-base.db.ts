@@ -1,7 +1,6 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import { RedisAdapter } from './redis-adapter';
 import { Favorite, IStorage, LocalSettingsSyncRecord, Notification, PlayRecord, PushSubscriptionRecord, SetLocalSettingsSyncOptions, SetLocalSettingsSyncResult, SkipConfig } from './types';
 import { userInfoCache } from './user-cache';
@@ -500,14 +499,6 @@ export abstract class BaseRedisStorage implements IStorage {
     // 删除收藏夹（新hash结构）
     await this.withRetry(() => this.adapter.del(this.favHashKey(userName)));
 
-    // 删除漫画书架与历史
-    await this.withRetry(() =>
-      this.adapter.del(this.mangaShelfHashKey(userName))
-    );
-    await this.withRetry(() =>
-      this.adapter.del(this.mangaReadHashKey(userName))
-    );
-
     // 删除旧的收藏key（如果有）
     const favoritePattern = `u:${userName}:fav:*`;
     const favoriteKeys = await this.withRetry(() =>
@@ -636,7 +627,6 @@ export abstract class BaseRedisStorage implements IStorage {
     playrecord_migrated?: boolean;
     favorite_migrated?: boolean;
     skip_migrated?: boolean;
-    last_movie_request_time?: number;
     email?: string;
     emailNotifications?: boolean;
   } | null> {
@@ -711,9 +701,6 @@ export abstract class BaseRedisStorage implements IStorage {
       playrecord_migrated: userInfoRaw.playrecord_migrated === 'true',
       favorite_migrated: userInfoRaw.favorite_migrated === 'true',
       skip_migrated: userInfoRaw.skip_migrated === 'true',
-      last_movie_request_time: userInfoRaw.last_movie_request_time
-        ? parseInt(userInfoRaw.last_movie_request_time, 10)
-        : undefined,
       email: userInfoRaw.email,
       emailNotifications: userInfoRaw.emailNotifications === 'true',
     };
@@ -1032,122 +1019,6 @@ export abstract class BaseRedisStorage implements IStorage {
       );
     } else {
       await this.withRetry(() => this.adapter.del(key));
-    }
-  }
-
-  // ---------- 漫画书架 ----------
-  private mangaShelfHashKey(user: string) {
-    return `u:${user}:manga:shelf`;
-  }
-
-  async getMangaShelf(
-    userName: string,
-    key: string
-  ): Promise<MangaShelfItem | null> {
-    const val = await this.withRetry(() =>
-      this.adapter.hGet(this.mangaShelfHashKey(userName), key)
-    );
-    return val ? (JSON.parse(val) as MangaShelfItem) : null;
-  }
-
-  async setMangaShelf(
-    userName: string,
-    key: string,
-    item: MangaShelfItem
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hSet(
-        this.mangaShelfHashKey(userName),
-        key,
-        JSON.stringify(item)
-      )
-    );
-  }
-
-  async getAllMangaShelf(
-    userName: string
-  ): Promise<Record<string, MangaShelfItem>> {
-    const hashData = await this.withRetry(() =>
-      this.adapter.hGetAll(this.mangaShelfHashKey(userName))
-    );
-    const result: Record<string, MangaShelfItem> = {};
-    for (const [key, value] of Object.entries(hashData)) {
-      if (value) result[key] = JSON.parse(value) as MangaShelfItem;
-    }
-    return result;
-  }
-
-  async deleteMangaShelf(userName: string, key: string): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hDel(this.mangaShelfHashKey(userName), key)
-    );
-  }
-
-  // ---------- 漫画阅读历史 ----------
-  private mangaReadHashKey(user: string) {
-    return `u:${user}:manga:history`;
-  }
-
-  async getMangaReadRecord(
-    userName: string,
-    key: string
-  ): Promise<MangaReadRecord | null> {
-    const val = await this.withRetry(() =>
-      this.adapter.hGet(this.mangaReadHashKey(userName), key)
-    );
-    return val ? (JSON.parse(val) as MangaReadRecord) : null;
-  }
-
-  async setMangaReadRecord(
-    userName: string,
-    key: string,
-    record: MangaReadRecord
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hSet(
-        this.mangaReadHashKey(userName),
-        key,
-        JSON.stringify(record)
-      )
-    );
-  }
-
-  async getAllMangaReadRecords(
-    userName: string
-  ): Promise<Record<string, MangaReadRecord>> {
-    const hashData = await this.withRetry(() =>
-      this.adapter.hGetAll(this.mangaReadHashKey(userName))
-    );
-    const result: Record<string, MangaReadRecord> = {};
-    for (const [key, value] of Object.entries(hashData)) {
-      if (value) result[key] = JSON.parse(value) as MangaReadRecord;
-    }
-    return result;
-  }
-
-  async deleteMangaReadRecord(userName: string, key: string): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hDel(this.mangaReadHashKey(userName), key)
-    );
-  }
-
-  async cleanupOldMangaReadRecords(userName: string): Promise<void> {
-    const records = await this.getAllMangaReadRecords(userName);
-    const maxRecords = parseInt(
-      process.env.MAX_MANGA_HISTORY_PER_USER || '100',
-      10
-    );
-    const threshold = maxRecords + 10;
-    if (Object.keys(records).length <= threshold) return;
-    const keys = Object.entries(records)
-      .sort(([, a], [, b]) => b.saveTime - a.saveTime)
-      .slice(maxRecords)
-      .map(([key]) => key);
-
-    if (keys.length > 0) {
-      await this.withRetry(() =>
-        this.adapter.hDel(this.mangaReadHashKey(userName), ...keys)
-      );
     }
   }
 
@@ -1614,106 +1485,6 @@ export abstract class BaseRedisStorage implements IStorage {
         this.lastFavoriteCheckKey(userName),
         timestamp.toString()
       )
-    );
-  }
-
-  async updateLastMovieRequestTime(
-    userName: string,
-    timestamp: number
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hSet(
-        this.userInfoKey(userName),
-        'last_movie_request_time',
-        timestamp.toString()
-      )
-    );
-  }
-
-  // ---------- 求片相关 ----------
-  private movieRequestsKey() {
-    return 'movie_requests:all';
-  }
-
-  private userMovieRequestsKey(userName: string) {
-    return `u:${userName}:mr`;
-  }
-
-  async getAllMovieRequests(): Promise<import('./types').MovieRequest[]> {
-    const data = await this.withRetry(() =>
-      this.adapter.hGetAll(this.movieRequestsKey())
-    );
-    if (!data || Object.keys(data).length === 0) return [];
-    return Object.values(data).map(
-      (v) => JSON.parse(v) as import('./types').MovieRequest
-    );
-  }
-
-  async getMovieRequest(
-    requestId: string
-  ): Promise<import('./types').MovieRequest | null> {
-    const val = await this.withRetry(() =>
-      this.adapter.hGet(this.movieRequestsKey(), requestId)
-    );
-    return val ? (JSON.parse(val) as import('./types').MovieRequest) : null;
-  }
-
-  async createMovieRequest(
-    request: import('./types').MovieRequest
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hSet(
-        this.movieRequestsKey(),
-        request.id,
-        JSON.stringify(request)
-      )
-    );
-  }
-
-  async updateMovieRequest(
-    requestId: string,
-    updates: Partial<import('./types').MovieRequest>
-  ): Promise<void> {
-    const existing = await this.getMovieRequest(requestId);
-    if (!existing) throw new Error('Movie request not found');
-    const updated = { ...existing, ...updates };
-    await this.withRetry(() =>
-      this.adapter.hSet(
-        this.movieRequestsKey(),
-        requestId,
-        JSON.stringify(updated)
-      )
-    );
-  }
-
-  async deleteMovieRequest(requestId: string): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.hDel(this.movieRequestsKey(), requestId)
-    );
-  }
-
-  async getUserMovieRequests(userName: string): Promise<string[]> {
-    const val = await this.withRetry(() =>
-      this.adapter.sMembers(this.userMovieRequestsKey(userName))
-    );
-    return val ? ensureStringArray(val) : [];
-  }
-
-  async addUserMovieRequest(
-    userName: string,
-    requestId: string
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.sAdd(this.userMovieRequestsKey(userName), requestId)
-    );
-  }
-
-  async removeUserMovieRequest(
-    userName: string,
-    requestId: string
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.sRem(this.userMovieRequestsKey(userName), requestId)
     );
   }
 

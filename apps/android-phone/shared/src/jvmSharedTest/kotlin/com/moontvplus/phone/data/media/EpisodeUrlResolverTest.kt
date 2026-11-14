@@ -69,8 +69,8 @@ class EpisodeUrlResolverTest {
 
     @Test
     fun `站内相对路径补成绝对地址`() {
-        val plan = EpisodeUrlResolver.resolve(origin, "/api/netdisk/quark/play?id=1", "demo", false)
-        assertEquals("$origin/api/netdisk/quark/play?id=1", plan?.url)
+        val plan = EpisodeUrlResolver.resolve(origin, "/api/source-script/play?id=1", "demo", false)
+        assertEquals("$origin/api/source-script/play?id=1", plan?.url)
     }
 
     @Test

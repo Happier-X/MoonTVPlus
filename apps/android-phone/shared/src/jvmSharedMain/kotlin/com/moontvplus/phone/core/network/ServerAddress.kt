@@ -26,7 +26,7 @@ data class ServerAddress(val base: HttpUrl) {
     companion object {
         private val KNOWN_ROUTE_SEGMENTS = setOf(
             "play", "search", "detail", "login", "register", "admin",
-            "live", "manga", "tv", "watch-room", "douban", "source-search",
+            "live", "tv", "watch-room", "douban", "source-search",
         )
 
         /**

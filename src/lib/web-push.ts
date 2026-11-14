@@ -339,28 +339,6 @@ export function getNotificationClickUrl(notification: Notification): string {
     return `/play?source=${encodeURIComponent(String(metadata.source))}&id=${encodeURIComponent(String(metadata.id))}&title=${title}`;
   }
 
-  if (notification.type === 'manga_update' && metadata.sourceId && metadata.mangaId) {
-    const params = new URLSearchParams({
-      sourceId: String(metadata.sourceId),
-      mangaId: String(metadata.mangaId),
-      title: String(metadata.title || ''),
-      cover: String(metadata.cover || ''),
-      sourceName: String(metadata.sourceName || ''),
-    });
-    return `/manga/detail?${params.toString()}`;
-  }
-
-  if (notification.type === 'movie_request') {
-    return '/admin';
-  }
-
-  if (notification.type === 'request_fulfilled') {
-    if (metadata.source && metadata.id) {
-      return `/play?source=${encodeURIComponent(String(metadata.source))}&id=${encodeURIComponent(String(metadata.id))}&title=${encodeURIComponent(notification.title)}`;
-    }
-    return '/movie-request';
-  }
-
   return '/';
 }
 

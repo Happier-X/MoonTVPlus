@@ -22,7 +22,6 @@ import type { DanmakuComment,DanmakuEpisode,DanmakuSelection } from '@/lib/danma
 import { generateStorageKey, getCachedPlayRecordsSnapshot } from '@/lib/db.client';
 import { isEpisodeHiddenByFilter } from '@/lib/episode-filter';
 import { loadAllLocalEpisodeProgressRecords } from '@/lib/episode-progress';
-import { isNetdiskSource } from '@/lib/netdisk/source';
 import { EpisodeFilterConfig,SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, SpeedTestError } from '@/lib/utils';
 import type { SpeedTestErrorType } from '@/lib/utils';
@@ -56,7 +55,7 @@ function getEpisodeDisplayLabel(
   if (zhMatch) {
     return zhMatch[1];
   }
-  // [01] / (01) → 1（网盘常见）
+  // [01] / (01) → 1
   const bracketMatch = title.match(/[[(【](\d+(?:\.\d+)?)[\])】]/);
   if (bracketMatch) {
     return bracketMatch[1];
@@ -96,13 +95,13 @@ interface EpisodeButtonProps {
   isWatched: boolean;
   originalTitle?: string;
   inactiveEpisodeClass: string;
-  /** 仅 netdisk 源启用长按/右键查看全名 */
+  /** 长按/右键查看完整集名 */
   enableOriginalNamePopup?: boolean;
   onSelect: (zeroBasedIndex: number) => void;
   onShowOriginalName: (title: string, rect: DOMRect) => void;
 }
 
-/** 单集按钮：点击选集；netdisk 时移动端长按 / 桌面右键显示原集名 popup */
+/** 单集按钮：点击选集；移动端长按 / 桌面右键显示原集名 popup */
 const EpisodeButton: React.FC<EpisodeButtonProps> = ({
   episodeNumber,
   isActive,
@@ -1269,7 +1268,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       isWatched={watchedEpisodes.has(episodeNumber)}
                       originalTitle={episodes_titles?.[episodeNumber - 1]}
                       inactiveEpisodeClass={inactiveEpisodeClass}
-                      enableOriginalNamePopup={isNetdiskSource(currentSource)}
+                      enableOriginalNamePopup={false}
                       onSelect={handleEpisodeClick}
                       onShowOriginalName={showEpisodeNamePopup}
                     />
@@ -1459,9 +1458,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
-                            <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} ${
-                              isNetdiskSource(source.source) ? 'border-purple-500' : 'border-gray-500/60'
-                      }`}>
+                            <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} border-gray-500/60`}>
                               {source.source_name}
                             </span>
                             {source.episodes.length > 1 && (

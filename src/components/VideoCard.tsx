@@ -34,7 +34,6 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { getBangumiSubjectUrl } from '@/lib/bangumi.client';
-import { isNetdiskSource } from '@/lib/netdisk/source';
 import { isDuanjuVerticalDisabled } from '@/lib/duanju.client';
 import { appendSpecialSourceParam } from '@/lib/special-source.client';
 import {
@@ -155,24 +154,10 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     }, []);
     const actualTitle = title;
     const actualPoster = poster;
-    const netdiskPosterPlaceholder = useMemo(() => {
-      return `data:image/svg+xml;utf8,${encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
-        <rect width="400" height="600" fill="#f3f4f6"/>
-        <g fill="none" stroke="#9ca3af" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M118 332c-30.9 0-56-25.1-56-56 0-28.5 21.3-52 48.9-55.4C120.6 184.7 154.8 160 195 160c51.1 0 92.9 39.2 97.1 89.2 27.3 4.2 47.9 27.7 47.9 56.8 0 32-26 58-58 58H118z"/>
-        </g>
-      </svg>
-    `)}`;
-    }, []);
     const processedPoster = useMemo(
       () =>
-        actualPoster
-          ? processImageUrl(actualPoster)
-          : isNetdiskSource(source)
-          ? netdiskPosterPlaceholder
-          : '',
-      [actualPoster, source, netdiskPosterPlaceholder]
+        actualPoster ? processImageUrl(actualPoster) : '',
+      [actualPoster]
     );
     const [favorited, setFavorited] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -1041,12 +1026,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                 <div className='absolute inset-0 flex items-center justify-center bg-gray-200/80 dark:bg-gray-700/80'>
                   <Link className='w-8 h-8 text-blue-500' />
                 </div>
-              ) : isNetdiskSource(actualSource) &&
-                !actualPoster &&
-                displayPoster === netdiskPosterPlaceholder ? (
-                <div className='absolute inset-0 flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'>
-                  <Cloud className='w-10 h-10 opacity-80' />
-                </div>
               ) : (
                 <Image
                   src={displayPoster}
@@ -1487,11 +1466,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                 >
                   <span
                     className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/60 ${
-                      isNetdiskSource(actualSource)
-                        ? 'border-purple-500'
-                        : origin === 'live'
-                        ? 'border-red-500'
-                        : 'border-white/60'
+                      origin === 'live' ? 'border-red-500' : 'border-white/60'
                     }`}
                     style={
                       {
@@ -1904,9 +1879,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                           {config.showSourceName && source_name && !cmsData && (
                             <span
                               className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/30 backdrop-blur-sm ${
-                                isNetdiskSource(actualSource)
-                                  ? 'border-purple-500'
-                                  : 'border-white/60'
+                                'border-white/60'
                               }`}
                               style={
                                 {

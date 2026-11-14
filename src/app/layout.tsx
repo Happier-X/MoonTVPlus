@@ -15,7 +15,6 @@ import { StartupCacheCleanup } from '../components/DanmakuCacheCleanup';
 import { DownloadBubble } from '../components/DownloadBubble';
 import { DownloadPanel } from '../components/DownloadPanel';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
-import RouteScrollReset from '../components/RouteScrollReset';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 import { TokenRefreshManager } from '../components/TokenRefreshManager';
@@ -121,7 +120,6 @@ export default async function RootLayout({
   let aiEnableComments = false;
   let aiDefaultMessageNoVideo = '';
   let aiDefaultMessageWithVideo = '';
-  let enableMovieRequest = true;
   let liveEnabled = true;
   let webLiveEnabled = false;
   let customAdFilterVersion = 0;
@@ -130,7 +128,6 @@ export default async function RootLayout({
   let analyticsScriptUrl = '';
   let analyticsWebsiteId = '';
   let analyticsCustomScript = '';
-  let suwayomiEnabled = false;
   let advancedRecommendationEnabled = false;
   let localSettingsSyncMode: 'off' | 'manual' | 'auto' = 'off';
   // 特殊源名单：供客户端按入口隔离收藏与播放记录。
@@ -226,8 +223,6 @@ export default async function RootLayout({
     aiEnableComments = config.AIConfig?.EnableAIComments || false;
     aiDefaultMessageNoVideo = config.AIConfig?.DefaultMessageNoVideo || '';
     aiDefaultMessageWithVideo = config.AIConfig?.DefaultMessageWithVideo || '';
-    // 求片功能配置
-    enableMovieRequest = config.SiteConfig.EnableMovieRequest ?? true;
     // 网络直播功能配置
     liveEnabled = (config.LiveConfig || []).some((source) => !source.disabled);
     webLiveEnabled = config.WebLiveEnabled ?? false;
@@ -239,10 +234,6 @@ export default async function RootLayout({
     analyticsScriptUrl = config.SiteConfig?.AnalyticsScriptUrl || '';
     analyticsWebsiteId = config.SiteConfig?.AnalyticsWebsiteId || '';
     analyticsCustomScript = config.SiteConfig?.AnalyticsCustomScript || '';
-    // 漫画功能配置
-    suwayomiEnabled = !!(
-      config.SuwayomiConfig?.Enabled && config.SuwayomiConfig?.ServerURL
-    );
     // 高级推荐功能配置：存在已启用视频源脚本时显示
     advancedRecommendationEnabled =
       (await listEnabledSourceScripts()).length > 0;
@@ -312,16 +303,11 @@ export default async function RootLayout({
     },
     AI_DEFAULT_MESSAGE_NO_VIDEO: aiDefaultMessageNoVideo,
     AI_DEFAULT_MESSAGE_WITH_VIDEO: aiDefaultMessageWithVideo,
-    ENABLE_MOVIE_REQUEST: enableMovieRequest,
     LIVE_ENABLED: liveEnabled && userFeatureAccess.live,
     WEB_LIVE_ENABLED: webLiveEnabled && userFeatureAccess.web_live,
     ADVANCED_RECOMMENDATION_ENABLED: advancedRecommendationEnabled,
     CUSTOM_AD_FILTER_VERSION: customAdFilterVersion,
-    SUWAYOMI_ENABLED: suwayomiEnabled && userFeatureAccess.manga,
-    NETDISK_SEARCH_ENABLED: userFeatureAccess.netdisk_search,
     MAGNET_SEARCH_ENABLED: userFeatureAccess.magnet_search,
-    NETDISK_TRANSFER_ENABLED: userFeatureAccess.netdisk_transfer,
-    NETDISK_TEMP_PLAY_ENABLED: userFeatureAccess.netdisk_temp_play,
     FESTIVE_EFFECT_ENABLED: process.env.FESTIVE_EFFECT_ENABLED === 'true',
     SPECIAL_SOURCE_APIS: specialSourceApis,
     RATE_BADGE_STYLE: rateBadgeStyle,
@@ -400,7 +386,6 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <TopProgressBar />
-          <RouteScrollReset />
           <TokenRefreshManager />
           <SiteProvider
             siteName={siteName}

@@ -5,6 +5,14 @@ import { getStorage } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
+// 已下线的功能可能仍留有历史通知，读取时统一过滤，避免跳到不存在的页面。
+const REMOVED_NOTIFICATION_TYPES = new Set([
+  'manga_update',
+  'movie_request',
+  'request_fulfilled',
+  'request_rejected',
+]);
+
 // GET: 获取所有通知
 export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
@@ -14,8 +22,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const storage = getStorage();
-    const notifications = await storage.getNotifications(authInfo.username);
-    const unreadCount = await storage.getUnreadNotificationCount(authInfo.username);
+    const allNotifications = await storage.getNotifications(authInfo.username);
+    const notifications = allNotifications.filter(
+      (item) => !REMOVED_NOTIFICATION_TYPES.has(item.type)
+    );
+    const unreadCount = notifications.filter((item) => !item.read).length;
 
     return NextResponse.json({
       notifications,

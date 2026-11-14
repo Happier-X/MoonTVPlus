@@ -46,11 +46,6 @@ export interface AdminConfig {
     RecommendationDataSource?: string; // 更多推荐数据源：Douban、TMDB、Mixed
     // 本地设置云同步模式：off=关闭，manual=手动（面板右上角备份/恢复按钮），auto=自动（进入网站静默拉取、面板打开静默同步）
     LocalSettingsSyncMode?: 'off' | 'manual' | 'auto';
-    // Pansou配置
-    PansouApiUrl?: string;
-    PansouUsername?: string;
-    PansouPassword?: string;
-    PansouKeywordBlocklist?: string;
     // 磁链配置
     MagnetProxy?: string;
     MagnetMikanReverseProxy?: string;
@@ -71,9 +66,6 @@ export interface AdminConfig {
     TurnstileSiteKey?: string; // Cloudflare Turnstile Site Key
     TurnstileSecretKey?: string; // Cloudflare Turnstile Secret Key
     DefaultUserTags?: string[]; // 新注册用户的默认用户组
-    // 求片功能配置
-    EnableMovieRequest?: boolean; // 启用求片功能
-    MovieRequestCooldown?: number; // 求片冷却时间（秒），默认3600
     // OIDC配置
     EnableOIDCLogin?: boolean; // 启用OIDC登录
     EnableOIDCRegistration?: boolean; // 启用OIDC注册
@@ -165,43 +157,6 @@ export interface AdminConfig {
     // 评分星标样式：视频卡片右上角评分徽章的款式
     rateBadgeStyle?: 'default' | 'flag' | 'medal';
   };
-  NetDiskConfig?: {
-    Quark?: {
-      Enabled: boolean;
-      Cookie: string;
-      SavePath: string;
-      PlayMode?: 'direct_first' | 'transcode_first';
-      MultiThreadPlayback?: boolean;
-    };
-    Mobile?: {
-      Enabled: boolean;
-      Authorization: string;
-    };
-    Baidu?: {
-      Enabled: boolean;
-      Cookie: string;
-    };
-    Tianyi?: {
-      Enabled: boolean;
-      Account: string;
-      Password: string;
-    };
-    Pan123?: {
-      Enabled: boolean;
-      Account: string;
-      Password: string;
-    };
-    UC?: {
-      Enabled: boolean;
-      Cookie: string;
-      Token?: string;
-      SavePath: string;
-    };
-    Pan115?: {
-      Enabled: boolean;
-      Cookie: string;
-    };
-  };
   AIConfig?: {
     Enabled: boolean; // 是否启用AI问片功能
     Provider: 'openai' | 'claude' | 'custom'; // AI服务提供商
@@ -253,16 +208,6 @@ export interface AdminConfig {
     // AI问片默认消息配置
     DefaultMessageNoVideo?: string; // 无视频时的默认消息
     DefaultMessageWithVideo?: string; // 有视频时的默认消息（支持 {title} 替换符）
-  };
-  SuwayomiConfig?: {
-    Enabled: boolean; // 是否启用漫画展馆
-    ServerURL: string; // Suwayomi 服务地址
-    AuthMode?: 'none' | 'basic_auth' | 'simple_login'; // 认证模式
-    Username?: string; // 登录用户名
-    Password?: string; // 登录密码
-    DefaultLang?: string; // 默认语言，如 zh
-    SourceIds?: string[]; // 限制可用源
-    MaxSources?: number; // 搜索时最多查询多少个源
   };
   EmailConfig?: {
     enabled: boolean; // 是否启用邮件通知

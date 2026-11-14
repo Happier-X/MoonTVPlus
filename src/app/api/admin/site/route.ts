@@ -57,10 +57,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource,
       RecommendationDataSource,
       LocalSettingsSyncMode,
-      PansouApiUrl,
-      PansouUsername,
-      PansouPassword,
-      PansouKeywordBlocklist,
       MagnetProxy,
       MagnetMikanReverseProxy,
       MagnetDmhyReverseProxy,
@@ -124,10 +120,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource?: string;
       RecommendationDataSource?: string;
       LocalSettingsSyncMode?: 'off' | 'manual' | 'auto';
-      PansouApiUrl?: string;
-      PansouUsername?: string;
-      PansouPassword?: string;
-      PansouKeywordBlocklist?: string;
       MagnetProxy?: string;
       MagnetMikanReverseProxy?: string;
       MagnetDmhyReverseProxy?: string;
@@ -208,8 +200,6 @@ export async function POST(request: NextRequest) {
         LocalSettingsSyncMode !== 'off' &&
         LocalSettingsSyncMode !== 'manual' &&
         LocalSettingsSyncMode !== 'auto') ||
-      (PansouKeywordBlocklist !== undefined &&
-        typeof PansouKeywordBlocklist !== 'string') ||
       (MagnetProxy !== undefined && typeof MagnetProxy !== 'string') ||
       (MagnetMikanReverseProxy !== undefined &&
         typeof MagnetMikanReverseProxy !== 'string') ||
@@ -307,10 +297,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource,
       RecommendationDataSource,
       LocalSettingsSyncMode,
-      PansouApiUrl: normalizeApiBaseUrl(PansouApiUrl),
-      PansouUsername,
-      PansouPassword,
-      PansouKeywordBlocklist,
       MagnetProxy: normalizeApiBaseUrl(MagnetProxy),
       MagnetMikanReverseProxy: normalizeApiBaseUrl(MagnetMikanReverseProxy),
       MagnetDmhyReverseProxy: normalizeApiBaseUrl(MagnetDmhyReverseProxy),

@@ -81,18 +81,6 @@ export async function POST(req: NextRequest) {
     }
 
     const importUsernames = Object.keys(importData.data.userData || {});
-    const backupHasMangaData = importUsernames.some((name) => Object.prototype.hasOwnProperty.call(importData.data.userData?.[name] || {}, 'mangaData'));
-    const preserveMangaData = !backupHasMangaData;
-
-    const preservedMangaData = preserveMangaData
-      ? Object.fromEntries(await Promise.all(importUsernames.map(async (name) => ([
-          name,
-          {
-            mangaShelf: await db.getAllMangaShelf(name),
-            mangaReadRecords: await db.getAllMangaReadRecords(name),
-          },
-        ]))))
-      : {};
 
     // 开始导入数据 - 先清空现有数据
     updateProgress(username, 'import', 'clearing', 0, 1, '正在清空现有数据...');
@@ -309,26 +297,6 @@ export async function POST(req: NextRequest) {
               }
             })(),
 
-            // 导入漫画书架 / 阅读记录
-            (async () => {
-              if (!backupHasMangaData) return;
-              const mangaShelfEntries = Object.entries((user.mangaData?.shelf || preservedMangaData[username]?.mangaShelf || {}));
-              for (let j = 0; j < mangaShelfEntries.length; j += DATA_BATCH_SIZE) {
-                const batch = mangaShelfEntries.slice(j, j + DATA_BATCH_SIZE);
-                await Promise.all(
-                  batch.map(([, item]: [string, any]) => db.saveMangaShelf(username, item.sourceId, item.mangaId, item))
-                );
-              }
-
-              const mangaReadEntries = Object.entries((user.mangaData?.readRecords || preservedMangaData[username]?.mangaReadRecords || {}));
-              for (let j = 0; j < mangaReadEntries.length; j += DATA_BATCH_SIZE) {
-                const batch = mangaReadEntries.slice(j, j + DATA_BATCH_SIZE);
-                await Promise.all(
-                  batch.map(([, record]: [string, any]) => db.saveMangaReadRecord(username, record.sourceId, record.mangaId, record))
-                );
-              }
-            })(),
-
           ]);
 
           return true;
@@ -361,7 +329,6 @@ export async function POST(req: NextRequest) {
       message: '数据导入成功',
       importedUsers: Object.keys(userData).length,
       importedUsersV2: importData.data.usersV2?.length || 0,
-      importedMangaData: backupHasMangaData,
       timestamp: importData.timestamp,
       serverVersion: typeof importData.serverVersion === 'string' ? importData.serverVersion : '未知版本'
     });

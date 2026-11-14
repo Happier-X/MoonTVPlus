@@ -75,14 +75,7 @@ export async function fetchTVDetail(params: {
 
 export async function resolveTVEpisodeUrl(rawUrl: string, source?: string, proxyMode?: boolean) {
   let url = rawUrl;
-  const lazyPrefixes = [
-    '/api/netdisk/115/play',
-    '/api/netdisk/123/play',
-    '/api/netdisk/quark/play',
-    '/api/netdisk/uc/play',
-    '/api/netdisk/baidu/play',
-    '/api/source-script/play',
-  ];
+  const lazyPrefixes = ['/api/source-script/play'];
   if (lazyPrefixes.some((prefix) => url.startsWith(prefix))) {
     const separator = url.includes('?') ? '&' : '?';
     const res = await fetch(`${url}${separator}format=json`, { cache: 'no-store' });

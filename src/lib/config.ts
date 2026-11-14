@@ -341,11 +341,6 @@ async function getInitConfig(
       LiveChartProxy: process.env.LIVECHART_PROXY || '',
       // 本地设置云同步模式（全局）：off=关闭 manual=手动 auto=自动
       LocalSettingsSyncMode: 'off',
-      // Pansou配置
-      PansouApiUrl: '',
-      PansouUsername: '',
-      PansouPassword: '',
-      PansouKeywordBlocklist: '',
       // 磁链配置
       MagnetProxy: '',
       MagnetMikanReverseProxy: '',
@@ -527,6 +522,28 @@ export async function getConfig(): Promise<AdminConfig> {
 }
 
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
+  // 已下线的漫画 / 求片 / 网盘功能：历史配置原样留在存储中，但不进入运行时配置，
+  // 也不会再通过后台接口回传（含网盘 Cookie、账号密码等敏感字段）。
+  const legacyConfig = adminConfig as AdminConfig & {
+    SuwayomiConfig?: unknown;
+    NetDiskConfig?: unknown;
+  };
+  delete legacyConfig.SuwayomiConfig;
+  delete legacyConfig.NetDiskConfig;
+  if (adminConfig.SiteConfig) {
+    const legacySite = adminConfig.SiteConfig as Record<string, unknown>;
+    for (const key of [
+      'PansouApiUrl',
+      'PansouUsername',
+      'PansouPassword',
+      'PansouKeywordBlocklist',
+      'EnableMovieRequest',
+      'MovieRequestCooldown',
+    ]) {
+      delete legacySite[key];
+    }
+  }
+
   // 确保必要的属性存在和初始化
   if (!adminConfig.SiteConfig) {
     adminConfig.SiteConfig = {
@@ -545,10 +562,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       DanmakuApiToken: '87654321',
       DanmakuAutoLoadDefault: true,
       TMDBImageBaseUrl: DEFAULT_TMDB_IMAGE_BASE_URL,
-      PansouApiUrl: '',
-      PansouUsername: '',
-      PansouPassword: '',
-      PansouKeywordBlocklist: '',
       MagnetProxy: '',
       MagnetMikanReverseProxy: '',
       MagnetDmhyReverseProxy: '',
@@ -658,9 +671,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (adminConfig.TelegramConfig.registrationEnabled === undefined) {
     adminConfig.TelegramConfig.registrationEnabled =
       process.env.TELEGRAM_REGISTRATION_ENABLED === 'true';
-  }
-  if (adminConfig.SiteConfig.PansouKeywordBlocklist === undefined) {
-    adminConfig.SiteConfig.PansouKeywordBlocklist = '';
   }
   if (adminConfig.SiteConfig.MagnetProxy === undefined) {
     adminConfig.SiteConfig.MagnetProxy = '';
@@ -778,157 +788,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     return true;
   });
 
-  if (!adminConfig.SuwayomiConfig) {
-    adminConfig.SuwayomiConfig = {
-      Enabled: process.env.SUWAYOMI_ENABLED === 'true',
-      ServerURL:
-        process.env.SUWAYOMI_URL || process.env.NEXT_PUBLIC_SUWAYOMI_URL || '',
-      AuthMode:
-        (process.env.SUWAYOMI_AUTH_MODE as
-          | 'none'
-          | 'basic_auth'
-          | 'simple_login'
-          | undefined) || 'none',
-      Username: process.env.SUWAYOMI_USERNAME || '',
-      Password: process.env.SUWAYOMI_PASSWORD || '',
-      DefaultLang: process.env.SUWAYOMI_DEFAULT_LANG || 'zh',
-      SourceIds: [],
-      MaxSources: Number(process.env.SUWAYOMI_MAX_SOURCES || 10),
-    };
-  }
-  if (adminConfig.SuwayomiConfig.Enabled === undefined) {
-    adminConfig.SuwayomiConfig.Enabled = false;
-  }
-  if (adminConfig.SuwayomiConfig.ServerURL === undefined) {
-    adminConfig.SuwayomiConfig.ServerURL = '';
-  }
-  if (
-    adminConfig.SuwayomiConfig.AuthMode !== 'basic_auth' &&
-    adminConfig.SuwayomiConfig.AuthMode !== 'simple_login'
-  ) {
-    adminConfig.SuwayomiConfig.AuthMode = 'none';
-  }
-  if (adminConfig.SuwayomiConfig.Username === undefined) {
-    adminConfig.SuwayomiConfig.Username = '';
-  }
-  if (adminConfig.SuwayomiConfig.Password === undefined) {
-    adminConfig.SuwayomiConfig.Password = '';
-  }
-  if (adminConfig.SuwayomiConfig.DefaultLang === undefined) {
-    adminConfig.SuwayomiConfig.DefaultLang = 'zh';
-  }
-  if (!Array.isArray(adminConfig.SuwayomiConfig.SourceIds)) {
-    adminConfig.SuwayomiConfig.SourceIds = [];
-  }
-  if (
-    adminConfig.SuwayomiConfig.MaxSources === undefined ||
-    Number.isNaN(adminConfig.SuwayomiConfig.MaxSources)
-  ) {
-    adminConfig.SuwayomiConfig.MaxSources = 10;
-  }
-
-  if (!adminConfig.NetDiskConfig) {
-    adminConfig.NetDiskConfig = {
-      Quark: {
-        Enabled: false,
-        Cookie: '',
-        SavePath: '/',
-        PlayMode: 'transcode_first',
-        MultiThreadPlayback: false,
-      },
-      Mobile: {
-        Enabled: false,
-        Authorization: '',
-      },
-      Baidu: {
-        Enabled: false,
-        Cookie: '',
-      },
-      Tianyi: {
-        Enabled: false,
-        Account: '',
-        Password: '',
-      },
-      Pan123: {
-        Enabled: false,
-        Account: '',
-        Password: '',
-      },
-      UC: {
-        Enabled: false,
-        Cookie: '',
-        Token: '',
-        SavePath: '/',
-      },
-      Pan115: {
-        Enabled: false,
-        Cookie: '',
-      },
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.Quark) {
-    adminConfig.NetDiskConfig.Quark = {
-      Enabled: false,
-      Cookie: '',
-      SavePath: '/',
-      PlayMode: 'transcode_first',
-      MultiThreadPlayback: false,
-    };
-  }
-  if (!adminConfig.NetDiskConfig.Quark.PlayMode) {
-    adminConfig.NetDiskConfig.Quark.PlayMode = 'transcode_first';
-  }
-  if (adminConfig.NetDiskConfig.Quark.MultiThreadPlayback === undefined) {
-    adminConfig.NetDiskConfig.Quark.MultiThreadPlayback = false;
-  }
-
-  if (!adminConfig.NetDiskConfig.Mobile) {
-    adminConfig.NetDiskConfig.Mobile = {
-      Enabled: false,
-      Authorization: '',
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.Baidu) {
-    adminConfig.NetDiskConfig.Baidu = {
-      Enabled: false,
-      Cookie: '',
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.Tianyi) {
-    adminConfig.NetDiskConfig.Tianyi = {
-      Enabled: false,
-      Account: '',
-      Password: '',
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.Pan123) {
-    adminConfig.NetDiskConfig.Pan123 = {
-      Enabled: false,
-      Account: '',
-      Password: '',
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.UC) {
-    adminConfig.NetDiskConfig.UC = {
-      Enabled: false,
-      Cookie: '',
-      Token: '',
-      SavePath: '/',
-    };
-  }
-
-  if (!adminConfig.NetDiskConfig.Pan115) {
-    adminConfig.NetDiskConfig.Pan115 = {
-      Enabled: false,
-      Cookie: '',
-    };
-  }
-
   // API Base URL 统一去尾斜杠，避免拼接路径时出现 //
   const site = adminConfig.SiteConfig;
   if (site) {
@@ -944,7 +803,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     site.BangumiImageBaseUrl = normalizeApiBaseUrl(site.BangumiImageBaseUrl);
     site.BangumiProxy = normalizeApiBaseUrl(site.BangumiProxy);
     site.LiveChartProxy = normalizeApiBaseUrl(site.LiveChartProxy);
-    site.PansouApiUrl = normalizeApiBaseUrl(site.PansouApiUrl);
     site.MagnetProxy = normalizeApiBaseUrl(site.MagnetProxy);
     site.MagnetMikanReverseProxy = normalizeApiBaseUrl(
       site.MagnetMikanReverseProxy
@@ -959,12 +817,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       site.MagnetNyaaReverseProxy
     );
     site.OIDCIssuer = normalizeApiBaseUrl(site.OIDCIssuer);
-  }
-
-  if (adminConfig.SuwayomiConfig) {
-    adminConfig.SuwayomiConfig.ServerURL = normalizeApiBaseUrl(
-      adminConfig.SuwayomiConfig.ServerURL
-    );
   }
 
   if (adminConfig.AIConfig) {
