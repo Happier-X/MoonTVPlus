@@ -282,6 +282,11 @@ interface EpisodeSelectorProps {
   precomputedVideoInfo?: Map<string, VideoInfo>;
   /** 外部请求打开换源列表（每次递增触发） */
   openSourcesSignal?: number;
+  /** 换源列表里的来源诊断：优选评分与最近一次播放失败原因 */
+  sourceDiagnostics?: Record<
+    string,
+    { score?: number; weight?: number; failureReason?: string }
+  >;
   /** 弹幕相关 */
   onDanmakuSelect?: (selection: DanmakuSelection) => void;
   currentDanmakuSelection?: DanmakuSelection | null;
@@ -319,6 +324,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   backgroundSourcesLoading = false,
   precomputedVideoInfo,
   openSourcesSignal = 0,
+  sourceDiagnostics,
   onDanmakuSelect,
   currentDanmakuSelection,
   onUploadDanmaku,
@@ -1342,6 +1348,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                     const isCurrentSource =
                       source.source?.toString() === currentSource?.toString() &&
                       source.id?.toString() === currentId?.toString();
+                    const diagnostic =
+                      sourceDiagnostics?.[`${source.source}-${source.id}`];
                     return (
                       <div
                         key={`${source.source}-${source.id}`}
@@ -1373,7 +1381,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                         </div>
 
                         {/* 信息区域 */}
-                        <div className='flex-1 min-w-0 flex flex-col justify-between h-20'>
+                        <div className='flex-1 min-w-0 flex flex-col justify-between min-h-[5rem] gap-1'>
                           {/* 标题和分辨率 - 顶部 */}
                           <div className='flex items-start justify-between gap-3 h-6'>
                             <div className='flex-1 min-w-0 relative group/title'>
@@ -1430,14 +1438,49 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           </div>
 
                           {/* 源名称和集数信息 - 垂直居中 */}
-                          <div className='flex items-center justify-between'>
-                            <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} border-gray-500/60`}>
-                              {source.source_name}
-                            </span>
-                            {source.episodes.length > 1 && (
-                              <span className={`text-xs ${faintTextClass} font-medium`}>
-                                {source.episodes.length} 集
+                          <div className='flex flex-col gap-1 min-w-0'>
+                            <div className='flex items-center justify-between gap-2'>
+                              <span
+                                className={`text-xs px-2 py-1 border rounded whitespace-nowrap shrink-0 ${sourcePillTextClass} border-gray-500/60`}
+                              >
+                                {source.source_name}
                               </span>
+                              {source.episodes.length > 1 && (
+                                <span
+                                  className={`text-xs ${faintTextClass} font-medium shrink-0`}
+                                >
+                                  {source.episodes.length} 集
+                                </span>
+                              )}
+                            </div>
+                            {(diagnostic?.failureReason ||
+                              diagnostic?.score !== undefined ||
+                              diagnostic?.weight !== undefined) && (
+                              <div className='flex flex-wrap items-center gap-1.5'>
+                                {diagnostic?.failureReason && (
+                                  <span
+                                    title={`上次播放失败：${diagnostic.failureReason}`}
+                                    className='max-w-full truncate rounded bg-red-500/15 px-1.5 py-0.5 text-xs text-red-600 dark:text-red-400'
+                                  >
+                                    失败 · {diagnostic.failureReason}
+                                  </span>
+                                )}
+                                {diagnostic?.score !== undefined ? (
+                                  <span
+                                    title='优选评分'
+                                    className={`rounded bg-gray-500/10 px-1.5 py-0.5 text-xs dark:bg-white/10 ${faintTextClass}`}
+                                  >
+                                    评分 {Math.round(diagnostic.score)}
+                                  </span>
+                                ) : diagnostic?.weight !== undefined ? (
+                                  <span
+                                    title='后台权重（推荐排序依据）'
+                                    className={`rounded bg-gray-500/10 px-1.5 py-0.5 text-xs dark:bg-white/10 ${faintTextClass}`}
+                                  >
+                                    权重 {diagnostic.weight}
+                                  </span>
+                                ) : null}
+                              </div>
                             )}
                           </div>
 

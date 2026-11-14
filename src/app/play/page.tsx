@@ -170,6 +170,17 @@ type AutoFallbackNotice = {
   kind: 'switching' | 'success';
   message: string;
 };
+/** 自动切源全部失败时，持续展示在播放器上的失败状态。 */
+type AutoFallbackFailure = {
+  attempted: number;
+  details: { name: string; reason: string }[];
+};
+/** 换源列表里的来源诊断信息：评分与最近一次失败原因。 */
+type SourceDiagnostic = {
+  score?: number;
+  weight?: number;
+  failureReason?: string;
+};
 
 interface CustomSubtitleState {
   name: string;
@@ -2081,6 +2092,16 @@ function PlayPageClient() {
   // 首次起播自动容错切源
   const [autoFallbackNotice, setAutoFallbackNotice] =
     useState<AutoFallbackNotice | null>(null);
+  // 自动切源全部失败后的持久失败状态（含尝试过的源与原因，可展开）
+  const [autoFallbackFailure, setAutoFallbackFailure] =
+    useState<AutoFallbackFailure | null>(null);
+  // 换源列表里的评分 / 失败原因
+  const [sourceDiagnostics, setSourceDiagnostics] = useState<
+    Record<string, SourceDiagnostic>
+  >({});
+  const autoFallbackTriedRef = useRef<
+    Map<string, { name: string; reason: string }>
+  >(new Map());
   const autoFallbackDetailAbortRef = useRef<AbortController | null>(null);
   const autoFallbackGenerationRef = useRef(0);
   const autoFallbackDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2137,6 +2158,20 @@ function PlayPageClient() {
   // 同步自动容错需要的实时数据，避免播放器事件闭包读到旧值。
   useEffect(() => {
     availableSourcesRef.current = availableSources;
+    // 没有优选评分时，用后台权重兜底展示，顺序与推荐排序一致。
+    if (availableSources.length === 0) return;
+    setSourceDiagnostics((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      availableSources.forEach((source) => {
+        if (typeof source.weight !== 'number') return;
+        const key = `${source.source}-${source.id}`;
+        if (next[key]?.weight === source.weight) return;
+        next[key] = { ...next[key], weight: source.weight };
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
   }, [availableSources]);
   useEffect(() => {
     backgroundSourcesLoadingRef.current = backgroundSourcesLoading;
@@ -2144,6 +2179,26 @@ function PlayPageClient() {
 
   const autoFallbackSourceKey = (source: Pick<SearchResult, 'source' | 'id'>) =>
     `${source.source}-${source.id}`;
+
+  /** 记录某个源本次播放失败，供换源列表展示原因。 */
+  const recordSourceFailure = (source: string, id: string, reason: string) => {
+    const key = `${source}-${id}`;
+    setSourceDiagnostics((prev) =>
+      prev[key]?.failureReason === reason
+        ? prev
+        : { ...prev, [key]: { ...prev[key], failureReason: reason } }
+    );
+  };
+
+  /** 播放成功后清除该源的失败标记。 */
+  const clearSourceFailure = (source: string, id: string) => {
+    const key = `${source}-${id}`;
+    setSourceDiagnostics((prev) => {
+      if (!prev[key]?.failureReason) return prev;
+      const { failureReason: _drop, ...rest } = prev[key];
+      return { ...prev, [key]: rest };
+    });
+  };
 
   const clearAutoFallbackTimer = () => {
     if (autoFallbackTimerRef.current !== null) {
@@ -2216,7 +2271,7 @@ function PlayPageClient() {
     clearAutoFallbackDeadline();
   }, []);
 
-  const finishAutoFallback = (message: string) => {
+  const finishAutoFallback = (reason: string) => {
     autoFallbackGenerationRef.current += 1;
     autoFallbackDetailAbortRef.current?.abort();
     clearAutoFallbackDeadline();
@@ -2225,7 +2280,21 @@ function PlayPageClient() {
     clearAutoFallbackTimer();
     setAutoFallbackNotice(null);
     setIsVideoLoading(false);
-    setVideoError(message);
+    // 第一个条目是用户原本要播的源，其余是自动切换尝试过的源。
+    const tried = Array.from(autoFallbackTriedRef.current.values());
+    const attempted = Math.max(tried.length - 1, 0);
+    setAutoFallbackFailure({
+      attempted,
+      details:
+        tried.length > 0
+          ? tried
+          : [{ name: currentSourceRef.current, reason }],
+    });
+    setVideoError(
+      attempted > 0
+        ? `自动切换 ${attempted} 个源都没能播放`
+        : '当前播放源无法播放'
+    );
   };
 
   /**
@@ -2234,6 +2303,14 @@ function PlayPageClient() {
    */
   const requestAutoSourceFallback = (reason: string) => {
     if (!canAutoFallback()) return false;
+    // 记录当前源的失败原因：换源列表与「查看失败详情」都基于这份记录。
+    const failingSource = currentSourceRef.current;
+    const failingId = currentIdRef.current;
+    autoFallbackTriedRef.current.set(`${failingSource}-${failingId}`, {
+      name: detailRef.current?.source_name || failingSource,
+      reason,
+    });
+    recordSourceFailure(failingSource, failingId, reason);
     if (autoFallbackInFlightRef.current) return true;
     if (!autoFallbackStartedAtRef.current) {
       autoFallbackStartedAtRef.current = Date.now();
@@ -2244,7 +2321,7 @@ function PlayPageClient() {
             stopAutoFallback(false);
             setIsVideoLoading(false);
           } else {
-            finishAutoFallback('自动切换播放源已超时，请重试或手动选择其他播放源');
+            finishAutoFallback('自动切换播放源超时');
           }
         }
       }, AUTO_FALLBACK_TOTAL_TIMEOUT_MS);
@@ -2255,9 +2332,7 @@ function PlayPageClient() {
       Date.now() - autoFallbackStartedAtRef.current >=
         AUTO_FALLBACK_TOTAL_TIMEOUT_MS
     ) {
-      finishAutoFallback(
-        `自动切换播放源失败：${reason}。请重试或手动选择其他播放源`
-      );
+      finishAutoFallback(reason);
       return true;
     }
 
@@ -2268,9 +2343,7 @@ function PlayPageClient() {
       !backgroundSourcesLoadingRef.current
     ) {
       if (autoFallbackAttemptCountRef.current > 0) {
-        finishAutoFallback(
-          `自动切换播放源失败：${reason}。请重试或手动选择其他播放源`
-        );
+        finishAutoFallback(reason);
         return true;
       }
       clearAutoFallbackDeadline();
@@ -2297,18 +2370,14 @@ function PlayPageClient() {
             Date.now() - autoFallbackStartedAtRef.current >=
               AUTO_FALLBACK_TOTAL_TIMEOUT_MS
           ) {
-            finishAutoFallback(
-              `自动切换播放源失败：${reason}。请重试或手动选择其他播放源`
-            );
+            finishAutoFallback(reason);
             return;
           }
 
           const candidates = await waitForAutoFallbackCandidates();
           if (!canAutoFallback()) return;
           if (candidates.length === 0) {
-            finishAutoFallback(
-              `自动切换播放源失败：${reason}。请重试或手动选择其他播放源`
-            );
+            finishAutoFallback(reason);
             return;
           }
 
@@ -2336,9 +2405,7 @@ function PlayPageClient() {
       } catch (err) {
         if (generation !== autoFallbackGenerationRef.current || !canAutoFallback()) return;
         console.warn('[Play] 自动切换播放源失败:', err);
-        finishAutoFallback(
-          `自动切换播放源失败：${reason}。请重试或手动选择其他播放源`
-        );
+        finishAutoFallback(reason);
       } finally {
         autoFallbackInFlightRef.current = false;
       }
@@ -2353,6 +2420,10 @@ function PlayPageClient() {
     clearAutoFallbackDeadline();
     autoFallbackArmedRef.current = false;
     clearAutoFallbackTimer();
+    // 已经播起来了：清掉失败状态与该源的失败标记。
+    clearSourceFailure(currentSourceRef.current, currentIdRef.current);
+    autoFallbackTriedRef.current.clear();
+    setAutoFallbackFailure(null);
     const switchedName = autoFallbackSuccessNameRef.current;
     autoFallbackSuccessNameRef.current = null;
     if (switchedName) {
@@ -2376,6 +2447,52 @@ function PlayPageClient() {
       setIsVideoLoading(false);
       setVideoError('已关闭自动换源，请手动选择其他播放源或重试');
     }
+  };
+
+  /**
+   * 失败面板的「重试」：重新起播当前源，并重新启用自动容错。
+   * 与首次起播走同一套逻辑，不另起一条播放链路。
+   */
+  const retryFailedPlayback = () => {
+    const source = currentSourceRef.current;
+    const id = currentIdRef.current;
+    autoFallbackGenerationRef.current += 1;
+    autoFallbackDetailAbortRef.current?.abort();
+    clearAutoFallbackDeadline();
+    clearAutoFallbackTimer();
+    autoFallbackTriedRef.current.clear();
+    autoFallbackAttemptedRef.current = new Set([`${source}-${id}`]);
+    autoFallbackAttemptCountRef.current = 0;
+    autoFallbackStartedAtRef.current = 0;
+    autoFallbackSuccessNameRef.current = null;
+    autoFallbackSuppressedRef.current = false;
+    autoFallbackArmedRef.current = true;
+    hasStartedPlaybackRef.current = false;
+    autoFallbackInFlightRef.current = false;
+    clearSourceFailure(source, id);
+    setAutoFallbackFailure(null);
+    setAutoFallbackNotice(null);
+    setVideoError(null);
+    setCorsFailedUrl(null);
+    setIsVideoLoading(true);
+    if (!videoUrl) {
+      // 还没拿到可播放地址（例如直链解析失败），整页重来一次最稳妥。
+      window.location.reload();
+      return;
+    }
+    // 同一地址也要重建播放器，避免旧的错误状态残留。
+    setVideoRequestRevision((revision) => revision + 1);
+  };
+
+  /** 失败面板的「手动选源」：展开选集面板并切到换源列表。 */
+  const openSourcePicker = () => {
+    setIsEpisodeSelectorCollapsed(false);
+    setSourcePanelRequest((value) => value + 1);
+    window.setTimeout(() => {
+      document
+        .getElementById('episode-selector-panel')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 60);
   };
 
   // 播放器就绪状态（用于触发 usePlaySync 的事件监听器设置）
@@ -3230,6 +3347,15 @@ function PlayPageClient() {
           result.score,
         ])
       );
+      // 换源列表展示评分，方便用户判断该选哪个源。
+      setSourceDiagnostics((prev) => {
+        const next = { ...prev };
+        resultsWithScore.forEach((result) => {
+          const key = `${result.source.source}-${result.source.id}`;
+          next[key] = { ...next[key], score: result.score };
+        });
+        return next;
+      });
       resultsWithScore.sort((a, b) => b.score - a.score);
 
       console.log('播放源评分排序结果:');
@@ -4979,6 +5105,11 @@ function PlayPageClient() {
             autoFallbackAttemptedRef.current.add(`${currentSource}-${currentId}`);
             autoFallbackAttemptedRef.current.add(autoFallbackSourceKey(detailData));
             autoFallbackAttemptCountRef.current = 1;
+            autoFallbackTriedRef.current.set(`${currentSource}-${currentId}`, {
+              name: currentSource,
+              reason: '获取详情失败',
+            });
+            recordSourceFailure(currentSource, currentId, '获取详情失败');
             autoFallbackSuccessNameRef.current =
               detailData.source_name || detailData.source;
             setLoadingMessage(
@@ -5351,6 +5482,7 @@ function PlayPageClient() {
       setVideoLoadingStage('sourceChanging');
       setIsVideoLoading(true);
       setVideoError(null);
+      setAutoFallbackFailure(null);
       setCorsFailedUrl(null);
       proxyAttemptedRef.current = false;
 
@@ -5406,7 +5538,9 @@ function PlayPageClient() {
         } catch (err) {
           if (!autoSwitchCancelled()) {
             console.error('获取视频详情失败:', err);
-            if (!isAutoSwitch) {
+            if (isAutoSwitch) {
+              recordSourceFailure(newSource, newId, '获取详情失败');
+            } else {
               setIsVideoLoading(false);
               setError('获取视频详情失败，请重试');
             }
@@ -5423,6 +5557,7 @@ function PlayPageClient() {
       if (autoSwitchCancelled()) return false;
       if (isAutoSwitch && (!newDetail?.episodes?.length ||
         currentEpisodeIndexRef.current >= newDetail.episodes.length)) {
+        recordSourceFailure(newSource, newId, '该源没有当前集数');
         return false;
       }
       // 再次确认 newDetail 不为空（类型守卫）
@@ -10258,12 +10393,16 @@ function PlayPageClient() {
                 {/* 换源加载蒙层 */}
                 {(isVideoLoading || videoError) && (
                   <div className='absolute inset-0 bg-black/85 backdrop-blur-sm rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
-                    <div className='text-center max-w-md mx-auto px-6'>
+                    <div className='text-center max-w-md mx-auto px-6 max-h-full overflow-y-auto py-3'>
                       {videoError ? (
                         // 错误显示
                         <>
                           {/* 错误图标：跟页面级失败态同款，遮罩是深色底所以钉暗色 */}
-                          <div className='relative mb-4 lg:mb-8'>
+                          <div
+                            className={`relative mb-4 lg:mb-8${
+                              autoFallbackFailure ? ' hidden sm:block' : ''
+                            }`}
+                          >
                             {/* 失败态款式（旧版那一套各页自备） */}
                             <LoadingErrorStyle
                               steps={VIDEO_LOAD_STEPS}
@@ -10285,61 +10424,80 @@ function PlayPageClient() {
                             <p className='text-xl font-semibold text-white'>
                               播放失败
                             </p>
-                            <p className='mtv-err-box text-base text-gray-300'>
-                              {videoError}
-                            </p>
-                            <button
-                              onClick={() => {
-                                setVideoError(null);
-                                setIsVideoLoading(true);
-                                // 重新加载视频
-                                if (artPlayerRef.current) {
-                                  artPlayerRef.current.url = videoUrl;
-                                }
-                              }}
-                              className='mt-4 px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-200'
-                            >
-                              重试
-                            </button>
-                            <button
-                              onClick={() => {
-                                setIsEpisodeSelectorCollapsed(false);
-                                setSourcePanelRequest((value) => value + 1);
-                                window.setTimeout(() => {
-                                  document
-                                    .getElementById('episode-selector-panel')
-                                    ?.scrollIntoView({
-                                      behavior: 'smooth',
-                                      block: 'center',
-                                    });
-                                }, 60);
-                              }}
-                              className='mt-4 ml-3 px-6 py-2 bg-white/10 text-white border border-white/25 rounded-lg hover:bg-white/20 transition-all duration-200'
-                            >
-                              手动换源
-                            </button>
-                            {/* 直链播放 CORS 失败时，显示"使用代理播放"按钮 */}
-                            {!proxyAttemptedRef.current && (corsFailedUrl || (isDirectPlay && videoUrl && !videoUrl.includes('/api/proxy-m3u8'))) && (
-                              <button
-                                onClick={() => {
-                                  const originalUrl = corsFailedUrl || videoUrl;
-                                  // 记忆域名到 localStorage
-                                  addDirectplayProxyDomain(originalUrl);
-                                  // 构建代理 URL
-                                  const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
-                                  const proxyUrl = `/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}&source=directplay${tokenParam}`;
-                                  // 清除错误状态并重新播放
-                                  setVideoError(null);
-                                  setCorsFailedUrl(null);
-                                  setIsVideoLoading(true);
-                                  proxyAttemptedRef.current = true;
-                                  setVideoUrl(proxyUrl);
-                                }}
-                                className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200'
-                              >
-                                使用代理播放
-                              </button>
+                            {autoFallbackFailure ? (
+                              <div className='space-y-2'>
+                                <p className='mtv-err-box text-base text-gray-300'>
+                                  {autoFallbackFailure.attempted > 0
+                                    ? `自动切换 ${autoFallbackFailure.attempted} 个源都没能播放`
+                                    : '当前播放源无法播放'}
+                                </p>
+                                <p className='text-sm text-gray-400'>
+                                  可以重试当前源，或手动选择其他播放源
+                                </p>
+                                {autoFallbackFailure.details.length > 0 && (
+                                  <details className='mx-auto max-w-sm rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-left'>
+                                    <summary className='cursor-pointer select-none text-sm text-gray-300'>
+                                      查看失败详情
+                                    </summary>
+                                    <ul className='mt-2 space-y-1'>
+                                      {autoFallbackFailure.details.map(
+                                        (item, index) => (
+                                          <li
+                                            key={`${item.name}-${index}`}
+                                            className='flex flex-wrap gap-x-2 text-xs text-gray-400'
+                                          >
+                                            <span className='text-gray-200'>
+                                              {item.name}
+                                            </span>
+                                            <span>{item.reason}</span>
+                                          </li>
+                                        )
+                                      )}
+                                    </ul>
+                                  </details>
+                                )}
+                              </div>
+                            ) : (
+                              <p className='mtv-err-box text-base text-gray-300'>
+                                {videoError}
+                              </p>
                             )}
+                            <div className='mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3'>
+                              <button
+                                onClick={retryFailedPlayback}
+                                className='min-w-[6.5rem] flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-200 sm:flex-none sm:px-6'
+                              >
+                                重试
+                              </button>
+                              <button
+                                onClick={openSourcePicker}
+                                className='min-w-[6.5rem] flex-1 px-4 py-2 bg-white/10 text-white border border-white/25 rounded-lg hover:bg-white/20 transition-all duration-200 sm:flex-none sm:px-6'
+                              >
+                                手动选源
+                              </button>
+                              {/* 直链播放 CORS 失败时，显示"使用代理播放"按钮 */}
+                              {!proxyAttemptedRef.current && (corsFailedUrl || (isDirectPlay && videoUrl && !videoUrl.includes('/api/proxy-m3u8'))) && (
+                                <button
+                                  onClick={() => {
+                                    const originalUrl = corsFailedUrl || videoUrl;
+                                    // 记忆域名到 localStorage
+                                    addDirectplayProxyDomain(originalUrl);
+                                    // 构建代理 URL
+                                    const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
+                                    const proxyUrl = `/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}&source=directplay${tokenParam}`;
+                                    // 清除错误状态并重新播放
+                                    setVideoError(null);
+                                    setCorsFailedUrl(null);
+                                    setIsVideoLoading(true);
+                                    proxyAttemptedRef.current = true;
+                                    setVideoUrl(proxyUrl);
+                                  }}
+                                  className='min-w-[6.5rem] flex-1 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 sm:flex-none sm:px-6'
+                                >
+                                  使用代理播放
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -10963,6 +11121,7 @@ function PlayPageClient() {
                 backgroundSourcesLoading={backgroundSourcesLoading}
                 precomputedVideoInfo={precomputedVideoInfo}
                 openSourcesSignal={sourcePanelRequest}
+                sourceDiagnostics={sourceDiagnostics}
                 useLightTextOnBackdrop={!!tmdbBackdrop}
                 onDanmakuSelect={(selection) => handleDanmakuSelect(selection, true)}
                 onDanmakuEpisodesLoaded={applyDanmakuEpisodes}
