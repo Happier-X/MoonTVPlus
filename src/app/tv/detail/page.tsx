@@ -11,8 +11,9 @@ import {
   useState,
 } from 'react';
 
-import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { compareSourceRecommendation } from '@/lib/source-ranking';
 import { SearchResult } from '@/lib/types';
+import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import TVLayout from '@/components/tv/TVLayout';
 import {
@@ -84,7 +85,7 @@ function sortSourcesByTests(
     ) {
       return infoB.score - infoA.score;
     }
-    return (b.weight ?? 0) - (a.weight ?? 0);
+    return compareSourceRecommendation(a, b);
   });
 }
 

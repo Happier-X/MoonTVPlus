@@ -32,6 +32,7 @@ import {
   loadCustomAdFilterCode,
 } from '@/lib/hls-ad-filter.client';
 import { appendSpecialSourceParam } from '@/lib/special-source.client';
+import { sortSourcesByRecommendation } from '@/lib/source-ranking';
 import type { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8 } from '@/lib/utils';
 
@@ -657,6 +658,10 @@ function DuanjuPlayClient() {
   const [videoAr, setVideoAr] = useState(0);
 
   const [sources, setSources] = useState<SearchResult[]>([]);
+  const rankedSources = useMemo(
+    () => sortSourcesByRecommendation(sources),
+    [sources]
+  );
   const [srcInfo, setSrcInfo] = useState<Record<string, SrcInfo>>({});
   const [recs, setRecs] = useState<SearchResult[]>([]);
 
@@ -1989,7 +1994,7 @@ function DuanjuPlayClient() {
           </button>
         </div>
         <div className='dbody'>
-          {sources.map((s) => {
+          {rankedSources.map((s) => {
             const key = `${s.source}-${s.id}`;
             const info = srcInfo[key];
             const isCur = key === currentKey;

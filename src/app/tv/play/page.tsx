@@ -54,6 +54,7 @@ import {
   savePlayRecord,
 } from '@/lib/db.client';
 import { loadTVPlayerUpDownAction } from '@/lib/tv-preferences';
+import { sortSourcesByRecommendation } from '@/lib/source-ranking';
 import { SearchResult } from '@/lib/types';
 
 import TVNativeVideo from '@/components/tv/player/TVNativeVideo';
@@ -418,6 +419,10 @@ function TVPlayClient() {
   const searchParams = useSearchParams();
   const [detail, setDetail] = useState<SearchResult | null>(null);
   const [sources, setSources] = useState<SearchResult[]>([]);
+  const rankedSources = useMemo(
+    () => sortSourcesByRecommendation(sources),
+    [sources]
+  );
   const [episodeIndex, setEpisodeIndex] = useState(0);
   const [videoUrl, setVideoUrl] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1628,8 +1633,8 @@ function TVPlayClient() {
           <div className='mb-6'>
             <div className='mb-2 text-xl font-black text-slate-300'>播放源</div>
             <div className='flex gap-3 overflow-x-auto px-2 py-3 [scrollbar-width:none]'>
-              {sources.length > 0 ? (
-                sources.map((item) => (
+              {rankedSources.length > 0 ? (
+                rankedSources.map((item) => (
                   <button
                     key={`${item.source}-${item.id}`}
                     onClick={() => switchSource(item)}
