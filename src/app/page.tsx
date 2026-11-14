@@ -3,7 +3,6 @@
 'use client';
 
 import {
-  BookOpen,
   Bot,
   ChevronRight,
   Link as LinkIcon,

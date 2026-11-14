@@ -2,7 +2,7 @@
 
 'use client';
 
-import { ArrowLeft, Cloud, FileText, Heart, Keyboard, Link2, Loader2, Play, RefreshCw, Router, Search, Sparkles, Star, Users, X } from 'lucide-react';
+import { ArrowLeft, FileText, Heart, Keyboard, Link2, Loader2, Play, RefreshCw, Search, Sparkles, Star, Users, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Suspense,
@@ -118,7 +118,6 @@ import DanmakuFilterSettings from '@/components/DanmakuFilterSettings';
 import DetailPanel from '@/components/DetailPanel';
 import DoubanComments from '@/components/DoubanComments';
 import DownloadEpisodeSelector from '@/components/DownloadEpisodeSelector';
-import Drawer from '@/components/Drawer';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import LoadingStyle, {
   LoadingErrorStyle,
@@ -798,19 +797,6 @@ function PlayPageClient() {
 
   const isLazyDetailSource = (source?: string) =>
     Boolean(source && source.startsWith('script:'));
-
-  const isM3u8LikeUrl = (url?: string) => {
-    if (!url) return false;
-    const normalizedUrl = url.toLowerCase();
-    return normalizedUrl.includes('.m3u8') || normalizedUrl.includes('/m3u8/');
-  };
-
-  const buildAbsoluteUrl = (url: string) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
-  };
 
   // 搜索所需信息
   const [searchTitle] = useState(searchParams.get('stitle') || '');

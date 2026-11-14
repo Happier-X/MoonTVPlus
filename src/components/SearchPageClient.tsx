@@ -5,7 +5,6 @@ import {
   ChevronUp,
   Film,
   Grid2x2,
-  HardDrive,
   List,
   ListVideo,
   Magnet,
@@ -22,7 +21,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {

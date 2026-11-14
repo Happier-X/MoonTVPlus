@@ -26,7 +26,6 @@ import {
   AlertTriangle,
   BarChart3,
   Bot,
-  Cat,
   Check,
   CheckCircle,
   ChevronDown,
@@ -37,23 +36,18 @@ import {
   FileText,
   FolderOpen,
   Globe,
-  Info,
   Mail,
   Monitor,
   Palette,
-  Pencil,
-  Plus,
   Search,
   Send,
   Settings,
   Smartphone,
   Tablet,
-  Trash2,
   Tv,
   UserPlus,
   Users,
   Video,
-  Wifi,
   X,
 } from 'lucide-react';
 import { GripVertical } from 'lucide-react';
@@ -141,18 +135,6 @@ const buttonStyles = {
 };
 
 const DEFAULT_GROUP_PERMISSIONS = [...ALL_FEATURE_PERMISSION_KEYS];
-
-/**
- * 备用源列表按索引存展开 / 检测状态，删除某项后需要平移索引，否则状态会错位到别的卡片上。
- */
-const shiftIndexSetAfterRemove = (prev: Set<number>, removed: number) => {
-  const next = new Set<number>();
-  prev.forEach((n) => {
-    if (n < removed) next.add(n);
-    else if (n > removed) next.add(n - 1);
-  });
-  return next;
-};
 
 // 通用弹窗组件
 interface AlertModalProps {
@@ -474,7 +456,6 @@ interface CollapsibleTabProps {
   isExpanded: boolean;
   onToggle: () => void;
   children: React.ReactNode;
-  isParent?: boolean;
 }
 
 const CollapsibleTab = ({
@@ -483,49 +464,26 @@ const CollapsibleTab = ({
   isExpanded,
   onToggle,
   children,
-  isParent = false,
 }: CollapsibleTabProps) => {
   return (
-    <div
-      className={`rounded-xl shadow-sm mb-4 overflow-hidden ${
-        isParent
-          ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 ring-2 ring-yellow-400/50 dark:ring-yellow-600/50'
-          : 'bg-white/80 backdrop-blur-md dark:bg-gray-800/50 dark:ring-1 dark:ring-gray-700'
-      }`}
-    >
+    <div className='rounded-xl shadow-sm mb-4 overflow-hidden bg-white/80 backdrop-blur-md dark:bg-gray-800/50 dark:ring-1 dark:ring-gray-700'>
       <button
         onClick={onToggle}
-        className={`w-full px-6 py-4 flex items-center justify-between transition-colors ${
-          isParent
-            ? 'bg-yellow-100/50 dark:bg-yellow-900/30 hover:bg-yellow-100/70 dark:hover:bg-yellow-900/40'
-            : 'bg-gray-50/70 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-700/60'
-        }`}
+        className='w-full px-6 py-4 flex items-center justify-between transition-colors bg-gray-50/70 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-700/60'
       >
         <div className='flex items-center gap-3'>
           {icon}
-          <h3
-            className={`text-lg font-medium ${
-              isParent
-                ? 'text-yellow-900 dark:text-yellow-200'
-                : 'text-gray-900 dark:text-gray-100'
-            }`}
-          >
+          <h3 className='text-lg font-medium text-gray-900 dark:text-gray-100'>
             {title}
           </h3>
         </div>
-        <div
-          className={
-            isParent
-              ? 'text-yellow-700 dark:text-yellow-400'
-              : 'text-gray-500 dark:text-gray-400'
-          }
-        >
+        <div className='text-gray-500 dark:text-gray-400'>
           {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
         </div>
       </button>
 
       {isExpanded && (
-        <div className={isParent ? 'px-0.5 md:px-6 py-4' : 'px-6 py-4'}>
+        <div className='px-6 py-4'>
           {children}
         </div>
       )}
@@ -3481,7 +3439,6 @@ const VideoSourceConfig = ({
   const [sources, setSources] = useState<DataSource[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
-  const [orderChanged, setOrderChanged] = useState(false);
   const [newSource, setNewSource] = useState<DataSource>({
     name: '',
     key: '',
@@ -3575,8 +3532,6 @@ const VideoSourceConfig = ({
   useEffect(() => {
     if (config?.SourceConfig) {
       setSources(config.SourceConfig);
-      // 进入时重置 orderChanged
-      setOrderChanged(false);
       // 重置选择状态
       setSelectedSources(new Set());
     }
@@ -3761,51 +3716,6 @@ const VideoSourceConfig = ({
     await doSaveSpecialSources();
   };
 
-  const handleUpdateWeight = (key: string, weight: number) => {
-    // 先乐观更新本地状态
-    setSources((prev) =>
-      prev.map((s) => (s.key === key ? { ...s, weight } : s))
-    );
-
-    // 调用API更新
-    withLoading(`updateWeight_${key}`, async () => {
-      try {
-        const response = await fetch('/api/admin/source', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'update_weight',
-            key,
-            weight,
-          }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `操作失败: ${response.status}`);
-        }
-
-        await refreshConfig();
-      } catch (error) {
-        // 失败时回滚本地状态到配置中的值
-        const originalWeight =
-          config?.SourceConfig?.find((s) => s.key === key)?.weight ?? 0;
-        setSources((prev) =>
-          prev.map((s) =>
-            s.key === key ? { ...s, weight: originalWeight } : s
-          )
-        );
-        showError(
-          error instanceof Error ? error.message : '更新权重失败',
-          showAlert
-        );
-        throw error;
-      }
-    }).catch(() => {
-      console.error('操作失败', 'update_weight', key, weight);
-    });
-  };
-
   const handleAddSource = () => {
     if (!newSource.name || !newSource.key || !newSource.api) return;
     withLoading('addSource', async () => {
@@ -3974,7 +3884,6 @@ const VideoSourceConfig = ({
         order: weightDraftSources.map((source) => source.key),
       });
       setSources(weightDraftSources.map((source) => ({ ...source })));
-      setOrderChanged(false);
       handleCloseWeightModal();
     }).catch(() => {
       console.error('操作失败', 'batch_update_weights');
@@ -12381,7 +12290,7 @@ const AIConfigComponent = ({
   );
 };
 
-// 音乐配置组件
+// 电视直播源配置组件
 const LiveSourceConfig = ({
   config,
   refreshConfig,
@@ -13689,11 +13598,6 @@ function AdminPageClient() {
   });
   // PC 内容区滚动容器，切换区块时回到顶部
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
-  // PC 侧边栏中分组的展开状态
-  const [expandedGroups, setExpandedGroups] = useState<{
-    [key: string]: boolean;
-  }>({});
-
   // 获取管理员配置
   // showLoading 用于控制是否在请求期间显示整体加载骨架。
   const fetchConfig = useCallback(async (showLoading = false) => {
@@ -13824,11 +13728,6 @@ function AdminPageClient() {
     }
   };
 
-  // PC 侧边栏：切换分组展开
-  const toggleGroup = (key: string) => {
-    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   // 新增: 重置配置处理函数
   const handleResetConfig = () => {
     setShowResetConfigModal(true);
@@ -13934,7 +13833,6 @@ function AdminPageClient() {
     icon: React.ReactNode;
     ownerOnly?: boolean;
     render?: () => React.ReactNode;
-    children?: AdminNavItem[];
   };
 
   const navIconClass = 'text-gray-600 dark:text-gray-400';
@@ -14009,7 +13907,6 @@ function AdminPageClient() {
       icon: <Bot size={20} className={navIconClass} />,
       render: () => <VideoSourceScriptLab />,
     },
-
     {
       key: 'liveSource',
       title: '电视直播源配置',
@@ -14090,21 +13987,14 @@ function AdminPageClient() {
     },
   ];
 
-  // 根据 key 查找区块（含分组子项）
-  const findNavItem = (key: string): AdminNavItem | undefined => {
-    for (const it of navItems) {
-      if (it.key === key) return it;
-      const child = it.children?.find((c) => c.key === key);
-      if (child) return child;
-    }
-    return undefined;
-  };
+  // 根据 key 查找区块
+  const findNavItem = (key: string): AdminNavItem | undefined =>
+    navItems.find((it) => it.key === key);
 
   const visibleNavItems = navItems.filter(
     (it) => !it.ownerOnly || role === 'owner'
   );
-  // 本地记忆的分区可能已被下线（如已删除的私人影库子项），回落到第一个可见分区，
-  // 避免内容区渲染空白。
+  // 本地记忆的分区可能已被下线，回落到第一个可见分区，避免内容区渲染空白。
   const activeItem = findNavItem(activeKey) ?? visibleNavItems[0];
 
   return (
@@ -14191,57 +14081,20 @@ function AdminPageClient() {
             {/* 侧边栏 */}
             <nav className='w-56 shrink-0 h-full overflow-y-auto pr-1'>
               <div className='space-y-1'>
-                {visibleNavItems.map((item) =>
-                  item.children ? (
-                    <div key={item.key}>
-                      <button
-                        onClick={() => toggleGroup(item.key)}
-                        className='w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
-                      >
-                        <span className='flex items-center gap-2 min-w-0'>
-                          {item.icon}
-                          <span className='truncate'>{item.title}</span>
-                        </span>
-                        {expandedGroups[item.key] ? (
-                          <ChevronUp size={16} />
-                        ) : (
-                          <ChevronDown size={16} />
-                        )}
-                      </button>
-                      {expandedGroups[item.key] && (
-                        <div className='mt-1 ml-3 pl-3 border-l border-gray-200 dark:border-gray-700 space-y-1'>
-                          {item.children.map((child) => (
-                            <button
-                              key={child.key}
-                              onClick={() => selectSection(child.key)}
-                              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                activeKey === child.key
-                                  ? 'bg-green-500/10 text-green-600 dark:text-green-400 font-medium'
-                                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                              }`}
-                            >
-                              {child.icon}
-                              <span className='truncate'>{child.title}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      key={item.key}
-                      onClick={() => selectSection(item.key)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                        activeKey === item.key
-                          ? 'bg-green-500/10 text-green-600 dark:text-green-400 font-medium'
-                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      {item.icon}
-                      <span className='truncate'>{item.title}</span>
-                    </button>
-                  )
-                )}
+                {visibleNavItems.map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => selectSection(item.key)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      activeKey === item.key
+                        ? 'bg-green-500/10 text-green-600 dark:text-green-400 font-medium'
+                        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className='truncate'>{item.title}</span>
+                  </button>
+                ))}
               </div>
             </nav>
 

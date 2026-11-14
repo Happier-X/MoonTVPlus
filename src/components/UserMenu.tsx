@@ -23,7 +23,6 @@ import {
   MoveUp,
   Package,
   Puzzle,
-  Router as RouterIcon,
   Rss,
   Settings,
   Shield,
@@ -42,9 +41,9 @@ import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { clearAllDanmakuCache, getDanmakuCacheStats } from '@/lib/danmaku/api';
 import { LIVE_AUTO_SPEED_TEST_KEY, SAVE_LIVE_PLAY_RECORDS_KEY } from '@/lib/db.client';
 import {
+  type LocalSettingsPayload,
   LOCAL_SETTINGS_KEYS,
   LOCAL_SETTINGS_SYNC_LAST_PULL_KEY,
-  type LocalSettingsPayload,
 } from '@/lib/local-settings-sync';
 import { clearBangumiImageFallbackCache } from '@/lib/utils';
 import { CURRENT_VERSION } from '@/lib/version';
@@ -6064,7 +6063,7 @@ export const UserMenu: React.FC = () => {
                       MoonTVPlus-PC客户端
                     </h4>
                     <p className='text-sm text-gray-600 dark:text-gray-400 mb-3'>
-                      专为Windows开发的客户端，完美支持私人影库mkv视频
+                      专为 Windows 开发的客户端，优化 MKV 视频与内嵌字幕播放
                     </p>
                     <a
                       href='https://github.com/mtvpls/MoonTVPlus-PC/releases'
@@ -6150,39 +6149,6 @@ export const UserMenu: React.FC = () => {
                 </div>
               </div>
 
-              {/* 私人影库转码器 */}
-              <div className='bg-gray-50 dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700'>
-                <div className='flex items-start gap-4'>
-                  <div className='flex-shrink-0 relative'>
-                    <div className='w-16 h-16 rounded-xl bg-amber-500 flex items-center justify-center shadow-sm'>
-                      <RouterIcon className='w-8 h-8 text-white' />
-                    </div>
-                    <span className='absolute -top-1 -right-1 px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded'>
-                      MKV转码
-                    </span>
-                  </div>
-                  <div className='flex-1 min-w-0'>
-                    <h4 className='text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2'>
-                      私人影库转码器
-                    </h4>
-                    <p className='text-sm text-gray-600 dark:text-gray-400 mb-3'>
-                      为私人影库中的 MKV
-                      视频提供转码播放能力，可解析内封字幕并解决部分视频无音频问题，但通常需要较高的本机性能配置。
-                    </p>
-                    <a
-                      href='https://github.com/mtvpls/moontvplus-transcoder/tags'
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className='inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors'
-                    >
-                      <Download className='w-4 h-4' />
-                      下载
-                      <ExternalLink className='w-3 h-3' />
-                    </a>
-                  </div>
-                </div>
-              </div>
-
               {/* MoonTVPlus 插件 */}
               <div className='bg-gray-50 dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700'>
                 <div className='flex items-start gap-4'>
@@ -6200,7 +6166,7 @@ export const UserMenu: React.FC = () => {
                     </h4>
                     <p className='text-sm text-gray-600 dark:text-gray-400 mb-3'>
                       为 MoonTVPlus
-                      提供增强性功能，目前拥有解决私人影库超分跨域能力
+                      为直链播放提供跨域媒体支持，便于 Anime4K 等画面增强能力
                     </p>
                     <a
                       href='https://github.com/mtvpls/moontvplus-extension/releases'

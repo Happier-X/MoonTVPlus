@@ -17,16 +17,6 @@ const config: Config = {
       },
       fontFamily: {
         primary: ['Inter', ...defaultTheme.fontFamily.sans],
-        // 书名/小节标题用的"书卷"衬线：拉丁走 Georgia，中文依次落到宋体系。
-        book: [
-          'Georgia',
-          '"Songti SC"',
-          '"Noto Serif CJK SC"',
-          '"Noto Serif SC"',
-          'STSong',
-          'SimSun',
-          ...defaultTheme.fontFamily.serif,
-        ],
       },
       colors: {
         // ---- Selene 主题色板（网页端与原生端共用同一套取值）----
@@ -127,8 +117,7 @@ const config: Config = {
           900: '#1b4661',
           950: '#112c3d',
         },
-        // 音乐模块专属的「唱片店」色板：日间是牛皮纸 + 焦糖，夜间是烧焦的深棕 + 炽橘。
-        // 弃用了上一版的黑 + 冷银 + 米白——那套整个在灰阶上，没有一处是亮的。
+        // Selene 强调绿：全站 bg-primary-* / text-primary-* 的主色。
         primary: {
           50: '#eafaf0',
           100: '#d3f3e0',
