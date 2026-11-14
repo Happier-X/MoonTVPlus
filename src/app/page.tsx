@@ -22,7 +22,6 @@ import { DoubanItem } from '@/lib/types';
 import { base58Encode, processImageUrl } from '@/lib/utils';
 
 import AIChatPanel from '@/components/AIChatPanel';
-import BannerCarousel from '@/components/BannerCarousel';
 import ContinueWatching from '@/components/ContinueWatching';
 import FireworksCanvas from '@/components/FireworksCanvas';
 import HttpWarningDialog from '@/components/HttpWarningDialog';
@@ -61,7 +60,6 @@ function HomeClient() {
     { id: 'hotVarietyShows', name: '热门综艺', enabled: true, order: 4 },
     { id: 'upcomingContent', name: '即将上映', enabled: true, order: 5 },
   ]);
-  const [homeBannerEnabled, setHomeBannerEnabled] = useState(true);
   const [homeContinueWatchingEnabled, setHomeContinueWatchingEnabled] =
     useState(true);
 
@@ -259,11 +257,6 @@ function HomeClient() {
       } catch (error) {
         console.error('解析首页模块配置失败:', error);
       }
-    }
-
-    const savedHomeBannerEnabled = localStorage.getItem('homeBannerEnabled');
-    if (savedHomeBannerEnabled !== null) {
-      setHomeBannerEnabled(savedHomeBannerEnabled === 'true');
     }
 
     const savedHomeContinueWatchingEnabled = localStorage.getItem(
@@ -863,23 +856,13 @@ function HomeClient() {
   return (
     <PageLayout>
       <FireworksCanvas />
-      {/* TMDB 热门轮播图 */}
-      {homeBannerEnabled && (
-        <div className='w-full mb-4'>
-          <BannerCarousel delayLoad={true} />
-        </div>
-      )}
-
-      <div className='px-2 sm:px-10 pb-4 sm:pb-8 overflow-visible'>
+      {/* 桌面端为主题和账号入口留出紧凑顶栏，移动端沿用固定页头。 */}
+      <div className='px-2 sm:px-10 pt-3 md:pt-16 pb-4 sm:pb-8 overflow-visible'>
         <div className='max-w-[95%] mx-auto'>
           {/* 首页内容 */}
           <>
             {/* 源站寻片和AI问片入口 */}
-            <div
-              className={`flex items-center justify-end gap-2 mb-4 ${
-                homeBannerEnabled ? '' : 'mt-[30px]'
-              }`}
-            >
+            <div className='flex items-center justify-end gap-2 mb-4'>
               <button
                 onClick={handleDirectPlay}
                 className='p-1.5 rounded-lg text-blue-500 hover:text-blue-600 transition-colors'
