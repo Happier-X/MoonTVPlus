@@ -280,6 +280,8 @@ interface EpisodeSelectorProps {
   backgroundSourcesLoading?: boolean;
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
+  /** 外部请求打开换源列表（每次递增触发） */
+  openSourcesSignal?: number;
   /** 弹幕相关 */
   onDanmakuSelect?: (selection: DanmakuSelection) => void;
   currentDanmakuSelection?: DanmakuSelection | null;
@@ -316,6 +318,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   sourceSearchError = null,
   backgroundSourcesLoading = false,
   precomputedVideoInfo,
+  openSourcesSignal = 0,
   onDanmakuSelect,
   currentDanmakuSelection,
   onUploadDanmaku,
@@ -917,6 +920,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     setActiveTab('sources');
   };
 
+  // 播放失败面板的「手动换源」入口：外部递增信号时切到换源 Tab。
+  useEffect(() => {
+    if (openSourcesSignal > 0 && !isRoomMember) {
+      setActiveTab('sources');
+    }
+  }, [openSourcesSignal, isRoomMember]);
+
   const handleCategoryClick = useCallback(
     (index: number) => {
       if (descending) {
@@ -1022,7 +1032,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   }, [showEpisodeMenu]);
 
   return (
-    <div className='md:ml-2 px-4 py-0 h-full rounded-xl bg-black/10 dark:bg-white/5 flex flex-col border border-white/0 dark:border-white/30 overflow-hidden'>
+    <div
+      id='episode-selector-panel'
+      className='md:ml-2 px-4 py-0 h-full rounded-xl bg-black/10 dark:bg-white/5 flex flex-col border border-white/0 dark:border-white/30 overflow-hidden'
+    >
       {/* 主要的 Tab 切换 - 无缝融入设计 */}
       <div className='flex mb-1 -mx-6 flex-shrink-0'>
         {/* 选集选项卡 - 仅在多集时显示 */}
