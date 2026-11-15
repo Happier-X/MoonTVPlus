@@ -1,5 +1,12 @@
 package com.moontvplus.phone
 
+import com.moontvplus.phone.update.UpdateDialog
+import com.moontvplus.phone.update.UpdateInstaller
+import com.moontvplus.phone.update.UpdateStage
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -63,13 +70,26 @@ private sealed interface AppRoute {
 class MainActivity : ComponentActivity() {
 
     private val openSettingsRequest: MutableState<Boolean> = mutableStateOf(false)
+    private val updater get() = (application as MoonTvApplication).updater
+    private val updateInstaller by lazy { UpdateInstaller(this, updater) }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            updater.state.first { !it.busy }
+            updater.awaitIdle()
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                updateInstaller.resume()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         openSettingsRequest.value = intent?.action == ACTION_OPEN_SETTINGS
         setContent {
-            MoonTvApp(openSettingsRequest)
+            MoonTvApp(openSettingsRequest, onInstallUpdate = updateInstaller::install)
         }
     }
 
@@ -84,6 +104,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MoonTvApp(
     openSettingsRequest: MutableState<Boolean>,
+    onInstallUpdate: () -> Unit,
     viewModel: AppViewModel = appViewModel {
         AppViewModel(
             settingsStore = it.graph.settingsStore,
@@ -102,6 +123,15 @@ private fun MoonTvApp(
     val context = LocalContext.current
     var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
     var showSettings by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
+    val updateState by (context.applicationContext as MoonTvApplication).updater.state.collectAsStateWithLifecycle()
+    val updater = (context.applicationContext as MoonTvApplication).updater
+
+    LaunchedEffect(Unit) {
+        // Silent, non-blocking startup check at most twice a day; failures stay out of the way.
+        delay(4_000)
+        updater.check(manual = false)
+    }
 
     LaunchedEffect(openSettingsRequest.value) {
         if (openSettingsRequest.value) {
@@ -131,6 +161,7 @@ private fun MoonTvApp(
     }
 
     MoonTvTheme(darkTheme = darkTheme) {
+        UpdateDialog(state = updateState, updater = updater, onInstall = onInstallUpdate)
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
@@ -151,6 +182,22 @@ private fun MoonTvApp(
                             showSettings = false
                             viewModel.changeServer()
                         },
+                        onOpenAbout = {
+                            showSettings = false
+                            showAbout = true
+                        },
+                    )
+                }
+
+                if (showAbout) {
+                    AboutDialog(
+                        updateState = updateState,
+                        onCheck = {
+                            showAbout = false
+                            updater.show()
+                            updater.check(manual = true)
+                        },
+                        onDismiss = { showAbout = false },
                     )
                 }
 
@@ -244,6 +291,12 @@ private fun MoonTvApp(
                         }
                     }
                 }
+                if (state !is AppUiState.LoggedIn) {
+                    TextButton(
+                        onClick = { showAbout = true },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                    ) { Text("关于与更新") }
+                }
             }
         }
     }
@@ -255,6 +308,7 @@ private fun SettingsDialog(
     onDismiss: () -> Unit,
     onLogout: () -> Unit,
     onChangeServer: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -266,6 +320,7 @@ private fun SettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                TextButton(onClick = onOpenAbout) { Text("关于与更新") }
             }
         },
         confirmButton = {
@@ -274,6 +329,37 @@ private fun SettingsDialog(
         dismissButton = {
             TextButton(onClick = onLogout) { Text("退出登录") }
         },
+    )
+}
+
+@Composable
+private fun AboutDialog(updateState: com.moontvplus.phone.update.UpdateUiState, onCheck: () -> Unit, onDismiss: () -> Unit) {
+    val status = when {
+        updateState.stage == UpdateStage.READY -> "新版本 ${updateState.update?.version} 已下载，可安装。"
+        updateState.stage == UpdateStage.AVAILABLE -> "发现新版本 ${updateState.update?.version}。"
+        updateState.stage == UpdateStage.LATEST -> "没有发现可更新的安卓正式版本。"
+        updateState.stage == UpdateStage.ERROR -> "上次检查失败，可重试。"
+        updateState.busy -> "正在检查版本…"
+        else -> null
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("关于 MoonTVPlus") },
+        text = {
+            Column {
+                Text("安卓客户端 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）")
+                Text(
+                    "从 GitHub 获取安卓正式版本。下载完成后，由系统确认安装。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onCheck) { Text(if (updateState.busy) "查看更新进度" else "检查更新") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
 }
 
