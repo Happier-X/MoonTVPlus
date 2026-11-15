@@ -3,8 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { getDetailFromApiV2 } from '@/lib/downstream';
+import { EPISODE_RESPONSE_HEADERS } from '@/lib/episode-freshness';
 import {
   executeSavedSourceScript,
   normalizeScriptDetailResult,
@@ -140,7 +141,7 @@ export async function GET(request: NextRequest) {
         result: detailExecution.result,
       });
 
-      return NextResponse.json(normalized);
+      return NextResponse.json(normalized, { headers: EPISODE_RESPONSE_HEADERS });
     } catch (error) {
       return NextResponse.json(
         { error: (error as Error).message },
@@ -183,25 +184,12 @@ export async function GET(request: NextRequest) {
         adminConfig.ClientAdSourceApis
       ) || resultWithProxy.episodes;
 
-    const cacheTime = await getCacheTime();
-
-    // 同一源在不同 UA 下 episodes 可能不同，避免 CDN/共享缓存串号
-    if (clientAdEnabled) {
-      return NextResponse.json(resultWithProxy, {
-        headers: {
-          'Cache-Control': 'private, no-store',
-          Vary: 'User-Agent',
-          'Netlify-Vary': 'query',
-        },
-      });
-    }
-
+    // 缓存原始详情一分钟；用户权限校验和 UA 广告代理每次请求分别处理。
+    // 不让浏览器/CDN 在应用缓存外再叠加两小时缓存。
     return NextResponse.json(resultWithProxy, {
       headers: {
-        'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-        'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Netlify-Vary': 'query',
+        ...EPISODE_RESPONSE_HEADERS,
+        ...(clientAdEnabled ? { Vary: 'User-Agent' } : {}),
       },
     });
   } catch (error) {

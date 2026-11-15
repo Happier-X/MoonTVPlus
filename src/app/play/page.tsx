@@ -30,6 +30,11 @@ import {
   searchAnime,
 } from '@/lib/danmaku/api';
 import {
+  getCachedDanmakuEpisodes,
+  setCachedDanmakuEpisodes,
+} from '@/lib/danmaku/episodes-cache';
+import { cleanEpisodeDisplayName } from '@/lib/danmaku/format';
+import {
   getDanmakuAnimeId,
   getDanmakuSearchKeyword,
   getDanmakuSourceIndex,
@@ -39,17 +44,7 @@ import {
   saveDanmakuSourceIndex,
   saveManualDanmakuSelection,
 } from '@/lib/danmaku/selection-memory';
-import { cleanEpisodeDisplayName } from '@/lib/danmaku/format';
-import {
-  getCachedDanmakuEpisodes,
-  setCachedDanmakuEpisodes,
-} from '@/lib/danmaku/episodes-cache';
 import type { DanmakuAnime, DanmakuComment, DanmakuSelection, DanmakuSettings } from '@/lib/danmaku/types';
-import type { EpisodeTitleCorrection } from '@/lib/episode-title-correction';
-import {
-  EPISODE_TITLE_CORRECTION_EVENT,
-  getEpisodeTitleCorrection,
-} from '@/lib/episode-title-correction';
 import {
   deleteFavorite,
   deleteSkipConfig,
@@ -66,15 +61,29 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { getDoubanDetail } from '@/lib/douban.client';
+import {
+  isDuanjuTypeName,
+  isDuanjuVerticalDisabled,
+} from '@/lib/duanju.client';
+import { getFreshEpisodeDetail } from '@/lib/episode-detail.client';
 import { isEpisodeHiddenByFilter, normalizeEpisodeFilterConfig } from '@/lib/episode-filter';
-import { appendSpecialSourceParam, isSpecialSourceContext } from '@/lib/special-source.client';
-import { sortSourcesByRecommendation } from '@/lib/source-ranking';
+import { isEpisodeCacheFresh } from '@/lib/episode-freshness';
 import {
   buildEpisodeProgressContentKey,
   loadLocalEpisodeProgress,
   pruneLocalEpisodeProgressStorage,
   saveLocalEpisodeProgress,
 } from '@/lib/episode-progress';
+import type { EpisodeTitleCorrection } from '@/lib/episode-title-correction';
+import {
+  EPISODE_TITLE_CORRECTION_EVENT,
+  getEpisodeTitleCorrection,
+} from '@/lib/episode-title-correction';
+import {
+  createAdFilteringHlsLoader,
+  loadCustomAdFilterCode,
+} from '@/lib/hls-ad-filter.client';
+import { getIndexedDBVideoPlaybackUrl } from '@/lib/indexeddb-video-cache';
 import {
   calculateSeekTime,
   DEFAULT_QUICK_FORWARD_SECONDS,
@@ -89,24 +98,16 @@ import {
   recommendationCacheKeys,
   setRecommendationCache,
 } from '@/lib/recommendations/cache';
-import { getIndexedDBVideoPlaybackUrl } from '@/lib/indexeddb-video-cache';
+import { sortSourcesByRecommendation } from '@/lib/source-ranking';
+import { appendSpecialSourceParam, isSpecialSourceContext } from '@/lib/special-source.client';
 import {
   convertSubtitleFileToVttObjectUrl,
   CUSTOM_SUBTITLE_ACCEPT,
 } from '@/lib/subtitle-converter';
 import { DanmakuFilterConfig, EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import { base58Decode, getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
-import {
-  isDuanjuTypeName,
-  isDuanjuVerticalDisabled,
-} from '@/lib/duanju.client';
-import {
-  createAdFilteringHlsLoader,
-  loadCustomAdFilterCode,
-} from '@/lib/hls-ad-filter.client';
 import { useEnableAIComments } from '@/hooks/useEnableAIComments';
 import { useEnableComments } from '@/hooks/useEnableComments';
-import { useWatchRoomContextSafe } from '@/components/WatchRoomProvider';
 import {
   getRoomRemotePlaybackRate,
   isRemoteRoomRateActive,
@@ -121,8 +122,8 @@ import DoubanComments from '@/components/DoubanComments';
 import DownloadEpisodeSelector from '@/components/DownloadEpisodeSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import LoadingStyle, {
-  LoadingErrorStyle,
   type LoadingStep,
+  LoadingErrorStyle,
 } from '@/components/LoadingStyle';
 import PageLayout from '@/components/PageLayout';
 import ProxyImage from '@/components/ProxyImage';
@@ -130,6 +131,7 @@ import { useSite } from '@/components/SiteProvider';
 import SmartRecommendations from '@/components/SmartRecommendations';
 import Toast, { ToastProps } from '@/components/Toast';
 import VideoCard from '@/components/VideoCard';
+import { useWatchRoomContextSafe } from '@/components/WatchRoomProvider';
 
 import { useDownload } from '@/contexts/DownloadContext';
 
@@ -879,16 +881,16 @@ function PlayPageClient() {
   });
 
   // 监听 URL 参数变化，更新集数索引（用于房员跟随换集）
+  // 只在 URL 里的 episode 真正变化时生效；否则用户手动选集后会被旧 URL 立刻改回原集。
+  const appliedUrlEpisodeRef = useRef<string | null>(searchParams.get('episode'));
   useEffect(() => {
     const episodeParam = searchParams.get('episode');
-    if (episodeParam) {
-      const episode = parseInt(episodeParam, 10);
-      const newIndex = episode > 0 ? episode - 1 : 0;
-      console.log('[PlayPage] Checking episode from URL:', { urlEpisode: episode, currentIndex: currentEpisodeIndex, newIndex });
-      if (newIndex !== currentEpisodeIndex) {
-        console.log('[PlayPage] URL episode changed, updating index to:', newIndex);
-        setCurrentEpisodeIndex(newIndex);
-      }
+    if (!episodeParam || episodeParam === appliedUrlEpisodeRef.current) return;
+    appliedUrlEpisodeRef.current = episodeParam;
+    const episode = parseInt(episodeParam, 10);
+    const newIndex = episode > 0 ? episode - 1 : 0;
+    if (newIndex !== currentEpisodeIndex) {
+      setCurrentEpisodeIndex(newIndex);
     }
   }, [searchParams, currentEpisodeIndex]);
 
@@ -4699,26 +4701,16 @@ function PlayPageClient() {
     const fetchSourceDetail = async (
       source: string,
       id: string,
-      title: string
+      _title: string
     ): Promise<SearchResult[]> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), AUTO_FALLBACK_SOURCE_TIMEOUT_MS);
       try {
-        const url = appendSpecialSourceParam(
-          `/api/source-detail?source=${source}&id=${id}&title=${encodeURIComponent(title)}`
-        );
-        const detailResponse = await fetch(url, { signal: controller.signal });
-        if (!detailResponse.ok) {
-          throw new Error('获取视频详情失败');
-        }
-        const detailData = (await detailResponse.json()) as SearchResult;
+        const detailData = await getFreshEpisodeDetail(source, id, isSpecialSourceContext());
         setAvailableSources([detailData]);
         return [detailData];
       } catch (err) {
         console.error('获取视频详情失败:', err);
         return [];
       } finally {
-        clearTimeout(timeout);
         setSourceSearchLoading(false);
       }
     };
@@ -4934,7 +4926,7 @@ function PlayPageClient() {
           fallbackCachedResults = cachedResults;
           setAvailableSources(cachedResults);
 
-          if (cachedPayload.status === 'complete') {
+          if (cachedPayload.status === 'complete' && isEpisodeCacheFresh(cachedPayload.updatedAt)) {
             setHasCompletedSearchRequest(true);
             return cachedResults;
           }
@@ -4942,7 +4934,8 @@ function PlayPageClient() {
 
         // 没有缓存或只有 partial 缓存时，重新请求完整搜索结果
         const response = await fetch(
-          appendSpecialSourceParam(`/api/search?q=${encodeURIComponent(query.trim())}`)
+          appendSpecialSourceParam(`/api/search?q=${encodeURIComponent(query.trim())}&fresh=1`),
+          { cache: 'no-store' }
         );
         if (!response.ok) {
           throw new Error('搜索失败');
@@ -5069,26 +5062,18 @@ function PlayPageClient() {
           (source) => source.source === currentSource && source.id === currentId
         );
 
-        if (cachedTarget?.episodes?.length) {
-          detailData = cachedTarget;
-          sourcesInfo = cachedSources;
-          setAvailableSources(cachedSources);
-          setSourceSearchLoading(false);
-        } else {
-          // 先快速获取当前源的详情
-          try {
-            const currentSourceDetail = await fetchSourceDetail(
-              currentSource,
-              currentId,
-              searchTitle || videoTitle
-            );
-            if (currentSourceDetail.length > 0) {
-              detailData = currentSourceDetail[0];
-              sourcesInfo = currentSourceDetail;
-            }
-          } catch (err) {
-            console.error('获取当前源详情失败:', err);
-          }
+        // 搜索快照不能代表当前剧集列表；进入播放时总是校验所选源详情。
+        // 请求失败仍用旧搜索结果起播，读取播放记录的集数/进度逻辑保持原样。
+        const currentSourceDetail = await fetchSourceDetail(
+          currentSource, currentId, searchTitle || videoTitle
+        );
+        detailData = currentSourceDetail[0] ||
+          (cachedTarget?.episodes?.length ? cachedTarget : null);
+        if (detailData) {
+          sourcesInfo = [detailData, ...cachedSources.filter((item) =>
+            item.source !== currentSource || item.id !== currentId
+          )];
+          setAvailableSources(sourcesInfo);
         }
 
         // 当前源连详情也无法返回时，先找同片且包含当前集的可用候选。
@@ -5215,14 +5200,9 @@ function PlayPageClient() {
 
       console.log(detailData.source, detailData.id);
 
-      // 这类源统一通过详情接口补全播放数据
-      if (isLazyDetailSource(detailData.source) && (!detailData.episodes || detailData.episodes.length === 0)) {
-        console.log('[Play] Fetching lazy detail after source selection...');
-        const detailSources = await fetchSourceDetail(detailData.source, detailData.id, detailData.title || videoTitleRef.current);
-        if (detailSources.length > 0) {
-          detailData = detailSources[0];
-        }
-      }
+      // 无明确源/优选入口同样校验最终所选源；一分钟内同源请求会合并复用。
+      const selectedDetails = await fetchSourceDetail(detailData.source, detailData.id, detailData.title || videoTitleRef.current);
+      if (selectedDetails.length > 0) detailData = selectedDetails[0];
 
       setNeedPrefer(false);
       // 直接使用 detailData.source（已经是完整格式）
@@ -5313,6 +5293,38 @@ function PlayPageClient() {
 
     initAll();
   }, []);
+
+  // 从后台恢复时只更新选集元数据，保留当前集地址和播放器时间。
+  useEffect(() => {
+    if (!currentSource || !currentId || currentSource === 'directplay') return;
+    let disposed = false;
+    const refresh = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const latest = await getFreshEpisodeDetail(currentSource, currentId, isSpecialSourceContext());
+        if (disposed) return;
+        setDetail((previous) => {
+          if (!previous || previous.source !== latest.source || previous.id !== latest.id) return previous;
+          const index = currentEpisodeIndexRef.current;
+          if (!latest.episodes[index]) return previous;
+          const episodes = [...latest.episodes];
+          episodes[index] = previous.episodes[index];
+          if (JSON.stringify([episodes, latest.episodes_titles, latest.vod_remarks]) ===
+              JSON.stringify([previous.episodes, previous.episodes_titles, previous.vod_remarks])) return previous;
+          return { ...latest, episodes };
+        });
+      } catch {
+        // 恢复网络失败不影响已经可用的选集与播放进度。
+      }
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [currentSource, currentId]);
 
   // 跳过片头片尾配置处理
   useEffect(() => {

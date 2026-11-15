@@ -3,8 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { EPISODE_RESPONSE_HEADERS } from '@/lib/episode-freshness';
 import {
   executeSavedSourceScript,
   listEnabledSourceScripts,
@@ -26,15 +27,11 @@ export async function GET(request: NextRequest) {
   const specialOnly = searchParams.get('special') === '1';
 
   if (!query) {
-    const cacheTime = await getCacheTime();
     return NextResponse.json(
       { results: [] },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
+          ...EPISODE_RESPONSE_HEADERS,
         },
       }
     );
@@ -52,7 +49,7 @@ export async function GET(request: NextRequest) {
   // 添加超时控制和错误处理，避免慢接口拖累整体响应
   const searchPromises = apiSites.map((site) =>
     Promise.race([
-      searchFromApi(site, query),
+      searchFromApi(site, query, searchParams.get('refresh') === '1'),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
       ),
@@ -145,7 +142,6 @@ export async function GET(request: NextRequest) {
       return weightB - weightA;
     });
 
-    const cacheTime = await getCacheTime();
 
     if (flattenedResults.length === 0) {
       // no cache if empty
@@ -156,10 +152,7 @@ export async function GET(request: NextRequest) {
       { results: flattenedResults },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
+          ...EPISODE_RESPONSE_HEADERS,
         },
       }
     );

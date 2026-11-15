@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
+import { EpisodeCache } from '@/lib/episode-freshness';
 import { parseJsonLosslessIntegers } from '@/lib/json';
-import { getCachedSearchPage, setCachedSearchPage } from '@/lib/search-cache';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
 
@@ -20,6 +20,9 @@ interface ApiSearchItem {
   vod_total?: number;
 }
 
+const searchPages = new EpisodeCache<{ results: SearchResult[]; pageCount?: number }>();
+const sourceDetails = new EpisodeCache<SearchResult>();
+
 /**
  * 通用的带缓存搜索函数
  */
@@ -28,46 +31,33 @@ async function searchWithCache(
   query: string,
   page: number,
   url: string,
-  timeoutMs = 8000
+  timeoutMs = 8000,
+  refresh = false
 ): Promise<{ results: SearchResult[]; pageCount?: number }> {
-  // 先查缓存
-  const cached = getCachedSearchPage(apiSite.key, query, page);
-  if (cached) {
-    if (cached.status === 'ok') {
-      return { results: cached.data, pageCount: cached.pageCount };
-    } else {
-      return { results: [] };
-    }
-  }
+  return searchPages.get(JSON.stringify([apiSite, query.trim(), page]), async () => {
+  // 由短期应用缓存控制新鲜度，避免 Next fetch 缓存再次叠加。
 
-  // 缓存未命中，发起网络请求
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
-      headers: API_CONFIG.search.headers,
+      cache: 'no-store',
+      headers: { ...API_CONFIG.search.headers, 'Cache-Control': 'no-cache' },
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      if (response.status === 403) {
-        setCachedSearchPage(apiSite.key, query, page, 'forbidden', []);
-      }
-      return { results: [] };
-    }
+    if (!response.ok) throw new Error(`搜索请求失败: ${response.status}`);
 
     const data = parseJsonLosslessIntegers<any>(await response.text());
     if (
       !data ||
       !data.list ||
-      !Array.isArray(data.list) ||
-      data.list.length === 0
+      !Array.isArray(data.list)
     ) {
-      // 空结果不做负缓存要求，这里不写入缓存
-      return { results: [] };
+      throw new Error('搜索结果格式无效');
     }
 
     // 处理结果数据
@@ -124,25 +114,21 @@ async function searchWithCache(
 
     // 过滤掉集数为 0 的结果
     const results = allResults.filter((result: SearchResult) => result.episodes.length > 0);
+    // 空的成功响应不进入缓存：新建条目可能在下一分钟就出现，仍由短重试兜住。
+    if (results.length === 0) throw new Error('搜索没有可用结果');
 
     const pageCount = page === 1 ? data.pagecount || 1 : undefined;
-    // 写入缓存（成功）
-    setCachedSearchPage(apiSite.key, query, page, 'ok', results, pageCount);
     return { results, pageCount };
-  } catch (error: any) {
+  } finally {
     clearTimeout(timeoutId);
-    // 识别被 AbortController 中止（超时）
-    const aborted = error?.name === 'AbortError' || error?.code === 20 || error?.message?.includes('aborted');
-    if (aborted) {
-      setCachedSearchPage(apiSite.key, query, page, 'timeout', []);
-    }
-    return { results: [] };
   }
+  }, refresh);
 }
 
 export async function searchFromApi(
   apiSite: ApiSite,
-  query: string
+  query: string,
+  refresh = false
 ): Promise<SearchResult[]> {
   try {
     const apiBaseUrl = apiSite.api;
@@ -150,8 +136,8 @@ export async function searchFromApi(
       apiBaseUrl + API_CONFIG.search.path + encodeURIComponent(query);
 
     // 使用新的缓存搜索函数处理第一页
-    const firstPageResult = await searchWithCache(apiSite, query, 1, apiUrl, 8000);
-    const results = firstPageResult.results;
+    const firstPageResult = await searchWithCache(apiSite, query, 1, apiUrl, 8000, refresh);
+    const results = [...firstPageResult.results];
     const pageCountFromFirst = firstPageResult.pageCount;
 
     const config = await getConfig();
@@ -175,9 +161,9 @@ export async function searchFromApi(
 
         const pagePromise = (async () => {
           // 使用新的缓存搜索函数处理分页
-          const pageResult = await searchWithCache(apiSite, query, page, pageUrl, 8000);
+          const pageResult = await searchWithCache(apiSite, query, page, pageUrl, 8000, refresh);
           return pageResult.results;
-        })();
+        })().catch(() => []);
 
         additionalPagePromises.push(pagePromise);
       }
@@ -216,7 +202,8 @@ export async function getDetailFromApi(
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   const response = await fetch(detailUrl, {
-    headers: API_CONFIG.detail.headers,
+    cache: 'no-store',
+    headers: { ...API_CONFIG.detail.headers, 'Cache-Control': 'no-cache' },
     signal: controller.signal,
   });
 
@@ -298,13 +285,23 @@ export async function getDetailFromApiV2(
   apiSite: ApiSite,
   id: string
 ): Promise<SearchResult> {
+  return sourceDetails.get(JSON.stringify([apiSite, id]), async () => {
+    const result = await fetchDetailFromApiV2(apiSite, id);
+    if (!result.episodes.length) throw new Error('详情没有可用剧集');
+    return result;
+  });
+}
+
+async function fetchDetailFromApiV2(apiSite: ApiSite, id: string): Promise<SearchResult> {
   const detailUrl = `${apiSite.api}${API_CONFIG.detail.path}${id}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+  try {
   const response = await fetch(detailUrl, {
-    headers: API_CONFIG.detail.headers,
+    cache: 'no-store',
+    headers: { ...API_CONFIG.detail.headers, 'Cache-Control': 'no-cache' },
     signal: controller.signal,
   });
 
@@ -376,6 +373,9 @@ export async function getDetailFromApiV2(
     vod_total: videoDetail.vod_total,
     proxyMode: apiSite.proxyMode || false,
   };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function handleSpecialSourceDetail(
@@ -388,7 +388,8 @@ async function handleSpecialSourceDetail(
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   const response = await fetch(detailUrl, {
-    headers: API_CONFIG.detail.headers,
+    cache: 'no-store',
+    headers: { ...API_CONFIG.detail.headers, 'Cache-Control': 'no-cache' },
     signal: controller.signal,
   });
 

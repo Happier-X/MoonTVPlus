@@ -72,7 +72,10 @@ interface MoonApi {
 
     /** 普通搜索：所有源聚合成一次响应，用作 SSE 断流时的回退。 */
     @GET("api/search")
-    suspend fun search(@Query("q") keyword: String): Response<SearchResponse>
+    suspend fun search(
+        @Query("q") keyword: String,
+        @Query("fresh") fresh: Int = 1,
+    ): Response<SearchResponse>
 
     /** 流式搜索：SSE，事件体只有 `data: {...}`。 */
     @GET("api/search/ws")
@@ -94,6 +97,7 @@ interface MoonApi {
     suspend fun sourceDetail(
         @Query("source") source: String,
         @Query("id") videoId: String,
+        @Query("fresh") fresh: Int = 1,
     ): Response<SearchResult>
 
     // ---- 收藏 ----

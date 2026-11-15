@@ -23,6 +23,7 @@ import React, {
 } from 'react';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { loadTraditionalToSimplifiedConverter } from '@/lib/danmaku/traditional-to-simplified';
 import {
   addSearchHistory,
   clearSearchHistory,
@@ -30,12 +31,13 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { SearchResult } from '@/lib/types';
+import { isEpisodeCacheFresh } from '@/lib/episode-freshness';
 import {
   appendSpecialSourceParam,
   isSpecialSourceContext,
   SPECIAL_SOURCE_PATH,
 } from '@/lib/special-source.client';
+import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
 import AcgSearch from '@/components/AcgSearch';
@@ -50,7 +52,12 @@ import SearchResultFilter, {
 import SearchSuggestions from '@/components/SearchSuggestions';
 import VideoCard, { VideoCardHandle } from '@/components/VideoCard';
 import VirtualScrollableGrid from '@/components/VirtualScrollableGrid';
-import { loadTraditionalToSimplifiedConverter } from '@/lib/danmaku/traditional-to-simplified';
+
+function mergeSearchResults(previous: SearchResult[], incoming: SearchResult[]) {
+  const merged = new Map(previous.map((item) => [`${item.source}+${item.id}`, item]));
+  incoming.forEach((item) => merged.set(`${item.source}+${item.id}`, item));
+  return Array.from(merged.values());
+}
 
 type SearchCachePayload = {
   status: 'complete' | 'partial';
@@ -112,7 +119,8 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     >
   >(new Map());
   // 强制刷新状态
-  const [forceRefresh, setForceRefresh] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const consumedRefreshRef = useRef(0);
   // 是否使用了缓存结果
   const [isFromCache, setIsFromCache] = useState(false);
   // 精确搜索开关
@@ -131,7 +139,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   };
 
   // 从 sessionStorage 获取完整缓存的搜索结果（partial 只给播放页快速启动使用）
-  const getCachedResults = (query: string): SearchResult[] | null => {
+  const getCachedResults = (query: string): SearchCachePayload | null => {
     if (typeof window === 'undefined') return null;
     try {
       const cacheKey = getCacheKey(query);
@@ -140,7 +148,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
 
       const parsed = JSON.parse(cached) as SearchCachePayload;
       if (parsed?.status === 'complete' && Array.isArray(parsed.results)) {
-        return parsed.results;
+        return parsed;
       }
     } catch (error) {
       console.error('Failed to get cached results:', error);
@@ -1170,6 +1178,9 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
       }
     }
 
+    const forceRefresh = refreshVersion !== consumedRefreshRef.current;
+    consumedRefreshRef.current = refreshVersion;
+    const requestController = new AbortController();
     currentQueryRef.current = query.trim();
 
     const typeParam = searchParams.get('type');
@@ -1201,9 +1212,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
         setShowResults(false);
         setShowSuggestions(false);
       }
-      if (forceRefresh) {
-        setForceRefresh(false);
-      }
       return;
     }
 
@@ -1212,10 +1220,11 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
 
       const trimmed = query.trim();
 
-      // 检查是否有缓存且不是强制刷新
+      // 先呈现缓存；超过一分钟时继续请求并按 source+id 合并新数据。
+      const cachedPayload = getCachedResults(trimmed);
+      const cachedResults = cachedPayload?.results || [];
       if (!forceRefresh) {
-        const cachedResults = getCachedResults(trimmed);
-        if (cachedResults && cachedResults.length > 0) {
+        if (cachedResults.length > 0) {
           // 使用缓存的结果
           setIsLoading(false); // 先设置加载状态为 false
           setSearchResults(cachedResults);
@@ -1226,14 +1235,13 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
           setIsFromCache(true); // 标记为缓存结果
           // 保存到搜索历史
           addSearchHistory(query);
-          return;
+          if (isEpisodeCacheFresh(cachedPayload?.updatedAt)) return;
         }
       }
 
       // 如果是强制刷新，清除缓存
       if (forceRefresh) {
         clearCachedResults(trimmed);
-        setForceRefresh(false);
       }
 
       // 开始新搜索时，重置缓存标记
@@ -1249,7 +1257,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
       // 先设置加载状态，再清空结果，避免短暂显示"暂无搜索结果"
       setIsLoading(true);
       setShowResults(true);
-      setSearchResults([]);
+      setSearchResults(cachedResults);
       setTotalSources(0);
       setCompletedSources(0);
       // 清理缓冲
@@ -1279,7 +1287,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
 
       if (currentFluidSearch) {
         // 流式搜索：打开新的流式连接
-        const searchUrl = `/api/search/ws?q=${encodeURIComponent(trimmed)}`;
+        const searchUrl = `/api/search/ws?q=${encodeURIComponent(trimmed)}&fresh=1${forceRefresh ? '&refresh=1' : ''}`;
         const es = new EventSource(appendSpecialSourceParam(searchUrl));
         eventSourceRef.current = es;
 
@@ -1287,7 +1295,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
           if (!event.data) return;
           try {
             const payload = JSON.parse(event.data);
-            if (currentQueryRef.current !== trimmed) return;
+            if (currentQueryRef.current !== trimmed || eventSourceRef.current !== es) return;
             switch (payload.type) {
               case 'start':
                 setTotalSources(payload.totalSources || 0);
@@ -1314,7 +1322,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                       const toAppend = pendingResultsRef.current;
                       pendingResultsRef.current = [];
                       startTransition(() => {
-                        setSearchResults((prev) => prev.concat(toAppend));
+                        setSearchResults((prev) => mergeSearchResults(prev, toAppend));
                       });
                       flushTimerRef.current = null;
                     }, 80);
@@ -1337,7 +1345,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                   }
                   startTransition(() => {
                     setSearchResults((prev) => {
-                      const newResults = prev.concat(toAppend);
+                      const newResults = mergeSearchResults(prev, toAppend);
                       // 缓存完整的搜索结果
                       setCachedResults(trimmed, newResults);
                       return newResults;
@@ -1373,7 +1381,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
               flushTimerRef.current = null;
             }
             startTransition(() => {
-              setSearchResults((prev) => prev.concat(toAppend));
+              setSearchResults((prev) => mergeSearchResults(prev, toAppend));
             });
           }
           try {
@@ -1385,11 +1393,14 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
         };
       } else {
         // 传统搜索：使用普通接口
-        const searchUrl = `/api/search?q=${encodeURIComponent(trimmed)}`;
-        fetch(appendSpecialSourceParam(searchUrl))
-          .then((response) => response.json())
+        const searchUrl = `/api/search?q=${encodeURIComponent(trimmed)}&fresh=1${forceRefresh ? '&refresh=1' : ''}`;
+        fetch(appendSpecialSourceParam(searchUrl), { cache: 'no-store', signal: requestController.signal })
+          .then((response) => {
+            if (!response.ok) throw new Error('搜索失败');
+            return response.json();
+          })
           .then((data) => {
-            if (currentQueryRef.current !== trimmed) return;
+            if (currentQueryRef.current !== trimmed || requestController.signal.aborted) return;
 
             if (data.results && Array.isArray(data.results)) {
               const activeYearOrder =
@@ -1399,9 +1410,10 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                   ? sortBatchForNoOrder(data.results as SearchResult[])
                   : (data.results as SearchResult[]);
 
-              setSearchResults(results);
-              // 缓存搜索结果
-              setCachedResults(trimmed, results);
+              const merged = mergeSearchResults(cachedResults, results);
+              setSearchResults(merged);
+              // 失败源的旧结果保留；成功源的新集数覆盖相同条目。
+              if (results.length > 0) setCachedResults(trimmed, merged);
               setTotalSources(1);
               setCompletedSources(1);
             }
@@ -1419,9 +1431,17 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
       setShowResults(false);
       setShowSuggestions(false);
     }
+    return () => {
+      requestController.abort();
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+      pendingResultsRef.current = [];
+    };
   }, [
     searchParams,
-    forceRefresh,
+    refreshVersion,
     converterReady,
     searchOptionsReady,
   ]);
@@ -1847,7 +1867,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                       {searchQuery && (
                         <button
                           onClick={() => {
-                            setForceRefresh(true);
+                            setRefreshVersion((version) => version + 1);
                           }}
                           disabled={isLoading}
                           className='flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-green-50 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-green-400'

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { EPISODE_RESPONSE_HEADERS } from '@/lib/episode-freshness';
 import {
   executeSavedSourceScript,
   listEnabledSourceScripts,
@@ -25,15 +26,12 @@ export async function GET(request: NextRequest) {
   const resourceId = searchParams.get('resourceId');
 
   if (!query || !resourceId) {
-    const cacheTime = await getCacheTime();
+    // Freshness is controlled by the downstream application cache.
     return NextResponse.json(
       { result: null, error: '缺少必要参数: q 或 resourceId' },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
+          ...EPISODE_RESPONSE_HEADERS,
         },
       }
     );
@@ -82,7 +80,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const cacheTime = await getCacheTime();
+      // Freshness is controlled by the downstream application cache.
       if (result.length === 0) {
         return NextResponse.json(
           {
@@ -97,10 +95,7 @@ export async function GET(request: NextRequest) {
         { results: result },
         {
           headers: {
-            'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-            'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Netlify-Vary': 'query',
+            ...EPISODE_RESPONSE_HEADERS,
           },
         }
       );
@@ -126,7 +121,7 @@ export async function GET(request: NextRequest) {
         return !yellowWords.some((word: string) => typeName.includes(word));
       });
     }
-    const cacheTime = await getCacheTime();
+    // Freshness is controlled by the downstream application cache.
 
     if (result.length === 0) {
       return NextResponse.json(
@@ -141,10 +136,7 @@ export async function GET(request: NextRequest) {
         { results: result },
         {
           headers: {
-            'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-            'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Netlify-Vary': 'query',
+            ...EPISODE_RESPONSE_HEADERS,
           },
         }
       );

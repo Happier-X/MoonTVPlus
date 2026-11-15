@@ -8,10 +8,13 @@ import { createPortal } from 'react-dom';
 import type { PlayRecord } from '@/lib/db.client';
 import {
   clearAllPlayRecords,
-  getCachedPlayRecordsSnapshot,
   getAllPlayRecords,
+  getCachedPlayRecordsSnapshot,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { getFreshEpisodeDetail } from '@/lib/episode-detail.client';
+import { EPISODE_CHECK_LIMIT } from '@/lib/episode-freshness';
+import { isSpecialSourceContext } from '@/lib/special-source.client';
 
 import PlayRecordsPanel from '@/components/PlayRecordsPanel';
 import VideoCard from '@/components/VideoCard';
@@ -28,8 +31,12 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
   const cachedDisplayLimit = storageType !== 'localstorage' ? 10 : undefined;
   const [playRecords, setPlayRecords] = useState<PlayRecordItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [episodeCounts, setEpisodeCounts] = useState<Record<string, number>>({});
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showPlayRecordsPanel, setShowPlayRecordsPanel] = useState(false);
+  const refreshKeys = JSON.stringify(playRecords
+    .filter((record) => !record.is_duanju && record.total_episodes >= 1 && !record.key.startsWith('directplay+'))
+    .slice(0, EPISODE_CHECK_LIMIT).map((record) => record.key));
 
   const updatePlayRecords = (
     allRecords: Record<string, PlayRecord>,
@@ -75,7 +82,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
         updatePlayRecords(allRecords);
       } catch (error) {
         console.error('获取播放记录失败:', error);
-        setPlayRecords([]);
+        // 网络失败保留已展示的播放记录快照。
       } finally {
         setLoading(false);
       }
@@ -84,6 +91,44 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     fetchPlayRecords();
     return unsubscribe;
   }, [cachedDisplayLimit]);
+
+  // 只核对最近六条普通剧集，最多两个并发；不写存档、不改变历史排序。
+  useEffect(() => {
+    let cancelled = false;
+    let busy = false;
+    const keys = JSON.parse(refreshKeys) as string[];
+    const refresh = async () => {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      let cursor = 0;
+      const worker = async () => {
+        while (!cancelled && cursor < keys.length) {
+          const key = keys[cursor++];
+          const [source, id] = key.split('+');
+          try {
+            const detail = await getFreshEpisodeDetail(source, id, isSpecialSourceContext());
+            if (cancelled) return;
+            setEpisodeCounts((previous) => previous[key] === detail.episodes.length
+              ? previous : { ...previous, [key]: detail.episodes.length });
+          } catch {
+            // 源失败时保留播放记录里的旧集数。
+          }
+        }
+      };
+      await Promise.all([worker(), worker()]);
+      busy = false;
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [refreshKeys]);
 
   if (!loading && playRecords.length === 0) {
     return null;
@@ -150,6 +195,10 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
             <VirtualScrollableRow>
               {playRecords.map((record) => {
                 const { source, id } = parseKey(record.key);
+                const episodes =
+                  Math.max(episodeCounts[record.key] || 0, record.total_episodes || 0) ||
+                  record.total_episodes;
+                const newEpisodes = Math.max(record.new_episodes || 0, episodes - record.total_episodes);
                 return (
                   <div
                     key={record.key}
@@ -164,7 +213,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                       source={source}
                       source_name={record.source_name}
                       progress={getProgress(record)}
-                      episodes={record.total_episodes}
+                      episodes={episodes}
                       currentEpisode={record.index}
                       query={record.search_title}
                       from='playrecord'
@@ -180,7 +229,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                       totalTime={record.total_time}
                       isDuanju={Boolean(record.is_duanju)}
                     />
-                    {record.new_episodes && record.new_episodes > 0 && (
+                    {newEpisodes > 0 && (
                       <div
                         style={{
                           position: 'absolute',
@@ -230,7 +279,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                             animation: 'badge-scale 2s ease-in-out infinite',
                           }}
                         >
-                          +{record.new_episodes}
+                          +{newEpisodes}
                         </div>
                       </div>
                     )}

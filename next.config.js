@@ -270,6 +270,15 @@ const createNextConfig = (phase) => {
     register: true,
     skipWaiting: true,
     importScripts: ['/push-sw.js'],
+    // Episode metadata has its own short cache and outage fallback. Workbox's
+    // default API NetworkFirst fallback otherwise retains old episodes for a day.
+    runtimeCaching: [
+      {
+        urlPattern: /\/api\/(source-detail|search(?:\/ws|\/one)?)(\?|$)/,
+        handler: 'NetworkOnly',
+      },
+      ...require('next-pwa/cache'),
+    ],
   });
 
   return withPWA(nextConfig);

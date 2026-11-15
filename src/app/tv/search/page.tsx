@@ -95,7 +95,7 @@ export default function TVSearchPage() {
     setError('');
     setResults([]);
     addSearchHistory(q).catch(() => undefined);
-    fetch(`/api/search?q=${encodeURIComponent(q)}`)
+    fetch(`/api/search?q=${encodeURIComponent(q)}&fresh=1`, { cache: 'no-store' })
       .then((response) => {
         if (!response.ok) throw new Error('搜索失败');
         return response.json();
