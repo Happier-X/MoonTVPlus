@@ -22,7 +22,6 @@ import type { DanmakuComment,DanmakuEpisode,DanmakuSelection } from '@/lib/danma
 import { generateStorageKey, getCachedPlayRecordsSnapshot } from '@/lib/db.client';
 import { isEpisodeHiddenByFilter } from '@/lib/episode-filter';
 import { loadAllLocalEpisodeProgressRecords } from '@/lib/episode-progress';
-import { sortSourcesByRecommendation } from '@/lib/source-ranking';
 import { EpisodeFilterConfig,SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, SpeedTestError } from '@/lib/utils';
 import type { SpeedTestErrorType } from '@/lib/utils';
@@ -428,12 +427,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   }, [episodesPerPage, episodes_titles, parseSxxExxTitle, totalEpisodes]);
 
   const pageCount = episodeGroupsAsc.length;
-
-  // 换源列表按后台权重（推荐度）排序；同分时用标题 / 来源名兜底，顺序不随测速完成时机变化。
-  const rankedSources = useMemo(
-    () => sortSourcesByRecommendation(availableSources),
-    [availableSources]
-  );
 
   // 存储每个源的视频信息
   const [videoInfoMap, setVideoInfoMap] = useState<Map<string, VideoInfo>>(
@@ -963,6 +956,24 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     [onSourceChange]
   );
 
+  // 解析网速字符串，转换为 KB/s 数值用于排序
+  const parseSpeedToKBps = useCallback((speedStr: string): number => {
+    if (!speedStr || speedStr === '未知' || speedStr === '测量中...') {
+      return -1; // 无效速度返回 -1，排在最后
+    }
+
+    const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
+    if (!match) {
+      return -1;
+    }
+
+    const value = parseFloat(match[1]);
+    const unit = match[2];
+
+    // 统一转换为 KB/s
+    return unit === 'MB/s' ? value * 1024 : value;
+  }, []);
+
   // 重新测试单个源
   const handleRetestSource = useCallback(
     async (source: SearchResult, e: React.MouseEvent) => {
@@ -1344,7 +1355,36 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             !sourceSearchError &&
             availableSources.length > 0 && (
               <div className='flex-1 overflow-y-auto space-y-2 pb-20'>
-                {rankedSources.map((source, index) => {
+                {[...availableSources]
+                  .sort((a, b) => {
+                    const aIsCurrent =
+                      a.source?.toString() === currentSource?.toString() &&
+                      a.id?.toString() === currentId?.toString();
+                    const bIsCurrent =
+                      b.source?.toString() === currentSource?.toString() &&
+                      b.id?.toString() === currentId?.toString();
+
+                    // 当前源始终置顶
+                    if (aIsCurrent && !bIsCurrent) return -1;
+                    if (!aIsCurrent && bIsCurrent) return 1;
+
+                    // 如果初始测速已完成，按网速排序（快的在前）
+                    if (initialTestingCompleted) {
+                      const aKey = `${a.source}-${a.id}`;
+                      const bKey = `${b.source}-${b.id}`;
+                      const aInfo = videoInfoMap.get(aKey);
+                      const bInfo = videoInfoMap.get(bKey);
+
+                      const aSpeed = aInfo ? parseSpeedToKBps(aInfo.loadSpeed) : -1;
+                      const bSpeed = bInfo ? parseSpeedToKBps(bInfo.loadSpeed) : -1;
+
+                      // 速度快的排在前面（降序）
+                      return bSpeed - aSpeed;
+                    }
+
+                    return 0;
+                  })
+                  .map((source, index) => {
                     const isCurrentSource =
                       source.source?.toString() === currentSource?.toString() &&
                       source.id?.toString() === currentId?.toString();
@@ -1474,7 +1514,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                   </span>
                                 ) : diagnostic?.weight !== undefined ? (
                                   <span
-                                    title='后台权重（推荐排序依据）'
+                                    title='后台权重'
                                     className={`rounded bg-gray-500/10 px-1.5 py-0.5 text-xs dark:bg-white/10 ${faintTextClass}`}
                                   >
                                     权重 {diagnostic.weight}
