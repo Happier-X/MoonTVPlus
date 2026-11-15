@@ -14,20 +14,30 @@ on:
         default: 'MoonTVPlus'
         type: string
       version_name:
-        description: '版本名'
+        description: '版本名（默认 1.9.3；需与 version_code 同步递增）'
         required: false
-        default: '1.0.0'
+        default: '1.9.3'
         type: string
       version_code:
-        description: '版本号，必须是整数'
+        description: '版本号，必须是整数且大于 12（默认 13）'
         required: false
-        default: '1'
+        default: '13'
         type: string
       min_sdk:
         description: '最低 Android API（默认 23 = Android 6）'
         required: false
         default: '23'
         type: string
+      require_signed:
+        description: '必须产出正式签名 APK；签名 secrets 不完整时直接失败（只有显式关闭才允许 debug）'
+        required: true
+        default: true
+        type: boolean
+      build_desktop:
+        description: '同时打包桌面端（默认关闭；仅构建安卓时保持关闭）'
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -65,6 +75,31 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Validate build version
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          MIN_SDK: ${{ inputs.min_sdk }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){1,3}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version_name 必须是合法的版本名（例如 1.9.3），当前为：$VERSION_NAME"
+            exit 1
+          fi
+          if [[ ! "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
+            echo "::error::version_code 必须是整数，当前为：$VERSION_CODE"
+            exit 1
+          fi
+          if (( VERSION_CODE < 13 )); then
+            echo "::error::version_code 必须大于已发布的 12（1.9.2），当前为：$VERSION_CODE"
+            exit 1
+          fi
+          if [[ ! "$MIN_SDK" =~ ^[0-9]+$ ]]; then
+            echo "::error::min_sdk 必须是整数，当前为：$MIN_SDK"
+            exit 1
+          fi
+          echo "构建版本：$VERSION_NAME ($VERSION_CODE)，minSdk=$MIN_SDK"
+
       - name: Prepare app icon from public/logo.png
         run: |
           cp public/logo.png apps/android-phone/app/src/main/res/drawable/logo.png
@@ -76,15 +111,32 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          REQUIRE_SIGNED: ${{ inputs.require_signed }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/android-phone-release.keystore
+          set -euo pipefail
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/android-phone-release.keystore
+            chmod 600 /tmp/android-phone-release.keystore
+            if [ ! -s /tmp/android-phone-release.keystore ]; then
+              echo "::error::Android keystore 解码后为空，请检查 ANDROID_KEYSTORE_BASE64"
+              exit 1
+            fi
             echo "build_type=release" >> "$GITHUB_OUTPUT"
             echo "build_type_task=Release" >> "$GITHUB_OUTPUT"
             echo "apk_suffix=release" >> "$GITHUB_OUTPUT"
             echo "artifact_suffix=release-signed" >> "$GITHUB_OUTPUT"
+          elif [ "$REQUIRE_SIGNED" = "true" ]; then
+            echo "::error::要求正式签名，但 Android 签名 secrets 不完整，缺少：${missing[*]}。不会降级为 debug 构建。"
+            exit 1
           else
-            echo "Android signing secrets are not fully set, building debug APK only."
+            echo "::warning::Android 签名 secrets 不完整（缺少：${missing[*]}），已显式关闭 require_signed，改为构建 debug APK。"
             echo "build_type=debug" >> "$GITHUB_OUTPUT"
             echo "build_type_task=Debug" >> "$GITHUB_OUTPUT"
             echo "apk_suffix=debug" >> "$GITHUB_OUTPUT"
@@ -108,20 +160,89 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          ./gradlew assemble${{ steps.signing.outputs.build_type_task }} \
+          ./gradlew :app:assemble${{ steps.signing.outputs.build_type_task }} \
             -PBASE_URL="$BASE_URL" \
             -PAPP_NAME="$APP_NAME" \
             -PVERSION_NAME="$VERSION_NAME" \
             -PVERSION_CODE="$VERSION_CODE" \
-            -PMIN_SDK="$MIN_SDK"
+            -PMIN_SDK="$MIN_SDK" \
+            --stacktrace
 
-      - name: Collect APK artifacts
+      - name: Collect APK artifact
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
         run: |
+          set -euo pipefail
           mkdir -p /tmp/android-phone-apks
-          cp \
-            "apps/android-phone/app/build/outputs/apk/${{ steps.signing.outputs.build_type }}/app-${{ steps.signing.outputs.apk_suffix }}.apk" \
-            "/tmp/android-phone-apks/moontvplus-phone-${{ inputs.version_name }}-${{ steps.signing.outputs.artifact_suffix }}.apk"
+          src="apps/android-phone/app/build/outputs/apk/${{ steps.signing.outputs.build_type }}/app-${{ steps.signing.outputs.apk_suffix }}.apk"
+          dst="/tmp/android-phone-apks/moontvplus-phone-${VERSION_NAME}-${{ steps.signing.outputs.artifact_suffix }}.apk"
+          test -s "$src"
+          cp "$src" "$dst"
+          (cd /tmp/android-phone-apks && sha256sum "$(basename "$dst")" > "$(basename "$dst").sha256")
+          cat "$dst.sha256"
           ls -lh /tmp/android-phone-apks
+
+      - name: Verify APK signature and metadata
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          MIN_SDK: ${{ inputs.min_sdk }}
+          BUILD_TYPE: ${{ steps.signing.outputs.build_type }}
+          ARTIFACT_SUFFIX: ${{ steps.signing.outputs.artifact_suffix }}
+          REQUIRE_SIGNED: ${{ inputs.require_signed }}
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          test -x "$BUILD_TOOLS/aapt"
+
+          APK="/tmp/android-phone-apks/moontvplus-phone-${VERSION_NAME}-${ARTIFACT_SUFFIX}.apk"
+          REPORT="/tmp/android-phone-apks/moontvplus-phone-${VERSION_NAME}-${ARTIFACT_SUFFIX}-verification.txt"
+          test -s "$APK"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" > /tmp/apksigner-verify.txt 2>&1
+          "$BUILD_TOOLS/aapt" dump badging "$APK" > /tmp/aapt-badging.txt 2>&1
+
+          # 包名、版本号、SDK 必须与 workflow 输入/构建配置一致
+          grep -Fq "package: name='com.moontvplus.phone' versionCode='${VERSION_CODE}' versionName='${VERSION_NAME}'" /tmp/aapt-badging.txt
+          grep -Fq "sdkVersion:'${MIN_SDK}'" /tmp/aapt-badging.txt
+          grep -Fq "targetSdkVersion:'35'" /tmp/aapt-badging.txt
+
+          if [ "$BUILD_TYPE" = "release" ]; then
+            if grep -Fq "application-debuggable" /tmp/aapt-badging.txt; then
+              echo "::error::release APK 带有 application-debuggable 标记"
+              exit 1
+            fi
+            if [ "$REQUIRE_SIGNED" != "true" ]; then
+              echo "::error::当前是 release 构建，但 require_signed 未开启"
+              exit 1
+            fi
+          fi
+
+          EXPECTED_SHA="$(cut -d' ' -f1 "${APK}.sha256")"
+          ACTUAL_SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
+          if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+            echo "::error::APK sha256 不一致：expected=$EXPECTED_SHA actual=$ACTUAL_SHA"
+            exit 1
+          fi
+
+          {
+            echo "Android Phone APK verification"
+            echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "build_type=${BUILD_TYPE}"
+            echo "version_name=${VERSION_NAME}"
+            echo "version_code=${VERSION_CODE}"
+            echo "min_sdk=${MIN_SDK}"
+            echo "artifact=$(basename "$APK")"
+            echo "sha256=${ACTUAL_SHA}"
+            echo
+            echo "== apksigner verify --verbose --print-certs =="
+            cat /tmp/apksigner-verify.txt
+            echo
+            echo "== aapt dump badging =="
+            cat /tmp/aapt-badging.txt
+          } > "$REPORT"
+          cat "$REPORT"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
@@ -131,8 +252,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-android-phone-${{ inputs.version_name }}-${{ steps.signing.outputs.artifact_suffix }}-verification
+          path: |
+            /tmp/android-phone-apks/*-verification.txt
+            /tmp/android-phone-apks/*.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   desktop:
     name: Package Desktop App
+    if: ${{ inputs.build_desktop == true }}
     runs-on: windows-latest
 
     steps:
