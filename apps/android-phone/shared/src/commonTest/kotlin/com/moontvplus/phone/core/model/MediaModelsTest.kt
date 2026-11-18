@@ -101,4 +101,14 @@ class MediaModelsTest {
         val images = BangumiImages(large = "", common = "https://lain.bgm.tv/c.jpg", grid = "g.jpg")
         assertEquals("https://lain.bgm.tv/c.jpg", images.best)
     }
+
+    @Test
+    fun `第一集的播放记录也要带上集数`() {
+        // 默认 Json 关闭 encodeDefaults；网页版靠 index / play_time 继续观看，
+        // 这里守住「等于默认值也不能省」的约定。
+        val body = PlayRecordBody(title = "测试剧", sourceName = "示例源", index = 1, playTime = 3.0)
+        val raw = Json { encodeDefaults = false }.encodeToString(PlayRecordBody.serializer(), body)
+        assertTrue(raw.contains("\"index\":1"), raw)
+        assertTrue(raw.contains("\"play_time\":3.0"), raw)
+    }
 }

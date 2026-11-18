@@ -48,13 +48,14 @@ fun DetailScreen(
     fallbackTitle: String,
     onBack: () -> Unit,
     onPlay: (index: Int, startPositionMs: Long) -> Unit,
+    playbackReturn: Int = 0,
     viewModel: DetailViewModel = appViewModel {
         DetailViewModel(it.graph.moonApi, it.graph.imageUrlBuilder, it.graph.serverProvider)
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(source, videoId) { viewModel.load(source, videoId) }
+    LaunchedEffect(source, videoId, playbackReturn) { viewModel.load(source, videoId, force = true) }
 
     Box(
         modifier = Modifier

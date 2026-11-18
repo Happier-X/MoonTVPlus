@@ -1,5 +1,6 @@
 package com.moontvplus.phone.core.model
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -144,18 +145,23 @@ data class PlayRecord(
     val isFinished: Boolean get() = totalEpisodes > 0 && index >= totalEpisodes
 }
 
-/** 上报播放记录用的请求体，字段名必须与服务端一致。 */
+/**
+ * 上报播放记录用的请求体，字段名必须与服务端一致。
+ *
+ * 全部显式序列化：默认 Json 关闭了 encodeDefaults，而网页版依赖记录里的
+ * index / play_time 等字段；像「第 1 集」这种等于默认值的字段不能省掉。
+ */
 @Serializable
 data class PlayRecordBody(
     val title: String,
     @SerialName("source_name") val sourceName: String,
-    val year: String = "",
-    val cover: String = "",
-    val index: Int = 1,
-    @SerialName("total_episodes") val totalEpisodes: Int = 0,
-    @SerialName("play_time") val playTime: Double = 0.0,
-    @SerialName("total_time") val totalTime: Double = 0.0,
-    @SerialName("save_time") val saveTime: Long = 0L,
+    @EncodeDefault val year: String = "",
+    @EncodeDefault val cover: String = "",
+    @EncodeDefault val index: Int = 1,
+    @EncodeDefault @SerialName("total_episodes") val totalEpisodes: Int = 0,
+    @EncodeDefault @SerialName("play_time") val playTime: Double = 0.0,
+    @EncodeDefault @SerialName("total_time") val totalTime: Double = 0.0,
+    @EncodeDefault @SerialName("save_time") val saveTime: Long = 0L,
 )
 
 @Serializable

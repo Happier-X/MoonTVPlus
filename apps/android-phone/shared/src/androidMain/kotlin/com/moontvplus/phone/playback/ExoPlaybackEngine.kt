@@ -121,7 +121,13 @@ class ExoPlaybackController : PlaybackController {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     _state.value = _state.value.copy(
                         status = when (playbackState) {
-                            Player.STATE_IDLE -> PlaybackStatus.IDLE
+                            // 出错后 ExoPlayer 会回到 IDLE；保留 ERROR，避免错误被静默吞掉。
+                            // load() 会先把状态置为 BUFFERING，所以换集时不会继承上一集的错误。
+                            Player.STATE_IDLE -> if (_state.value.status == PlaybackStatus.ERROR) {
+                                PlaybackStatus.ERROR
+                            } else {
+                                PlaybackStatus.IDLE
+                            }
                             Player.STATE_BUFFERING -> PlaybackStatus.BUFFERING
                             Player.STATE_READY -> PlaybackStatus.READY
                             Player.STATE_ENDED -> PlaybackStatus.ENDED
@@ -151,10 +157,9 @@ class ExoPlaybackController : PlaybackController {
         }
 
         _state.value = PlaybackState(status = PlaybackStatus.BUFFERING, error = null)
-        exoPlayer.setMediaSource(mediaSource)
+        exoPlayer.setMediaSource(mediaSource, request.startPositionMs)
+        exoPlayer.playWhenReady = request.autoPlay
         exoPlayer.prepare()
-        if (request.startPositionMs > 0L) exoPlayer.seekTo(request.startPositionMs)
-        exoPlayer.playWhenReady = true
         startProgressTicker()
     }
 
@@ -164,6 +169,13 @@ class ExoPlaybackController : PlaybackController {
 
     override fun pause() {
         exoPlayer.playWhenReady = false
+    }
+
+    override fun stop() {
+        progressJob?.cancel()
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        _state.value = PlaybackState()
     }
 
     override fun seekTo(positionMs: Long) {

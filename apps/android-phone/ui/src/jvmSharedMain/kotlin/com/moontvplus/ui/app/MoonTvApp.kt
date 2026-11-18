@@ -158,7 +158,12 @@ private fun MainShell(
             when (controller.tab) {
                 MainTab.HOME -> HomeContent(
                     state = controller.home,
-                    onItemClick = { item -> controller.open(item.target) },
+                    onItemClick = { item ->
+                        when (val target = item.target) {
+                            is OpenTarget.Resume -> onPlay(PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs))
+                            else -> controller.open(target)
+                        }
+                    },
                     onMore = { section ->
                         // 「更多」跳到对应分类页；返回时回到原来的标签页
                         sectionToTab(section.id)?.let(controller::openSectionTab)
@@ -339,6 +344,7 @@ private fun DetailPane(
                         videoId = screen.videoId,
                         title = controller.detail.title.ifBlank { screen.title },
                         index = index,
+                        positionMs = if (index == controller.detail.resumeIndex) controller.detail.resumePositionMs else 0,
                     )
                 )
             },
@@ -366,7 +372,7 @@ private fun LibraryPane(
             onOpen = { item ->
                 when (val target = item.target) {
                     is OpenTarget.Resume -> onPlay(
-                        PlayRequest(target.source, target.id, target.title, target.index - 1)
+                        PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs)
                     )
 
                     else -> controller.open(target)

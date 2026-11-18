@@ -46,6 +46,12 @@ class AppContainer(context: Context) {
 
     private val appContext = context.applicationContext
 
+    init {
+        // TextFileStore 在构造依赖图时就读取了 Platform.appDataDir：
+        // 必须先把应用私有目录注入进去，否则设置和登录态会写到进程根目录并静默失败。
+        Platform.init(AndroidPlatformInfo(appContext))
+    }
+
     val graph: AppGraph = AppGraph(
         platformServices = PlatformServices(
             cookies = AndroidSiteCookies(),

@@ -3,6 +3,8 @@ package com.moontvplus.phone
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -112,6 +114,12 @@ private fun MoonTvApp(
 
     // 共享外壳里的详情 / 收藏页也要吃掉系统返回键，先退共享页面，再退原生路由
     var shellController by remember { mutableStateOf<MoonTvController?>(null) }
+    var playbackReturn by remember { mutableStateOf(0) }
+    var detailParent by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
+    val playerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        playbackReturn++
+        if (currentRoute == AppRoute.Home) shellController?.refreshAfterPlayback()
+    }
     BackHandler(
         enabled = currentRoute !is AppRoute.Home || shellController?.screen != null &&
             shellController?.screen != ShellScreen.Main,
@@ -120,7 +128,7 @@ private fun MoonTvApp(
         if (currentRoute == AppRoute.Home && shell != null && shell.screen != ShellScreen.Main) {
             shell.back()
         } else {
-            currentRoute = AppRoute.Home
+            currentRoute = if (currentRoute is AppRoute.Detail) detailParent else AppRoute.Home
         }
     }
 
@@ -175,6 +183,7 @@ private fun MoonTvApp(
                                 initialQuery = route.query,
                                 onBack = { currentRoute = AppRoute.Home },
                                 onOpenDetail = { source, videoId, title ->
+                                    detailParent = route
                                     currentRoute = AppRoute.Detail(source, videoId, title)
                                 },
                             )
@@ -182,9 +191,10 @@ private fun MoonTvApp(
                                 source = route.source,
                                 videoId = route.videoId,
                                 fallbackTitle = route.title,
-                                onBack = { currentRoute = AppRoute.Home },
+                                playbackReturn = playbackReturn,
+                                onBack = { currentRoute = detailParent },
                                 onPlay = { index, positionMs ->
-                                    context.startActivity(
+                                    playerLauncher.launch(
                                         PlayerActivity.intent(
                                             context = context,
                                             source = route.source,
@@ -222,18 +232,14 @@ private fun MoonTvApp(
                                     },
                                     onPlay = { request ->
                                         // 共享详情页的「播放」交给原生播放器（ExoPlayer + PiP）
-                                        context.startActivity(
+                                        playerLauncher.launch(
                                             PlayerActivity.intent(
                                                 context = context,
                                                 source = request.source,
                                                 videoId = request.videoId,
                                                 title = request.title,
                                                 index = request.index + 1,
-                                                positionMs = if (request.index == shell.detail.resumeIndex) {
-                                                    shell.detail.resumePositionMs
-                                                } else {
-                                                    0L
-                                                },
+                                                positionMs = request.positionMs,
                                             )
                                         )
                                     },

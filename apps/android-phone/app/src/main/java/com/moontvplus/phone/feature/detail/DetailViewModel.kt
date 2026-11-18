@@ -58,7 +58,7 @@ class DetailViewModel(
                 onSuccess = { detail ->
                     val record = runCatching {
                         api.playRecords().body()?.get(key)
-                    }.getOrNull()
+                    }.getOrNull()?.takeIf { it.index in 1..detail.episodes.size }
                     val resumeIndex = record?.index?.coerceAtLeast(1) ?: 1
                     val resumeMs = ((record?.playTime ?: 0.0) * 1000).toLong()
 

@@ -342,6 +342,14 @@ class MoonTvController(
 
     // ---- 详情页 ------------------------------------------------------------
 
+    fun refreshAfterPlayback() {
+        when (val current = screen) {
+            is ShellScreen.Detail -> loadDetail(current.source, current.videoId, current.title)
+            is ShellScreen.Library -> loadLibrary()
+            else -> scope.launch { loadContinueWatching() }
+        }
+    }
+
     private fun loadDetail(source: String, videoId: String, fallbackTitle: String) {
         if (source.isBlank() || videoId.isBlank()) return
         detail = DetailUiState(loading = true, title = fallbackTitle)
@@ -361,8 +369,8 @@ class MoonTvController(
                     val record = runCatching { graph.moonApi.playRecords().body()?.get(key) }.getOrNull()
                     val favorite = graph.libraryRepository.isFavorite(key)
                     val episodes = buildEpisodeNames(video)
-                    val resumeIndex = ((record?.index ?: 1) - 1)
-                        .coerceIn(0, (episodes.size - 1).coerceAtLeast(0))
+                    val validRecord = record?.takeIf { it.index in 1..episodes.size }
+                    val resumeIndex = (validRecord?.index ?: 1) - 1
                     detail = DetailUiState(
                         loading = false,
                         title = video.title.ifBlank { fallbackTitle },
@@ -375,8 +383,8 @@ class MoonTvController(
                         episodes = episodes,
                         favorite = favorite,
                         resumeIndex = resumeIndex,
-                        resumePositionMs = ((record?.playTime ?: 0.0) * 1000).toLong().coerceAtLeast(0L),
-                        hasResume = (record?.playTime ?: 0.0) > 0.0 && episodes.isNotEmpty(),
+                        resumePositionMs = ((validRecord?.playTime ?: 0.0) * 1000).toLong().coerceAtLeast(0L),
+                        hasResume = (validRecord?.playTime ?: 0.0) > 0.0,
                         playHint = playHint,
                     )
                 },
@@ -495,7 +503,9 @@ class MoonTvController(
         year = record.year.takeIf { it.isNotBlank() },
         badge = "第 ${record.index} 集",
         progress = record.progress,
-        target = OpenTarget.Resume(source = source, id = videoId, title = record.title, index = record.index),
+        target = OpenTarget.Resume(source = source, id = videoId, title = record.title, index = record.index,
+            positionMs = (record.playTime * 1000).toLong().coerceAtLeast(0),
+        ),
     )
 
     // ---- 首页 --------------------------------------------------------------

@@ -47,7 +47,7 @@ sealed interface OpenTarget {
     data class Video(val source: String, val id: String, val title: String) : OpenTarget
 
     /** 播放记录：直接续播。 */
-    data class Resume(val source: String, val id: String, val title: String, val index: Int) : OpenTarget
+    data class Resume(val source: String, val id: String, val title: String, val index: Int, val positionMs: Long = 0) : OpenTarget
 }
 
 /** 卡片渲染需要的所有信息，UI 层不再直接依赖网络模型。 */
@@ -82,4 +82,5 @@ data class PlayRequest(
     val title: String,
     /** 0 起的集数下标 */
     val index: Int,
+    val positionMs: Long = 0,
 )

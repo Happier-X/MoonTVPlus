@@ -29,6 +29,7 @@ data class PlaybackRequest(
     val url: String,
     val isHls: Boolean,
     val startPositionMs: Long = 0L,
+    val autoPlay: Boolean = true,
 )
 
 /**
@@ -46,6 +47,7 @@ interface PlaybackController {
 
     fun play()
     fun pause()
+    fun stop() = pause()
     fun seekTo(positionMs: Long)
 
     /** 释放底层资源，界面销毁时必须调用。 */
