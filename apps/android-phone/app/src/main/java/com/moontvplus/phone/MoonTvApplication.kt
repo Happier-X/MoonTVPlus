@@ -10,6 +10,8 @@ import kotlinx.coroutines.SupervisorJob
 
 class MoonTvApplication : Application(), ImageLoaderFactory {
 
+    val updater by lazy { com.moontvplus.phone.update.AppUpdater(this) }
+
     lateinit var container: AppContainer
         private set
 

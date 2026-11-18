@@ -82,6 +82,7 @@ apps/*/shared/build/
 apps/*/*/build/
 apps/*/build/
 apps/*/.gradle/
+apps/*/.kotlin/
 apps/*/local.properties
 *.apk
 *.aab

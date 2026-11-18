@@ -14,9 +14,9 @@ fun propOrEnv(propName: String, envName: String, defaultValue: String): String {
 val rawBaseUrl = propOrEnv("BASE_URL", "BASE_URL", "")
 val appDisplayName = propOrEnv("APP_NAME", "APP_NAME", "MoonTVPlus")
 // 默认值与 .github/workflows/android-phone.yml 的输入默认值保持一致。
-// 1.9.2 的 versionCode 是 12，覆盖升级要求本版继续递增。
-val versionNameValue = propOrEnv("VERSION_NAME", "VERSION_NAME", "1.9.3")
-val versionCodeValue = propOrEnv("VERSION_CODE", "VERSION_CODE", "13").toIntOrNull() ?: 13
+// 1.9.3 的 versionCode 是 13，覆盖升级要求本版继续递增。
+val versionNameValue = propOrEnv("VERSION_NAME", "VERSION_NAME", "1.9.4")
+val versionCodeValue = propOrEnv("VERSION_CODE", "VERSION_CODE", "14").toIntOrNull() ?: 14
 val minSdkValue = propOrEnv("MIN_SDK", "MIN_SDK", "23").toIntOrNull() ?: 23
 
 fun escapeJavaString(value: String): String = value
@@ -146,6 +146,9 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
