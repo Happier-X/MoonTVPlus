@@ -1,5 +1,6 @@
 package com.moontvplus.ui.shell
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,16 +17,19 @@ import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.Whatshot
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,12 +47,17 @@ fun SeleneBottomBar(
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider(
             thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            color = if (isDarkScheme()) Color(0xFF333333).copy(alpha = 0.3f)
+            else Color.White.copy(alpha = 0.2f),
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .background(
+                    if (isDarkScheme()) SeleneColors.SurfaceDark.copy(alpha = 0.9f)
+                    else SeleneColors.SurfaceLight.copy(alpha = 0.9f)
+                )
+                .padding(top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             MainTab.entries.forEach { tab ->
@@ -74,16 +83,16 @@ private fun BottomNavItem(
     Column(
         modifier = modifier
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(
             imageVector = tab.icon(),
             contentDescription = tab.label,
             tint = tint,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             text = tab.label,
             fontSize = 12.sp,
@@ -110,44 +119,66 @@ fun SeleneTopBar(
     subtitle: String? = null,
     onSearch: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
+    onHome: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
 ) {
-    Row(
+    val background = if (isDarkScheme()) {
+        SeleneColors.SurfaceDark.copy(alpha = 0.9f)
+    } else {
+        SeleneColors.SurfaceLight.copy(alpha = 0.8f)
+    }
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(background)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!subtitle.isNullOrBlank()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onSearch != null) {
+                IconButton(onClick = onSearch, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "搜索",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            } else {
+                Spacer(Modifier.size(32.dp))
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = title,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    letterSpacing = 1.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable(enabled = onHome != null) { onHome?.invoke() },
                 )
             }
-        }
-        actions()
-        if (onSearch != null) {
-            IconButton(onClick = onSearch) {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IconButton(onClick = { onSettings?.invoke() }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "设置",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                actions()
             }
         }
     }
 }
+
+@Composable
+private fun isDarkScheme(): Boolean =
+    MaterialTheme.colorScheme.background == SeleneColors.BackgroundDark
 
 /** 居中的空态 / 错误态。 */
 @Composable

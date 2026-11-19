@@ -3,6 +3,7 @@ package com.moontvplus.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -73,7 +74,7 @@ fun PosterCard(
                     text = year,
                     color = Color.White,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -110,7 +111,7 @@ fun PosterCard(
                     text = badge,
                     color = Color.White,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -129,7 +130,7 @@ fun PosterCard(
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
                         .height(3.dp)
-                        .background(Color.Black.copy(alpha = 0.35f)),
+                        .background(Color.Black.copy(alpha = 0.3f)),
                 ) {
                     Box(
                         modifier = Modifier
@@ -141,24 +142,31 @@ fun PosterCard(
             }
         }
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             text = item.title,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         val subtitle = item.subtitle
         if (!subtitle.isNullOrBlank()) {
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .border(0.8.dp, MaterialTheme.colorScheme.onSurfaceVariant)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -177,14 +185,14 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
-            fontSize = 17.sp,
+            fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f),
         )
         if (onMore != null) {
             TextButton(onClick = onMore, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                Text("查看更多 >", fontSize = 13.sp, color = SeleneColors.Accent)
+                Text("查看更多", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -199,7 +207,7 @@ fun HomeSectionRow(
 ) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(section.title, onMore)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
         when {
             section.items.isNotEmpty() -> LazyRow(

@@ -17,6 +17,12 @@ data class AppSettings(
     val turnstileSiteKey: String? = null,
     /** 旧壳 cookie 迁移只做一次，避免退出登录后被旧 cookie 顶回来 */
     val legacyCookieMigrationDone: Boolean = false,
+    /**
+     * Selene 同款自动登录凭据。保存在应用私有目录，不写入外部存储；
+     * Turnstile 挑战无法复用，但账号密码可以，避免每次打开都重新输入。
+     */
+    val savedUsername: String? = null,
+    val savedPassword: String? = null,
     /** system / light / dark */
     val themeMode: String = "system",
     val fluidSearch: Boolean = true,
@@ -91,6 +97,17 @@ class SettingsStore(
 
     suspend fun markLegacyCookieMigrationDone() =
         update { it.copy(legacyCookieMigrationDone = true) }
+
+    suspend fun saveCredentials(username: String?, password: String?) = update { current ->
+        current.copy(
+            savedUsername = username?.trim()?.takeIf { it.isNotEmpty() },
+            savedPassword = password?.takeIf { it.isNotEmpty() },
+        )
+    }
+
+    suspend fun clearCredentials() = update { current ->
+        current.copy(savedUsername = null, savedPassword = null)
+    }
 
     suspend fun setThemeMode(mode: String) = update { it.copy(themeMode = mode) }
 

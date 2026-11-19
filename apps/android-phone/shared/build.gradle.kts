@@ -66,6 +66,7 @@ kotlin {
             dependsOn(commonTest)
             dependencies {
                 implementation(kotlin("test"))
+                implementation("com.squareup.okhttp3:mockwebserver:4.12.0")
             }
         }
 

@@ -16,6 +16,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,10 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.moontvplus.phone.di.appContainer
 import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.moontvplus.phone.core.ui.theme.MoonTvTheme
+import com.moontvplus.ui.theme.MoonTvTheme
+import com.moontvplus.ui.theme.SeleneColors
 import com.moontvplus.phone.feature.AppUiState
 import com.moontvplus.phone.feature.AppViewModel
 import com.moontvplus.phone.feature.detail.DetailScreen
@@ -162,11 +165,8 @@ private fun MoonTvApp(
         }
     }
 
-    val darkTheme = when (settings.themeMode) {
-        "light" -> false
-        "dark" -> true
-        else -> isSystemInDarkTheme()
-    }
+    // Selene 每次启动都跟随系统主题，不记住手动切换（theme_service.dart）。
+    val darkTheme = isSystemInDarkTheme()
 
     MoonTvTheme(darkTheme = darkTheme) {
         UpdateDialog(state = updateState, updater = updater, onInstall = onInstallUpdate)
@@ -185,10 +185,11 @@ private fun MoonTvApp(
                         onLogout = {
                             showSettings = false
                             viewModel.logout()
+                            viewModel.forgetCredentials()
                         },
                         onChangeServer = {
                             showSettings = false
-                            viewModel.changeServer()
+                            viewModel.changeServerAndForgetCredentials()
                         },
                         onOpenAbout = {
                             showSettings = false
@@ -211,19 +212,25 @@ private fun MoonTvApp(
 
                 if (editingServer) {
                     ServerSetupScreen(
-                        onDone = viewModel::onServerSaved,
+                        onDone = {
+                            viewModel.forgetCredentials()
+                            viewModel.onServerSaved()
+                        },
                         onCancel = viewModel::closeServerEditor,
                     )
                 } else {
                     when (val current = state) {
                         is AppUiState.Loading -> LoadingBox()
                         is AppUiState.NeedServer -> ServerSetupScreen(
-                            onDone = viewModel::onServerSaved,
+                            onDone = {
+                                viewModel.forgetCredentials()
+                                viewModel.onServerSaved()
+                            },
                         )
                         is AppUiState.NeedLogin -> LoginScreen(
                             reason = current.reason,
                             onLoggedIn = viewModel::onLoggedIn,
-                            onChangeServer = viewModel::changeServer,
+                            onChangeServer = viewModel::changeServerAndForgetCredentials,
                         )
                         is AppUiState.LoggedIn -> when (val route = currentRoute) {
                             is AppRoute.Search -> SearchScreen(
@@ -371,18 +378,23 @@ private fun AboutDialog(updateState: com.moontvplus.phone.update.UpdateUiState, 
 
 @Composable
 private fun LoadingBox() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SeleneColors.SplashGradientLight),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(24.dp),
         ) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(16.dp))
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.height(24.dp))
             Text(
-                text = "正在连接…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "正在检查登录状态...",
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onBackground,
             )
         }
     }

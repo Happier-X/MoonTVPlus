@@ -29,9 +29,16 @@ data class AuthSession(
     val auth: AuthInfo,
     val storageType: String? = null,
     val savedAt: Long = 0L,
+    /** 登录时实际使用的用户名/密码，仅用于下次冷启动自动登录。 */
+    val savedUsername: String? = null,
+    val savedPassword: String? = null,
 ) {
+    /** 只有站点明确报告 localstorage 才按本地模式处理；未知类型不能假设免鉴权。 */
     val isLocalStorageMode: Boolean
-        get() = storageType == null || storageType.equals("localstorage", ignoreCase = true)
+        get() = storageType.equals("localstorage", ignoreCase = true)
+
+    val canAutoLogin: Boolean
+        get() = !savedUsername.isNullOrBlank() && !savedPassword.isNullOrBlank()
 
     val displayName: String
         get() = auth.username?.takeIf { it.isNotBlank() } ?: "站长"

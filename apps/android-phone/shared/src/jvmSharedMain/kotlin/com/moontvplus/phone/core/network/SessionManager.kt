@@ -58,7 +58,11 @@ class SessionManager(
      */
     suspend fun refreshIfNeeded(staleToken: String?): String? = refreshMutex.withLock {
         val current = _session.value ?: return@withLock null
-        if (current.isLocalStorageMode) return@withLock current.token
+        // 只有明确标记为 localstorage 的站点才跳过刷新；storageType 未知时仍要尝试，
+        // 否则覆盖安装/缓存缺失会把正常会话误判成本地模式，冷启动后被迫重新登录。
+        if (current.storageType.equals("localstorage", ignoreCase = true)) {
+            return@withLock current.token
+        }
         if (!staleToken.isNullOrBlank() && current.token != staleToken) {
             return@withLock current.token
         }
@@ -83,7 +87,7 @@ class SessionManager(
      */
     suspend fun ensureFresh(): Boolean {
         val current = _session.value ?: return false
-        if (current.isLocalStorageMode) return true
+        if (current.storageType.equals("localstorage", ignoreCase = true)) return true
 
         val refreshExpires = current.auth.refreshExpires
         if (refreshExpires != null && refreshExpires <= System.currentTimeMillis()) {

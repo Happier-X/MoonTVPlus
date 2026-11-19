@@ -125,6 +125,16 @@ fun LoginScreen(
             }
         }
 
+        if (state.hasSavedCredentials && hint == null && !state.submitting) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "已保留上次登录账号，${if (state.requireTurnstile) "完成人机验证后" else ""}可直接登录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+
         if (hint != null) {
             Spacer(Modifier.height(12.dp))
             Surface(

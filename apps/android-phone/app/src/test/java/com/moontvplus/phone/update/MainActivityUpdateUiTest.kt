@@ -22,6 +22,17 @@ import java.io.File
 class MainActivityUpdateUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
+    @Test fun firstLaunchLoadingMatchesSelene() {
+        // 捕获真实 Activity 首帧（浅色渐变启动背景 + 登录入口）落盘，供人工核对。
+        compose.onNodeWithText("关于与更新").assertIsDisplayed()
+        val view = (compose.onNodeWithText("关于与更新")
+            .fetchSemanticsNode().root as androidx.compose.ui.platform.ViewRootForTest).view
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(android.graphics.Canvas(bitmap)) }
+        val file = File("build/reports/selene-ui/activity-first-frame.png").apply { parentFile?.mkdirs() }
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
     @Test fun realActivityOpensAboutBeforeLoginAndShowsBuildVersion() {
         compose.onNodeWithText("关于与更新").assertIsDisplayed().performClick()
         compose.onNodeWithText("关于 MoonTVPlus").assertIsDisplayed()

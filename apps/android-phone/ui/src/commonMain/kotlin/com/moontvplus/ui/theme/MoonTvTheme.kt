@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -44,12 +45,24 @@ object SeleneColors {
 
     /** 年份角标底色（#2C3E50 @ 0.8） */
     val YearChip = Color(0xCC2C3E50)
+
+    /** Selene 启动页 6 段浅色渐变（#E6F3FB → #D3DDE6）。 */
+    val SplashGradientLight = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFFE6F3FB),
+            Color(0xFFEAF3F7),
+            Color(0xFFF7F7F3),
+            Color(0xFFE9ECEF),
+            Color(0xFFDBE3EA),
+            Color(0xFFD3DDE6),
+        ),
+    )
 }
 
 private val LightScheme = lightColorScheme(
-    primary = SeleneColors.Accent,
+    primary = SeleneColors.SeedLight,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCF2E4),
+    primaryContainer = Color(0xFFDCE4EB),
     onPrimaryContainer = Color(0xFF0B3A22),
     secondary = SeleneColors.SeedLight,
     onSecondary = Color.White,
@@ -67,10 +80,10 @@ private val LightScheme = lightColorScheme(
 )
 
 private val DarkScheme = darkColorScheme(
-    primary = SeleneColors.Accent,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF14361F),
-    onPrimaryContainer = Color(0xFFA9E7BE),
+    primary = Color.White,
+    onPrimary = SeleneColors.SeedLight,
+    primaryContainer = SeleneColors.SurfaceDark,
+    onPrimaryContainer = Color.White,
     secondary = Color(0xFFECF0F1),
     onSecondary = SeleneColors.SeedLight,
     tertiary = SeleneColors.InfoBlue,

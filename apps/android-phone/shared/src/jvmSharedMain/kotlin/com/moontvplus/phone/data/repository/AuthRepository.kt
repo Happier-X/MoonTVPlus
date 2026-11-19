@@ -70,8 +70,13 @@ class AuthRepository(
                 auth = auth,
                 storageType = storageType,
                 savedAt = System.currentTimeMillis(),
+                // Selene 同款自动登录：Turnstile 不能复用，但账号密码可复用。
+                savedUsername = username?.trim()?.takeIf { it.isNotBlank() },
+                savedPassword = password.takeIf { it.isNotEmpty() },
             )
             sessions.save(session)
+            // 登录凭据与 token 一起持久化；即使 token 被服务端轮换/吊销，下次启动也能静默重登。
+            settings.saveCredentials(session.savedUsername, session.savedPassword)
             // 网页版入口要靠 cookie 带登录态，登录成功后同步写一份
             if (token.isNotBlank()) {
                 serverProvider.current()?.origin?.let { cookies.writeAuth(it, token) }
@@ -88,7 +93,23 @@ class AuthRepository(
     suspend fun logout() = withContext(Dispatchers.IO) {
         runCatching { api.logout() }
         sessions.clear()
+        settings.clearCredentials()
         serverProvider.current()?.origin?.let { cookies.clearAuth(it) }
+    }
+
+    /**
+     * 冷启动时静态 token 已过期/被吊销：用保存的账号密码重新登录一次。
+     * Turnstile 无法复用，因此这类站点仍需用户完成一次人机验证；
+     * 只要 token 有效就不会走到这里。
+     */
+    suspend fun reauthenticate(): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
+        val session = sessions.session.value
+        val username = session?.savedUsername
+        val password = session?.savedPassword
+        if (username.isNullOrBlank() || password.isNullOrEmpty()) {
+            return@withContext ApiResult.Err(AppError.Http(401, "缺少自动登录凭据"))
+        }
+        login(username = username, password = password)
     }
 
     private fun defaultLoginMessage(code: Int): String = when (code) {

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 启动窗口背景：跟随系统深色，避免深色模式下白屏闪一下 -->
-    <color name="page_bg">#0E1013</color>
+    <!-- Selene 深色启动页为纯黑，主界面 scaffold 为 #121212。 -->
+    <color name="page_bg">#000000</color>
+    <color name="window_bg">#000000</color>
+    <color name="selene_blue_grey">#FFFFFF</color>
 </resources>

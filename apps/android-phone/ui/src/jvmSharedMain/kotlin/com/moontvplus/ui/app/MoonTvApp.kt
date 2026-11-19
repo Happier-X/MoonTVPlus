@@ -49,6 +49,7 @@ import com.moontvplus.ui.screen.BrowseContent
 import com.moontvplus.ui.screen.DetailContent
 import com.moontvplus.ui.screen.LibraryContent
 import com.moontvplus.ui.screen.HomeContent
+import com.moontvplus.ui.screen.HomeTab
 import com.moontvplus.ui.shell.CenteredMessage
 import com.moontvplus.ui.shell.SeleneBottomBar
 import com.moontvplus.ui.shell.SeleneTopBar
@@ -142,22 +143,22 @@ private fun MainShell(
         // 内容区自己吃掉剩余高度，底部导航固定贴在窗口底边
         Column(Modifier.weight(1f).fillMaxWidth()) {
             SeleneTopBar(
-                title = if (controller.tab == MainTab.HOME) controller.siteName else controller.tab.label,
-                subtitle = controller.session?.displayName?.takeIf { it.isNotBlank() },
+                title = "Selene",
                 onSearch = onOpenSearch,
-                actions = {
-                    TextButton(onClick = { controller.openLibrary() }) {
-                        Text("收藏", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    TextButton(onClick = onOpenSettings) {
-                        Text("设置", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
+                onHome = { controller.selectTab(MainTab.HOME) },
+                onSettings = onOpenSettings,
             )
 
             when (controller.tab) {
                 MainTab.HOME -> HomeContent(
                     state = controller.home,
+                    homeTab = controller.homeTab,
+                    onHomeTabChange = controller::selectHomeTab,
+                    library = controller.library,
+                    onOpenLibraryItem = { item ->
+                        controller.openDetailFromLibrary(item)
+                    },
+                    onRemoveLibraryItem = controller::removeLibraryItem,
                     onItemClick = { item ->
                         when (val target = item.target) {
                             is OpenTarget.Resume -> onPlay(PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs))

@@ -115,8 +115,8 @@ class BackNavigationTest {
             assertEquals(ShellScreen.Main, controller.screen)
         }
         check(ui.onAllNodesWithContentDescription("返回").fetchSemanticsNodes().isEmpty())
-        // 顶栏标题与底栏都出现「电影」，说明界面真的切到了分类页
-        check(ui.onAllNodesWithText("电影", useUnmergedTree = true).fetchSemanticsNodes().size >= 2)
+        // 底栏出现「电影」，说明界面真的切到了分类页
+        check(ui.onAllNodesWithText("电影", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         ui.runOnIdle { controller.back() }
         ui.runOnIdle { assertEquals(MainTab.HOME, controller.tab) }
     }

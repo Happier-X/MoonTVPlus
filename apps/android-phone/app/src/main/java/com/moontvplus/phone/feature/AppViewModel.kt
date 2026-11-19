@@ -85,13 +85,15 @@ class AppViewModel(
                 return@launch
             }
 
-            // 旧壳升级上来时只有地址、没有站点信息，补探测一次拿到存储类型（决定登录方式）
+            // 旧壳升级上来时只有地址、没有站点信息，补探测一次拿到存储类型（决定登录方式）。
+            // 探测失败不能卡住后续流程：已有 token 仍可直接恢复登录态。
             if (snapshot.storageType.isNullOrBlank()) {
                 val probed = serverRepository.probe(address.display())
                 if (probed is ServerProbeResult.Success) {
                     serverRepository.save(probed.address, probed.config)
                     snapshot = settingsStore.snapshot()
                     address = probed.address
+                    serverProvider.set(address)
                 }
             }
 
@@ -106,10 +108,22 @@ class AppViewModel(
                 return@launch
             }
 
-            val fresh = sessions.ensureFresh()
+            // enableEdgeToEdge / 页面重建后仍要恢复 token；若服务端已吊销 token，
+            // 用保存的账号密码静默重登一次（Turnstile 站点需用户补一次验证）。
+            var active = session
+            var fresh = sessions.ensureFresh()
+            if (!fresh && session.canAutoLogin) {
+                when (val result = authRepository.reauthenticate()) {
+                    is com.moontvplus.phone.core.common.ApiResult.Ok -> {
+                        active = result.value
+                        fresh = true
+                    }
+                    is com.moontvplus.phone.core.common.ApiResult.Err -> Unit
+                }
+            }
             _state.value = if (fresh) {
                 AppUiState.LoggedIn(
-                    session = sessions.session.value ?: session,
+                    session = sessions.session.value ?: active,
                     siteName = snapshot.siteName,
                     serverVersion = snapshot.serverVersion,
                 )
@@ -136,9 +150,10 @@ class AppViewModel(
         viewModelScope.launch {
             _editingServer.value = false
             val saved = settingsStore.snapshot().serverAddress
-            // 换成别的站点就不能再带着旧站点的 token
+            // 换成别的站点就不能再带着旧站点的 token 和账号密码
             if (addressBeforeEdit != null && addressBeforeEdit != saved) {
                 sessions.clear()
+                settingsStore.clearCredentials()
             }
             addressBeforeEdit = null
             boot()
@@ -161,6 +176,17 @@ class AppViewModel(
             authRepository.logout()
             _state.value = AppUiState.NeedLogin()
         }
+    }
+
+    /** 用户主动退出登录后，不再保留账号密码预填。 */
+    fun forgetCredentials() {
+        viewModelScope.launch { settingsStore.clearCredentials() }
+    }
+
+    /** 用户手动更换站点时清掉旧站点的凭据，避免泄露到别的地址。 */
+    fun changeServerAndForgetCredentials() {
+        viewModelScope.launch { settingsStore.clearCredentials() }
+        changeServer()
     }
 
     /** 换站点：保存新地址时再清会话，避免把 token 发到别的服务器。 */

@@ -26,6 +26,7 @@ import com.moontvplus.ui.model.PosterItem
 import com.moontvplus.ui.screen.BrowseUiState
 import com.moontvplus.ui.screen.DetailUiState
 import com.moontvplus.ui.screen.LibraryTab
+import com.moontvplus.ui.screen.HomeTab
 import com.moontvplus.ui.screen.LibraryUiState
 import com.moontvplus.ui.screen.HomeUiState
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +62,8 @@ class MoonTvController(
         private set
 
     var tab by mutableStateOf(MainTab.HOME)
+        private set
+    var homeTab by mutableStateOf(HomeTab.HOME)
         private set
     var home by mutableStateOf(HomeUiState(loading = true))
         private set
@@ -301,6 +304,18 @@ class MoonTvController(
 
     fun selectLibraryTab(tab: LibraryTab) {
         library = library.copy(tab = tab)
+    }
+
+    /** Selene 首页顶部胶囊：首页 / 播放历史 / 收藏夹。 */
+    fun selectHomeTab(tab: HomeTab) {
+        homeTab = tab
+        if (tab != HomeTab.HOME && library.loading) loadLibrary()
+    }
+
+    fun openDetailFromLibrary(item: PosterItem) {
+        val source = item.key.substringBefore(':', "").ifBlank { "douban" }
+        val id = item.key.substringAfter(':', item.key)
+        openDetail(source, id, item.title)
     }
 
     /** 首页区块的「更多」：跳分类页，同时记住来源标签页，返回时退回原页。 */
@@ -559,7 +574,7 @@ class MoonTvController(
             }
             val bangumi = cache.bangumi.flatMap { it.items }
             if (bangumi.isNotEmpty()) {
-                add(section("bangumi", "番剧放送", bangumi.map { it.toPoster() }))
+                add(section("bangumi", "新番放映", bangumi.map { it.toPoster() }))
             }
             if (cache.variety.isNotEmpty()) {
                 add(section("hotVariety", "热门综艺", cache.variety.map { it.toPoster() }))

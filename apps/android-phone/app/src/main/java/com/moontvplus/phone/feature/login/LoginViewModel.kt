@@ -41,6 +41,9 @@ class LoginViewModel(
                 password.isNotEmpty() &&
                 (!askUsername || username.isNotBlank()) &&
                 (!requireTurnstile || turnstileToken != null)
+
+        val hasSavedCredentials: Boolean
+            get() = username.isNotBlank() && password.isNotEmpty()
     }
 
     private val _state = MutableStateFlow(UiState(origin = serverProvider.current()?.origin))
@@ -53,6 +56,8 @@ class LoginViewModel(
                 storageType = settings.storageType,
                 siteName = settings.siteName,
                 origin = serverProvider.current()?.origin,
+                username = settings.savedUsername.orEmpty(),
+                password = settings.savedPassword.orEmpty(),
                 requireTurnstile = settings.loginRequireTurnstile,
                 turnstileSiteKey = settings.turnstileSiteKey,
             )
