@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { filterAdsFromM3U8 } from '@/lib/hls-ad-filter.client';
 
 const DISC = '#EXT-X-DISCONTINUITY';
@@ -14,7 +17,7 @@ const LEGACY_CUSTOM_CODE = `
 function filterAdsFromM3U8(type: string, m3u8Content: string): string {
   if (!m3u8Content) return '';
   const adKeywords = ['sponsor', '/ad/', '/ads/', 'advert', 'advertisement', '/adjump', 'redtraffic'];
-  const lines = m3u8Content.split('\n');
+  const lines = m3u8Content.split('\\n');
   const filteredLines = [];
   let i = 0;
   while (i < lines.length) {
@@ -30,7 +33,7 @@ function filterAdsFromM3U8(type: string, m3u8Content: string): string {
     filteredLines.push(line);
     i++;
   }
-  return filteredLines.join('\n');
+  return filteredLines.join('\\n');
 }
 `;
 
@@ -394,6 +397,134 @@ function filterAdsFromM3U8(type: string, m3u8Content: string): string {
     const output = filterAdsFromM3U8('测试源', source, rewriteCode);
 
     expect(output).toContain('rewritten.ts');
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 线上真实清单夹具（360 资源 / vod1.maowushi.com 20261117/pMwzbV1o）：
+ * 5 个 #EXT-X-DISCONTINUITY 不是广告残留，而是「AES-128 ↔ METHOD=NONE」和
+ * 外部域 vod.360zyx.vip 分片拼接的合法时间轴标记，旁边都跟着 #EXT-X-KEY。
+ * 夹具裁到每个断点前后几十行，仍保留 5 个断点、6 条 KEY 与外部分片。
+ */
+describe('真实清单夹具：加密切换 / 外部流拼接的断点', () => {
+  const fixture = fs.readFileSync(
+    path.join(__dirname, 'fixtures/hls/maowushi-pMwzbV1o-trimmed.m3u8'),
+    'utf8'
+  );
+  const keyLines = (content: string) =>
+    content.split('\n').filter((line) => line.startsWith('#EXT-X-KEY'));
+  const externalSegments = (content: string) =>
+    content.split('\n').filter((line) => line.includes('vod.360zyx.vip'));
+
+  let consoleLog: jest.SpyInstance;
+  let consoleWarn: jest.SpyInstance;
+  let consoleError: jest.SpyInstance;
+
+  beforeEach(() => {
+    consoleLog = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    consoleWarn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleLog.mockRestore();
+    consoleWarn.mockRestore();
+    consoleError.mockRestore();
+  });
+
+  it('夹具本身确实带着 5 个断点、6 条 KEY 和外部拼接分片', () => {
+    expect(countDiscontinuities(fixture)).toBe(5);
+    expect(keyLines(fixture)).toHaveLength(6);
+    expect(externalSegments(fixture).length).toBeGreaterThan(0);
+    // 断点后面紧跟的是 KEY 切换，而不是广告
+    const lines = fixture.split('\n');
+    lines.forEach((line, index) => {
+      if (line === DISC) {
+        expect(lines[index + 1].startsWith('#EXT-X-KEY')).toBe(true);
+      }
+    });
+  });
+
+  it('默认规则：没有广告时分片、断点、KEY 一个不少且逐字节一致', () => {
+    const output = filterAdsFromM3U8('🎬360 资源', fixture);
+
+    expect(output).toBe(fixture);
+    expect(countDiscontinuities(output)).toBe(5);
+    expect(keyLines(output)).toEqual(keyLines(fixture));
+    expect(externalSegments(output)).toEqual(externalSegments(fixture));
+    expect(summarize(output)).toEqual(summarize(fixture));
+    expect(consoleLog).not.toHaveBeenCalled();
+  });
+
+  it('线上旧自定义规则：同样保留 5 个断点和 6 条 KEY', () => {
+    const output = filterAdsFromM3U8(
+      '🎬360 资源',
+      fixture,
+      LEGACY_CUSTOM_CODE
+    );
+
+    expect(output).toBe(fixture);
+    expect(countDiscontinuities(output)).toBe(5);
+    expect(keyLines(output)).toEqual(keyLines(fixture));
+    expect(consoleLog).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('真删广告时：原有断点与 KEY 顺序不变，拼缝只多一个断点', () => {
+    // 在第一个断点前的正片中间插一个 15s 广告
+    const injected = fixture.replace(
+      /(#EXTINF:2,\n\/20261117\/pMwzbV1o\/3234kb\/hls\/[A-Za-z0-9]+\.ts\n)/,
+      (matched) => `${matched}#EXTINF:15,\n/ad/sponsor-clip.ts\n`
+    );
+    expect(injected).not.toBe(fixture);
+
+    const output = filterAdsFromM3U8(
+      '🎬360 资源',
+      injected,
+      LEGACY_CUSTOM_CODE
+    );
+
+    // 广告分片被删，原有 5 个断点保留 + 拼缝 1 个
+    expect(output).not.toContain('/ad/sponsor-clip.ts');
+    expect(countDiscontinuities(output)).toBe(6);
+    expect(output).not.toContain(`${DISC}\n${DISC}`);
+    // 6 条 KEY 一条不少、顺序不变（加密切换仍然贴在原断点后面）
+    expect(keyLines(output)).toEqual(keyLines(fixture));
+    // 外部域分片全部还在
+    expect(externalSegments(output)).toEqual(externalSegments(fixture));
+    // 拼缝断点确实插在广告被摘掉的位置
+    const injectedLines = injected.split('\n');
+    const adIndex = injectedLines.indexOf('/ad/sponsor-clip.ts');
+    const prevSegment = injectedLines[adIndex - 2];
+    const outputLines = output.split('\n');
+    expect(outputLines[outputLines.indexOf(prevSegment) + 1]).toBe(DISC);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('广告紧贴外部拼接断点：原有断点充当拼缝，不再重复补', () => {
+    // 在第一个断点前插广告：删掉后紧跟着就是原有的断点
+    const injected = fixture.replace(
+      `\n${DISC}\n`,
+      `\n#EXTINF:15,\n/ad/sponsor-clip.ts\n${DISC}\n`
+    );
+    expect(injected).not.toBe(fixture);
+
+    const output = filterAdsFromM3U8(
+      '🎬360 资源',
+      injected,
+      LEGACY_CUSTOM_CODE
+    );
+
+    expect(output).not.toContain('/ad/sponsor-clip.ts');
+    expect(countDiscontinuities(output)).toBe(5);
+    expect(output).not.toContain(`${DISC}\n${DISC}`);
+    expect(keyLines(output)).toEqual(keyLines(fixture));
+    expect(externalSegments(output)).toEqual(externalSegments(fixture));
     expect(consoleError).not.toHaveBeenCalled();
   });
 });
