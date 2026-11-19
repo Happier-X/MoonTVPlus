@@ -13,6 +13,80 @@ const AD_KEYWORDS = [
   'redtraffic',
 ];
 
+const DISCONTINUITY_TAG = '#EXT-X-DISCONTINUITY';
+
+/**
+ * 是不是真正的断点标记。只认整行等于 #EXT-X-DISCONTINUITY，
+ * 不能把头部的 #EXT-X-DISCONTINUITY-SEQUENCE:3 也当成断点（它是标签不是断点）。
+ */
+function isDiscontinuityLine(line: string): boolean {
+  return line.trim() === DISCONTINUITY_TAG;
+}
+
+/** 从 #EXTINF:4.000, 里取时长秒数 */
+function durationOfExtinf(line: string): number {
+  const idx = line.indexOf(':');
+  if (idx < 0) return 0;
+  return parseFloat(line.slice(idx + 1)) || 0;
+}
+
+/**
+ * 清单里的一「块」：
+ * - segment：一个分片单元（#EXTINF + 可能的中间标签 + 分片地址）
+ * - discontinuity：真正的断点标记
+ * - line：其它原样透传的行（头部标签、KEY、MAP、注释等）
+ */
+type PlaylistItem =
+  | { kind: 'segment'; lines: string[]; ad: boolean }
+  | { kind: 'discontinuity' }
+  | { kind: 'line'; line: string };
+
+function parsePlaylist(lines: string[]): PlaylistItem[] {
+  const items: PlaylistItem[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (isDiscontinuityLine(line)) {
+      items.push({ kind: 'discontinuity' });
+      i++;
+      continue;
+    }
+
+    if (line.includes('#EXTINF:')) {
+      // 分段单元：从 #EXTINF 到分片地址，中间夹着的标签一并算进这一块，
+      // 这样后面整块丢弃时不会留下孤立的标签。
+      const block = [line];
+      let j = i + 1;
+      while (j < lines.length) {
+        const next = lines[j];
+        const trimmed = next.trim();
+        if (!trimmed.startsWith('#')) break;
+        // 中间出现断点或下一个 #EXTINF，说明这块不规范，交回主循环
+        if (isDiscontinuityLine(next) || next.includes('#EXTINF:')) break;
+        block.push(next);
+        j++;
+      }
+      const uri = j < lines.length ? lines[j] : '';
+      if (j < lines.length) {
+        block.push(uri);
+        j++;
+      }
+      const lowered = uri.toLowerCase();
+      const isAd = AD_KEYWORDS.some((keyword) =>
+        lowered.includes(keyword.toLowerCase())
+      );
+      items.push({ kind: 'segment', lines: block, ad: isAd });
+      i = j;
+      continue;
+    }
+
+    items.push({ kind: 'line', line });
+    i++;
+  }
+  return items;
+}
+
 export function filterAdsFromM3U8(
   type: string,
   m3u8Content: string,
@@ -50,83 +124,107 @@ export function filterAdsFromM3U8(
   if (!m3u8Content) return '';
 
   const lines = m3u8Content.split('\n');
-  const filteredLines: string[] = [];
-  // 中插广告被摘掉后，前后两段分片的 PTS 时间轴是断开的。必须在拼接处补回一个
-  // #EXT-X-DISCONTINUITY，否则播放器不知道要重置时间轴：原生 HLS（Safari /
-  // 鸿蒙原生 / 电视）会停在断点并触发 ended，页面随即自动跳下一集。
-  let needDiscontinuity = false;
-  let keptSegmentCount = 0;
+  const items = parsePlaylist(lines);
+  const segmentItems = items.filter(
+    (item): item is { kind: 'segment'; lines: string[]; ad: boolean } =>
+      item.kind === 'segment'
+  );
+  const keptItems = segmentItems.filter((item) => !item.ad);
+  const removedItems = segmentItems.filter((item) => item.ad);
 
-  // 日志统计：把移除位置换算成「第几分钟」，方便和用户看到的广告时间对上
-  let elapsed = 0;
-  let firstAdAt = -1;
-  let removedAdDuration = 0;
-  let removedAdCount = 0;
-  let discontinuityInserted = false;
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (line.includes('#EXT-X-DISCONTINUITY')) {
-      i++;
-      continue;
-    }
-
-    const isSegmentLine = line.includes('#EXTINF:');
-    const segmentDuration = isSegmentLine
-      ? parseFloat(line.slice(line.indexOf(':') + 1)) || 0
-      : 0;
-
-    // #EXTINF 下一行是分段地址，命中广告关键字就把两行一起丢
-    if (isSegmentLine && i + 1 < lines.length) {
-      const nextLine = lines[i + 1];
-      const containsAdKeyword = AD_KEYWORDS.some((keyword) =>
-        nextLine.toLowerCase().includes(keyword.toLowerCase())
-      );
-      if (containsAdKeyword) {
-        if (firstAdAt < 0) firstAdAt = elapsed;
-        removedAdCount++;
-        removedAdDuration += segmentDuration;
-        elapsed += segmentDuration;
-        needDiscontinuity = true;
-        i += 2;
-        continue;
-      }
-    }
-
-    // 只有前面已经有正片分片时才补，片头广告被删掉不会留下孤立的时间轴标记
-    if (needDiscontinuity && line.trim()) {
-      if (keptSegmentCount > 0) {
-        filteredLines.push('#EXT-X-DISCONTINUITY');
-        discontinuityInserted = true;
-      }
-      needDiscontinuity = false;
-    }
-
-    if (isSegmentLine) {
-      keptSegmentCount++;
-      elapsed += segmentDuration;
-    }
-
-    filteredLines.push(line);
-    i++;
-  }
-
-  if (removedAdCount > 0) {
-    console.log(
-      `[去广告] ${type || '(未知源)'} 移除 ${removedAdCount} 个广告分片，起于 ${formatClock(firstAdAt)}，共 ${removedAdDuration.toFixed(1)}s；` +
-        `拼接处${discontinuityInserted ? '已补 #EXT-X-DISCONTINUITY' : '未补断点（片头/片尾广告，无需断点）'}`
-    );
-  }
+  // 没删任何分片就别碰清单：断点数量、顺序、每一个字节都保持原样。
+  // 之前这里无条件把所有 #EXT-X-DISCONTINUITY 丢掉，没有广告的清单会被削成
+  // 0 个断点，播放器时间轴因此断裂（卡住 / 自动跳集 / 起播失败）。
+  if (removedItems.length === 0) return m3u8Content;
 
   // 兜底：关键字误伤把正片全删光时，宁可带着广告播，也不能给播放器一个空清单
-  if (keptSegmentCount === 0) {
+  if (keptItems.length === 0) {
     console.warn(
       '[去广告] 过滤后没有剩余分片，疑似关键字误伤，已回退为原清单（本次不生效）'
     );
     return m3u8Content;
   }
+
+  // 正片分片的位置范围，用来判断某个断点是不是落在片头 / 片尾（孤立断点要丢掉）
+  const firstKeptIndex = items.findIndex(
+    (item) => item.kind === 'segment' && !item.ad
+  );
+  const lastKeptIndex = items.reduce(
+    (acc, item, index) =>
+      item.kind === 'segment' && !item.ad ? index : acc,
+    -1
+  );
+
+  const filteredLines: string[] = [];
+  // 刚删完一段广告，拼缝处需要一个断点；但只有「前面有正片、后面还有正片」才需要
+  // —— 片头 / 片尾广告删掉后不该留下孤立断点。
+  let pendingSplice = false;
+  let spliceCount = 0;
+
+  // 日志统计：把移除位置换算成「第几分钟」，方便和用户看到的广告时间对上
+  let elapsed = 0;
+  let firstAdAt = -1;
+  let removedAdDuration = 0;
+
+  // 输出缓冲里最后一条有内容的行，用来避免拼出连续两个断点
+  const lastMeaningfulLine = () => {
+    for (let k = filteredLines.length - 1; k >= 0; k--) {
+      const trimmed = filteredLines[k].trim();
+      if (trimmed) return trimmed;
+    }
+    return '';
+  };
+
+  const flushSplice = () => {
+    if (!pendingSplice) return;
+    pendingSplice = false;
+    // 上一个保留的断点已经贴在这个拼缝上时不再重复补
+    if (isDiscontinuityLine(lastMeaningfulLine())) return;
+    filteredLines.push(DISCONTINUITY_TAG);
+    spliceCount++;
+  };
+
+  items.forEach((item, index) => {
+    if (item.kind === 'segment') {
+      const segmentDuration = durationOfExtinf(item.lines[0]);
+
+      if (item.ad) {
+        if (firstAdAt < 0) firstAdAt = elapsed;
+        removedAdDuration += segmentDuration;
+        elapsed += segmentDuration;
+        // 片头广告（前面没正片）和片尾广告（后面没正片）不需要拼缝断点
+        if (index > firstKeptIndex && index < lastKeptIndex) {
+          pendingSplice = true;
+        }
+        return;
+      }
+
+      flushSplice();
+      filteredLines.push(...item.lines);
+      elapsed += segmentDuration;
+      return;
+    }
+
+    if (item.kind === 'discontinuity') {
+      // 落在片头之前或片尾之后的断点没有相邻正片，留着就是孤立断点
+      if (index < firstKeptIndex || index > lastKeptIndex) return;
+      // 连续两个断点合并成一个（广告边界常常自带一个）
+      if (isDiscontinuityLine(lastMeaningfulLine())) {
+        pendingSplice = false;
+        return;
+      }
+      filteredLines.push(DISCONTINUITY_TAG);
+      pendingSplice = false;
+      return;
+    }
+
+    filteredLines.push(item.line);
+  });
+
+  console.log(
+    `[去广告] ${type || '(未知源)'} 移除 ${removedItems.length} 个广告分片，起于 ${formatClock(firstAdAt)}，共 ${removedAdDuration.toFixed(1)}s；` +
+      `补齐拼缝断点 ${spliceCount} 个`
+  );
 
   return filteredLines.join('\n');
 }
@@ -145,7 +243,7 @@ function summarizePlaylist(content: string): string {
   let duration = 0;
   let discontinuities = 0;
   for (const line of content.split('\n')) {
-    if (line.includes('#EXT-X-DISCONTINUITY')) {
+    if (isDiscontinuityLine(line)) {
       discontinuities++;
     } else if (line.includes('#EXTINF:')) {
       segments++;

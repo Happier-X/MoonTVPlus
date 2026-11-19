@@ -3255,7 +3255,10 @@ function PlayPageClient() {
     }
 
     try {
-      const info = await getVideoResolutionFromM3u8(episodeUrl, 4000);
+      // 这里只是给播放页右上角补「分辨率/码率」信息，不影响起播、选集和优选，
+      // 所以给宽容一点的窗口：慢源 4s 拿不到 metadata 并不代表不可用，
+      // 直接失败会刷出误导性的「获取视频信息失败」。
+      const info = await getVideoResolutionFromM3u8(episodeUrl, 12000);
       setCurrentSourceVideoInfo(info);
     } catch (error) {
       console.error('获取视频信息失败:', error);
