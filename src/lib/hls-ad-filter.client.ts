@@ -87,10 +87,87 @@ function parsePlaylist(lines: string[]): PlaylistItem[] {
   return items;
 }
 
+type SegmentItem = Extract<PlaylistItem, { kind: 'segment' }>;
+
+/** 分片地址：分段块的最后一行 */
+function segmentUri(item: SegmentItem): string {
+  return item.lines[item.lines.length - 1] || '';
+}
+
+function countDiscontinuityLines(content: string): number {
+  return content.split('\n').filter(isDiscontinuityLine).length;
+}
+
+/**
+ * 后台自定义去广告代码的兼容层：线上配置里有一份旧规则，见到
+ * #EXT-X-DISCONTINUITY 就跳过，会把合法断点全部删掉。这里只采纳自定义规则
+ * 真正删掉的分片，断点仍按源清单重建，避免后台旧规则绕过下面的修复。
+ */
+function reconcileCustomFilterResult(
+  originalContent: string,
+  customResult: string,
+  type: string
+): string {
+  if (typeof customResult !== 'string' || !customResult) return customResult;
+  if (customResult === originalContent) return originalContent;
+
+  const sourceItems = parsePlaylist(originalContent.split('\n'));
+  const sourceSegments = sourceItems.filter(
+    (item): item is SegmentItem => item.kind === 'segment'
+  );
+  const customSegments = parsePlaylist(customResult.split('\n')).filter(
+    (item): item is SegmentItem => item.kind === 'segment'
+  );
+
+  // 自定义代码没有删分片：源清单原样返回，不接受它对断点的任何删改
+  if (
+    sourceSegments.length === customSegments.length &&
+    sourceSegments.every(
+      (item, index) => segmentUri(item) === segmentUri(customSegments[index])
+    )
+  ) {
+    return originalContent;
+  }
+
+  // 自定义代码自己保留了断点：尊重它的结果
+  if (
+    countDiscontinuityLines(customResult) >=
+    countDiscontinuityLines(originalContent)
+  ) {
+    return customResult;
+  }
+
+  // 按顺序把自定义结果的分片映射回源清单；只支持「删分片」，不改写地址
+  const removedIndexes = new Set<number>();
+  let matched = 0;
+  sourceItems.forEach((item, index) => {
+    if (item.kind !== 'segment') return;
+    if (
+      matched < customSegments.length &&
+      segmentUri(item) === segmentUri(customSegments[matched])
+    ) {
+      matched++;
+    } else {
+      removedIndexes.add(index);
+    }
+  });
+
+  if (matched !== customSegments.length) {
+    console.warn(
+      '[去广告] 自定义代码改写了分片地址或清单结构，无法安全恢复断点，保留自定义结果'
+    );
+    return customResult;
+  }
+
+  return filterAdsFromM3U8(type, originalContent, undefined, removedIndexes);
+}
+
 export function filterAdsFromM3U8(
   type: string,
   m3u8Content: string,
-  customCode?: string
+  customCode?: string,
+  /** 内部用：自定义代码删掉的分片位置，断点仍按源清单重建 */
+  removedIndexes?: Set<number>
 ): string {
   // 自定义去广告代码优先（管理员在后台配的，按源区分）
   if (customCode && customCode.trim()) {
@@ -114,7 +191,8 @@ export function filterAdsFromM3U8(
         'm3u8Content',
         jsCode + '\nreturn filterAdsFromM3U8(type, m3u8Content);'
       );
-      return customFunction(type, m3u8Content);
+      const customResult = customFunction(type, m3u8Content);
+      return reconcileCustomFilterResult(m3u8Content, customResult, type);
     } catch (err) {
       console.error('执行自定义去广告代码失败，使用默认规则:', err);
     }
@@ -125,12 +203,15 @@ export function filterAdsFromM3U8(
 
   const lines = m3u8Content.split('\n');
   const items = parsePlaylist(lines);
-  const segmentItems = items.filter(
-    (item): item is { kind: 'segment'; lines: string[]; ad: boolean } =>
-      item.kind === 'segment'
+  const isRemoved = (item: SegmentItem, index: number) =>
+    removedIndexes ? removedIndexes.has(index) : item.ad;
+  const segmentItems = items.flatMap((item, index) =>
+    item.kind === 'segment' ? [{ item, index }] : []
   );
-  const keptItems = segmentItems.filter((item) => !item.ad);
-  const removedItems = segmentItems.filter((item) => item.ad);
+  const keptItems = segmentItems.filter(({ item, index }) => !isRemoved(item, index));
+  const removedItems = segmentItems.filter(({ item, index }) =>
+    isRemoved(item, index)
+  );
 
   // 没删任何分片就别碰清单：断点数量、顺序、每一个字节都保持原样。
   // 之前这里无条件把所有 #EXT-X-DISCONTINUITY 丢掉，没有广告的清单会被削成
@@ -146,14 +227,8 @@ export function filterAdsFromM3U8(
   }
 
   // 正片分片的位置范围，用来判断某个断点是不是落在片头 / 片尾（孤立断点要丢掉）
-  const firstKeptIndex = items.findIndex(
-    (item) => item.kind === 'segment' && !item.ad
-  );
-  const lastKeptIndex = items.reduce(
-    (acc, item, index) =>
-      item.kind === 'segment' && !item.ad ? index : acc,
-    -1
-  );
+  const firstKeptIndex = keptItems[0].index;
+  const lastKeptIndex = keptItems[keptItems.length - 1].index;
 
   const filteredLines: string[] = [];
   // 刚删完一段广告，拼缝处需要一个断点；但只有「前面有正片、后面还有正片」才需要
@@ -188,7 +263,7 @@ export function filterAdsFromM3U8(
     if (item.kind === 'segment') {
       const segmentDuration = durationOfExtinf(item.lines[0]);
 
-      if (item.ad) {
+      if (isRemoved(item, index)) {
         if (firstAdAt < 0) firstAdAt = elapsed;
         removedAdDuration += segmentDuration;
         elapsed += segmentDuration;
