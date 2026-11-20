@@ -10,6 +10,7 @@ import com.moontvplus.phone.playback.PlaybackEngine
 import com.moontvplus.phone.playback.PlaybackRequest
 import com.moontvplus.phone.playback.PlaybackState
 import com.moontvplus.phone.playback.PlaybackStatus
+import com.moontvplus.phone.player.PlatformVideoHost
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -84,6 +85,17 @@ class PlayerViewModelTest {
         override val supportsInlinePlayback = true
         override fun create() = player
     })
+
+    /**
+     * 1.9.6 黑屏回归：画面层通过 [PlatformVideoHost] 拿平台播放器。
+     * ViewModel 少实现一个接口，画面层就拿不到播放器、只剩黑底配声音。
+     */
+    @Test fun exposesPlatformControllerForTheVideoSurface() {
+        val vm = model()
+        val host = vm as? PlatformVideoHost
+        assertNotNull("PlayerViewModel 必须实现 PlatformVideoHost，否则画面层拿不到播放器（黑屏）", host)
+        assertSame(player, host!!.platformPlaybackController)
+    }
 
     private fun source(name: String, count: Int, weight: Double = 0.0, douban: Long = 11) = SearchResult(
         source = name, id = "1", title = "Fixture", weight = weight, doubanId = douban,

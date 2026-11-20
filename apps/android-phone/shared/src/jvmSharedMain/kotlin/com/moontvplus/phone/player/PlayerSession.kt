@@ -23,6 +23,7 @@ import com.moontvplus.phone.data.media.EpisodePlan
 import com.moontvplus.phone.data.media.EpisodeUrlResolver
 import com.moontvplus.phone.playback.AutoNextCountdown
 import com.moontvplus.phone.playback.PlaybackEngine
+import com.moontvplus.phone.playback.PlaybackController
 import com.moontvplus.phone.playback.PlaybackRequest
 import com.moontvplus.phone.playback.PlaybackState
 import com.moontvplus.phone.playback.PlaybackStatus
@@ -71,10 +72,12 @@ class PlayerSession(
     private val subtitleRepository: SubtitleRepository? = null,
     private val castClient: DlnaClient? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-) : PlayerUiController {
+) : PlayerUiController, PlatformVideoHost {
 
     /** 平台播放器；Android 上需要拿 ExoPlayer 绑定画面，保留公开访问。 */
     val controller = engine.create()
+
+    override val platformPlaybackController: PlaybackController? get() = controller
 
     override val playback: StateFlow<PlaybackState> = controller.state
 

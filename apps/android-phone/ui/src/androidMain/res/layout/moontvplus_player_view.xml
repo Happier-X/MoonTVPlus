@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放器画面容器。
+
+  surface_type 必须显式指定为 texture_view：
+  1.9.6 用的是 PlayerView 默认的 surface_view，被放进 Compose 的 AndroidView 后
+  SurfaceView 子层没有参与合成，结果音频正常、进度正常，但画面全黑（screencap 全黑，
+  SurfaceFlinger 里只有 Activity 窗口层、没有 SurfaceView 子层）。
+  TextureView 走普通 View 绘制，能在 Compose 的绘制树里正确出画。
+
+  控制栏仍是共享 Compose 实现，所以 use_controller=false。
+-->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/moontvplus_player_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black"
+    app:surface_type="texture_view"
+    app:use_controller="false"
+    app:resize_mode="fit"
+    app:show_buffering="never"
+    app:shutter_background_color="@android:color/black" />

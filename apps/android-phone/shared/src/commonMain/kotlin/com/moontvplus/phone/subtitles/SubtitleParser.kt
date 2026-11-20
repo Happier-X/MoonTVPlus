@@ -153,14 +153,34 @@ object SubtitleParser {
         return cues.sortedBy { it.startMs }
     }
 
-    /** 去掉 `<i>`、`{\an8}` 之类的样式标记，保留可读文字。 */
-    private fun stripTags(text: String): String = text
+    /**
+     * 去掉 `<i>`、`{\an8}` 之类的样式标记，保留可读文字。
+     *
+     * 花括号用字符扫描而不是正则：Android 跑的是 ICU 正则，孤立的 `}` 会被当成
+     * 非法量词直接抛 PatternSyntaxException（1.9.6 里就表现为「加载外挂字幕就闪退」），
+     * 而桌面端 JVM 正则不会报错，桌面单测根本发现不了。写法不同就跑出两种结果，
+     * 干脆不依赖两个引擎的差异。
+     */
+    private fun stripTags(text: String): String = dropBraceBlocks(text)
         .replace(Regex("""<[^>]+>"""), "")
-        .replace(Regex("""\{[^}]*}"""), "")
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
+
+    /** 丢掉 `{...}` 整块（ASS 样式/定位标签），不成对的 `{` 之后的文字也一并丢掉。 */
+    private fun dropBraceBlocks(text: String): String {
+        val out = StringBuilder(text.length)
+        var depth = 0
+        for (ch in text) {
+            when (ch) {
+                '{' -> depth++
+                '}' -> if (depth > 0) depth-- else out.append(ch)
+                else -> if (depth == 0) out.append(ch)
+            }
+        }
+        return out.toString()
+    }
 
     /** 按 URL 后缀猜 MIME，media3 的 SubtitleConfiguration 要它。 */
     fun mimeTypeOf(urlOrName: String): String {

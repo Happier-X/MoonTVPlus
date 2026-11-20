@@ -7,8 +7,10 @@ import com.moontvplus.phone.core.network.MoonApi
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.storage.PlayerPreferencesStore
 import com.moontvplus.phone.danmaku.DanmakuRepository
+import com.moontvplus.phone.playback.PlaybackController
 import com.moontvplus.phone.playback.PlaybackEngine
 import com.moontvplus.phone.playback.PlayerPlatform
+import com.moontvplus.phone.player.PlatformVideoHost
 import com.moontvplus.phone.player.PlayerSession
 import com.moontvplus.phone.player.PlayerUiController
 import com.moontvplus.phone.subtitles.SubtitleRepository
@@ -22,7 +24,7 @@ import com.moontvplus.phone.subtitles.SubtitleRepository
  */
 class PlayerViewModel private constructor(
     private val session: PlayerSession,
-) : ViewModel(), PlayerUiController by session {
+) : ViewModel(), PlayerUiController by session, PlatformVideoHost {
 
     constructor(
         api: MoonApi,
@@ -54,6 +56,15 @@ class PlayerViewModel private constructor(
 
     /** 宿主（PlayerActivity）需要拿 ExoPlayer 绑定 PlayerView。 */
     val controller get() = session.controller
+
+    /**
+     * 画面绑定入口。
+     *
+     * 必须在这里放出平台的播放控制器：界面层拿到的是本 ViewModel，而不是
+     * [PlayerSession]；1.9.6 因为只认 `PlayerSession`，画面层拿不到播放器，
+     * 黑底配声音。
+     */
+    override val platformPlaybackController: PlaybackController? get() = session.platformPlaybackController
 
     fun load(source: String, videoId: String, title: String, index: Int, startPositionMs: Long) =
         session.load(source, videoId, title, index, startPositionMs)
