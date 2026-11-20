@@ -20,10 +20,16 @@ Android 与桌面共用同一份。依赖用手写 `AppGraph` 装配（Hilt 只�
 | 平台 | 实现 | 内嵌播放 |
 |---|---|---|
 | Android | `shared/androidMain` 的 Media3 / ExoPlayer | 支持 |
-| Windows/Linux/macOS | `shared/desktopMain` 的占位实现 | 暂不支持，界面走「外部播放器」 |
+| Windows/Linux/macOS | `shared/desktopMain` 的占位实现 | 暂不支持，桌面窗口里直接说明并用浏览器打开网页版 |
 
-界面层只剩 Android 的 `PlayerView`（画面控件）需要 Media3 类型；换播放器只需实现
+播放界面本体在 `:ui` 的 `PlayerScreen`（`commonMain`），只把画面控件留给平台：Android 用
+`VideoSurface.android.kt` 把 Media3 的 `PlayerView` 包进 Compose，Android 需要的亮度/音量/画中画/
+方向能力由宿主通过 `PlayerPlatform` 注入。手势、弹幕排版、字幕解析、投屏协议、进度与连播逻辑都在
+`shared/commonMain` 里用普通 Kotlin 实现，可直接跑单元测试；换播放器只需实现
 `PlaybackController` 与 `PlaybackEngine`，不用动播放页逻辑。
+
+能力差异用 `PlayerCapabilities` 声明（桌面端没有内嵌播放，就整体不渲染播放控件），界面不会出现
+点不动的假按钮。
 
 ## 当前进度
 
@@ -33,11 +39,12 @@ Android 与桌面共用同一份。依赖用手写 `AppGraph` 装配（Hilt 只�
 | M1 | 服务器地址 + 登录（两种模式）+ 会话与自动刷新 | 完成（旧版 Cookie 迁移待做） |
 | M2 | 首页（豆瓣 / Bangumi / 短剧 / 即将上映 / 继续观看）+ 缓存 + 图片代理 | 完成（卡片点击待 M3/M4 落地） |
 | M3 | 搜索（SSE 流式）+ 结果聚合 + 选源 + 历史 | 完成（选源后进详情待 M4） |
-| M4 | 详情 + 选集 + ExoPlayer 播放 + 续播 + 进度上报 + 画中画 | 完成（跳片头尾待做） |
+| M4 | 详情 + 选集 + ExoPlayer 播放 + 续播 + 进度上报 + 画中画 | 完成 |
+| M4.5 | 手势/控制栏/倍速清晰度音轨/字幕/弹幕（弹弹play）/DLNA 投屏/片头片尾/锁屏/自动连播 | 完成（KMP 共享实现，真机只做了模拟器验证） |
 | M5 | 收藏 / 历史 / 设置 / 网页版入口 | 待做 |
 | M6 | R8、lint、单测补齐、图标与启动页 | 待做 |
 
-弹幕、直播、观影室、AI 与磁链搜索**不在第一期**，统一走「网页版」入口（带登录 Cookie 的 WebView 页），后续再逐块原生化。
+直播、观影室、AI 与磁链搜索**不在第一期**，统一走「网页版」入口（带登录 Cookie 的 WebView 页），后续再逐块原生化。
 
 ## 和服务端的约定
 
@@ -58,7 +65,7 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 产物在 Actions 的 artifacts 里。默认必须配置完整的
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 才能产出正式签名 release APK（和 TV 版共用同一套 secrets）；只有显式关闭 `require_signed` 才允许 debug。
-当前安卓默认版本是 **1.9.5 / versionCode 15**。
+当前安卓默认版本是 **1.9.6 / versionCode 16**。
 
 ## 安卓应用内更新
 

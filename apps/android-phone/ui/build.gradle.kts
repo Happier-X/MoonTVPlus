@@ -57,6 +57,10 @@ kotlin {
             dependsOn(jvmSharedMain)
             dependencies {
                 implementation("io.coil-kt:coil-compose:2.7.0")
+                // 画面用 Media3 的 PlayerView 承载；控制栏仍是共享 Compose 实现
+                implementation("androidx.media3:media3-ui:1.4.1")
+                implementation("androidx.media3:media3-exoplayer:1.4.1")
+                implementation("androidx.activity:activity-compose:1.9.3")
             }
         }
 

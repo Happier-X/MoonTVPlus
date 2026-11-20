@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug 专用清单：
+  1. 允许 adb 直接拉起播放页（导出一条测试流验证手势/控制栏/面板），Release 不导出；
+  2. 不改动发布版的任何组件可见性。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application tools:ignore="MissingApplicationIcon">
+        <activity
+            android:name=".feature.player.PlayerActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

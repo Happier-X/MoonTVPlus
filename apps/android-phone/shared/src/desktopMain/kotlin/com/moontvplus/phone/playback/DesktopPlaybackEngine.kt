@@ -9,13 +9,30 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * ExoPlayer 只能在 Android 上跑，桌面端需要接 VLC（libvlc / VLCJ）。
  * 在接上之前，这里如实报告「不支持内嵌播放」，让界面走「用外部播放器打开」的路径，
- * 而不是给用户一块永远黑屏的窗口。
+ * 而不是给用户一块永远黑屏的窗口，也不显示一排点不动的控制按钮。
  */
 actual fun createPlaybackEngine(): PlaybackEngine = DesktopPlaybackEngine()
 
 class DesktopPlaybackEngine : PlaybackEngine {
 
     override val supportsInlinePlayback: Boolean = false
+
+    override val capabilities: PlayerCapabilities = PlayerCapabilities(
+        inlinePlayback = false,
+        pictureInPicture = false,
+        brightnessGesture = false,
+        volumeGesture = false,
+        speedControl = false,
+        trackSelection = false,
+        subtitles = false,
+        externalSubtitles = false,
+        // 没有内嵌播放器就没有弹幕/进度可言；投屏入口仍然可用（投到电视上播）
+        danmaku = false,
+        casting = true,
+        fullscreenToggle = false,
+        screenLock = false,
+        seekBar = false,
+    )
 
     override fun create(): PlaybackController = DesktopPlaybackController()
 }

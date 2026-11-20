@@ -9,7 +9,7 @@ plugins {
 /** 版本号与 Android 端保持一致，打包后的窗口标题/关于页都读它。 */
 val appVersion = (project.findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "1.9.2"
+    ?: "1.9.6"
 
 /** 由 Gradle 生成，避免 Main.kt 里再手写一份版本常量（曾与包版本对不上）。 */
 val generateAppVersion by tasks.registering {

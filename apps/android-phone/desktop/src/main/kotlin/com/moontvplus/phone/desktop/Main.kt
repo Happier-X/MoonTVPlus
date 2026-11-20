@@ -2,8 +2,11 @@ package com.moontvplus.phone.desktop
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -31,6 +34,8 @@ fun main() = application {
     val graph = remember { AppGraph(PlatformServices()) }
     val scope = rememberCoroutineScope()
     val controller = remember { MoonTvController(graph, scope) }
+    // 播放请求：Android 启动 PlayerActivity，桌面端开一个共享界面的播放窗口
+    var playerRequest by remember { mutableStateOf<PlayRequest?>(null) }
 
     Window(
         onCloseRequest = ::exitApplication,
@@ -69,8 +74,28 @@ fun main() = application {
             controller = controller,
             // 默认跟随系统：Selene 的浅色底是 #F8F9FA，不是纯黑
             darkTheme = isSystemInDarkTheme(),
-            onPlay = { request -> openInBrowser(webPlayUrl(graph, request)) },
+            onPlay = { request -> playerRequest = request },
         )
+    }
+
+    playerRequest?.let { request ->
+        Window(
+            onCloseRequest = { playerRequest = null },
+            title = "MoonTVPlus 播放 · ${request.title}",
+            state = rememberWindowState(width = 1000.dp, height = 640.dp),
+            onPreviewKeyEvent = { event ->
+                when {
+                    event.type != KeyEventType.KeyDown -> false
+                    event.key == Key.Escape -> {
+                        playerRequest = null
+                        true
+                    }
+                    else -> false
+                }
+            },
+        ) {
+            DesktopPlayerWindow(request = request, graph = graph, onExit = { playerRequest = null })
+        }
     }
 }
 
