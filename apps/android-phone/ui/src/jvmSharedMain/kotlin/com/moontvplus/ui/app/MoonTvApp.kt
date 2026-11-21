@@ -48,13 +48,13 @@ import com.moontvplus.ui.model.OpenTarget
 import com.moontvplus.ui.screen.BrowseContent
 import com.moontvplus.ui.screen.DetailContent
 import com.moontvplus.ui.screen.LibraryContent
+import com.moontvplus.ui.screen.LibraryTab
 import com.moontvplus.ui.screen.HomeContent
-import com.moontvplus.ui.screen.HomeTab
 import com.moontvplus.ui.shell.CenteredMessage
-import com.moontvplus.ui.shell.SeleneBottomBar
-import com.moontvplus.ui.shell.SeleneTopBar
+import com.moontvplus.ui.shell.WebBottomBar
+import com.moontvplus.ui.shell.WebSheet
+import com.moontvplus.ui.shell.WebTopBar
 import com.moontvplus.ui.theme.MoonTvTheme
-import com.moontvplus.ui.theme.SeleneColors
 
 /**
  * Android 与桌面端共用的根界面。
@@ -124,10 +124,20 @@ private fun ShellContent(
             onPlay = onPlay,
         )
 
-        ShellScreen.Library -> LibraryPane(
-            controller = controller,
-            onPlay = onPlay,
-        )
+        ShellScreen.Library -> Box(Modifier.fillMaxSize()) {
+            // 网页版里收藏/播放记录是弹层：主界面留在下面，上面盖一层圆角面板
+            MainShell(
+                controller = controller,
+                onPlay = onPlay,
+                onMore = onMore,
+                onOpenSearch = onOpenSearch,
+                onOpenSettings = onOpenSettings,
+            )
+            LibrarySheet(
+                controller = controller,
+                onPlay = onPlay,
+            )
+        }
     }
 }
 
@@ -142,23 +152,16 @@ private fun MainShell(
     Column(Modifier.fillMaxSize()) {
         // 内容区自己吃掉剩余高度，底部导航固定贴在窗口底边
         Column(Modifier.weight(1f).fillMaxWidth()) {
-            SeleneTopBar(
-                title = "Selene",
+            WebTopBar(
+                title = controller.siteName,
                 onSearch = onOpenSearch,
-                onHome = { controller.selectTab(MainTab.HOME) },
-                onSettings = onOpenSettings,
+                onProfile = onOpenSettings,
+                onTitleClick = { controller.selectTab(MainTab.HOME) },
             )
 
             when (controller.tab) {
                 MainTab.HOME -> HomeContent(
                     state = controller.home,
-                    homeTab = controller.homeTab,
-                    onHomeTabChange = controller::selectHomeTab,
-                    library = controller.library,
-                    onOpenLibraryItem = { item ->
-                        controller.openDetailFromLibrary(item)
-                    },
-                    onRemoveLibraryItem = controller::removeLibraryItem,
                     onItemClick = { item ->
                         when (val target = item.target) {
                             is OpenTarget.Resume -> onPlay(PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs))
@@ -169,18 +172,20 @@ private fun MainShell(
                         // 「更多」跳到对应分类页；返回时回到原来的标签页
                         sectionToTab(section.id)?.let(controller::openSectionTab)
                     },
+                    onOpenHistory = { controller.openLibrary(LibraryTab.HISTORY) },
                 )
 
                 MainTab.LIVE -> CenteredMessage("直播模块正在接入")
 
                 else -> BrowseContent(
                     state = controller.browse,
+                    title = controller.tab.label,
                     onItemClick = { item -> controller.open(item.target) },
                 )
             }
         }
 
-        SeleneBottomBar(selected = controller.tab, onSelect = controller::selectTab)
+        WebBottomBar(selected = controller.tab, onSelect = controller::selectTab)
     }
 }
 
@@ -332,9 +337,11 @@ private fun DetailPane(
     screen: ShellScreen.Detail,
     onPlay: (PlayRequest) -> Unit,
 ) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 980.dp).fillMaxSize()) {
-        BackBar(title = controller.detail.title.ifBlank { screen.title }, onBack = controller::back)
+    Column(Modifier.fillMaxSize()) {
+        WebTopBar(
+            title = controller.siteName,
+            onBack = controller::back,
+        )
 
         DetailContent(
             state = controller.detail,
@@ -353,20 +360,20 @@ private fun DetailPane(
             modifier = Modifier.weight(1f),
         )
     }
-    }
 }
 
 // ---- 收藏 / 播放历史 ---------------------------------------------------------
 
+/** 网页版里这是弹层：标题 + 胶囊切换 + 3 列网格，点遮罩关闭。 */
 @Composable
-private fun LibraryPane(
+private fun LibrarySheet(
     controller: MoonTvController,
     onPlay: (PlayRequest) -> Unit,
 ) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 980.dp).fillMaxSize()) {
-        BackBar(title = "收藏与历史", onBack = controller::back)
-
+    WebSheet(
+        title = if (controller.library.tab == LibraryTab.FAVORITES) "我的收藏" else "播放记录",
+        onDismiss = controller::back,
+    ) {
         LibraryContent(
             state = controller.library,
             onSelectTab = controller::selectLibraryTab,
@@ -380,35 +387,6 @@ private fun LibraryPane(
                 }
             },
             onRemove = controller::removeLibraryItem,
-            modifier = Modifier.weight(1f),
-        )
-    }
-    }
-}
-
-/** 详情页 / 收藏页的顶栏：返回 + 标题。 */
-@Composable
-private fun BackBar(title: String, onBack: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "返回",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Text(
-            text = title,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
     }
@@ -432,12 +410,3 @@ private fun CenteredPane(content: @Composable () -> Unit) {
     }
 }
 
-/** 与 Selene 一致的浅分隔线（供后续页面复用）。 */
-@Composable
-fun SeleneDivider() {
-    HorizontalDivider(thickness = 1.dp, color = SeleneColors.InactiveLight.copy(alpha = 0.25f))
-    Spacer(Modifier.width(0.dp).height(0.dp))
-}
-
-/** 空状态的占位内边距，避免各页面自己写魔法数。 */
-val ScreenPadding = PaddingValues(horizontal = 16.dp)

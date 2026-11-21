@@ -88,7 +88,8 @@ class BackNavigationTest {
         ui.waitUntil(10_000) { !controller.detail.loading }
         val detail = controller.detail
         ui.runOnIdle { controller.openLibrary() }
-        ui.onNodeWithContentDescription("返回").performClick()
+        // 收藏/播放记录改成网页版的弹层后，关闭按钮是右上角的「关闭」
+        ui.onNodeWithContentDescription("关闭").performClick()
         ui.runOnIdle {
             assertIs<ShellScreen.Detail>(controller.screen)
             assertEquals(detail, controller.detail)

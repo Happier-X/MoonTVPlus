@@ -64,6 +64,12 @@ data class PosterItem(
     val badge: String? = null,
     /** 0f..1f，非空时在封面底部画一条绿色进度条（继续观看用）。 */
     val progress: Float? = null,
+    /** 继续观看卡图下的集数文字，例如「第1集 · 共25集」。 */
+    val episodeText: String? = null,
+    /** 继续观看卡封面上的时长胶囊。 */
+    val durationText: String? = null,
+    /** 继续观看卡封面上的片源角标。 */
+    val sourceText: String? = null,
     val target: OpenTarget? = null,
 )
 

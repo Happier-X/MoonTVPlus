@@ -8,95 +8,102 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 /**
- * 视觉参数对齐 Selene（`lib/services/theme_service.dart` + 各处硬编码色值）：
- * 种子色 `#2C3E50`（标题/主文字）、强调绿 `#27AE60`（主按钮/角标/进度/选中）、
- * 次要文字 `#7F8C8D`、错误红 `#E74C3C`、信息蓝 `#3498DB`。
- * 浅色底 `#F8F9FA`、卡片 `#FFFFFF`；深色底 `#121212`、卡片 `#1E1E1E`。
+ * 视觉参数取自网页版移动端（`https://tv.370125.xyz`）的 computed style：
+ * 品牌绿 `#1F8F4F`（站点名、主按钮）、强调绿 `#27AE60`（进度、选集选中）、
+ * 文字 `#2C3E50`、次要文字 `#7F8C8D`、浅色底 `#F8F9FA`、深色底 `#121212`、
+ * 深色卡片 `#1E1E1E`、描边 `#E4E9EE` / 深色 `#3D4F5D`。
  */
-object SeleneColors {
-    /** 强调色 / 主按钮 */
+object WebColors {
+    /** 品牌绿：站点名、主按钮 */
+    val Brand = Color(0xFF1F8F4F)
+
+    /** 强调绿：进度条、选集选中、角标 */
     val Accent = Color(0xFF27AE60)
+    val AccentHover = Color(0xFF45C07C)
+    val AccentDeep = Color(0xFF1A7340)
 
-    /** 鼠标悬停时的浅绿（桌面端） */
-    val AccentHover = Color(0xFF52C77A)
-
-    /** 评分圆点 */
-    val Rating = Color(0xFFE91E63)
-
-    /** 未选中图标与标签 */
-    val InactiveLight = Color(0xFF7F8C8D)
-    val InactiveDark = Color(0xFFB0B0B0)
-
-    /** 种子色：标题、主文字 */
-    val SeedLight = Color(0xFF2C3E50)
+    val Ink = Color(0xFF2C3E50)
+    val Muted = Color(0xFF7F8C8D)
 
     val BackgroundLight = Color(0xFFF8F9FA)
     val SurfaceLight = Color(0xFFFFFFFF)
-    val AppBarLight = Color(0xFFFFFFFF)
-    val OutlineLight = Color(0xFFE9ECEF)
+    val SurfaceVariantLight = Color(0xFFEEF1F4)
+    val OutlineLight = Color(0xFFE4E9EE)
 
     val BackgroundDark = Color(0xFF121212)
     val SurfaceDark = Color(0xFF1E1E1E)
-    val AppBarDark = Color(0xFF1E1E1E)
-    val OutlineDark = Color(0xFF2C2C2C)
+    val SurfaceVariantDark = Color(0xFF2A2A2A)
+    val OutlineDark = Color(0xFF3D4F5D)
+    val OnDark = Color(0xFFFFFFFF)
+    val OnDarkMuted = Color(0xFF95A5A6)
 
-    val ErrorRed = Color(0xFFE74C3C)
-    val InfoBlue = Color(0xFF3498DB)
+    val Danger = Color(0xFFE74C3C)
+    val Info = Color(0xFF3498DB)
 
-    /** 年份角标底色（#2C3E50 @ 0.8） */
+    /** 评分角标（网页右上角粉色圆点） */
+    val Rating = Color(0xFFE91E63)
+
+    /** 海报左上角年份角标 `#2C3E50 @0.8` */
     val YearChip = Color(0xCC2C3E50)
 
-    /** Selene 启动页 6 段浅色渐变（#E6F3FB → #D3DDE6）。 */
+    /** 播放器/图片上的黑色遮罩 */
+    val Scrim = Color(0x99000000)
+
+    /** 启动页浅色渐变 */
     val SplashGradientLight = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFFE6F3FB),
-            Color(0xFFEAF3F7),
-            Color(0xFFF7F7F3),
-            Color(0xFFE9ECEF),
-            Color(0xFFDBE3EA),
-            Color(0xFFD3DDE6),
+            Color(0xFFF8F9FA),
+            Color(0xFFF2F6F4),
+            Color(0xFFEAF3ED),
+            Color(0xFFF8F9FA),
         ),
     )
 }
 
 private val LightScheme = lightColorScheme(
-    primary = SeleneColors.SeedLight,
+    primary = WebColors.Brand,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCE4EB),
-    onPrimaryContainer = Color(0xFF0B3A22),
-    secondary = SeleneColors.SeedLight,
+    primaryContainer = Color(0xFFD3F3E0),
+    onPrimaryContainer = Color(0xFF114A2A),
+    secondary = WebColors.Accent,
     onSecondary = Color.White,
-    tertiary = SeleneColors.InfoBlue,
+    secondaryContainer = Color(0xFFEAFAF0),
+    onSecondaryContainer = Color(0xFF1A7340),
+    tertiary = WebColors.Info,
     onTertiary = Color.White,
-    background = SeleneColors.BackgroundLight,
-    onBackground = SeleneColors.SeedLight,
-    surface = SeleneColors.SurfaceLight,
-    onSurface = SeleneColors.SeedLight,
-    surfaceVariant = Color(0xFFEEF1F4),
-    onSurfaceVariant = SeleneColors.InactiveLight,
-    outline = SeleneColors.OutlineLight,
-    outlineVariant = SeleneColors.OutlineLight,
-    error = SeleneColors.ErrorRed,
+    background = WebColors.BackgroundLight,
+    onBackground = WebColors.Ink,
+    surface = WebColors.SurfaceLight,
+    onSurface = WebColors.Ink,
+    surfaceVariant = WebColors.SurfaceVariantLight,
+    onSurfaceVariant = WebColors.Muted,
+    outline = WebColors.OutlineLight,
+    outlineVariant = WebColors.OutlineLight,
+    error = WebColors.Danger,
+    onError = Color.White,
 )
 
 private val DarkScheme = darkColorScheme(
-    primary = Color.White,
-    onPrimary = SeleneColors.SeedLight,
-    primaryContainer = SeleneColors.SurfaceDark,
-    onPrimaryContainer = Color.White,
-    secondary = Color(0xFFECF0F1),
-    onSecondary = SeleneColors.SeedLight,
-    tertiary = SeleneColors.InfoBlue,
+    primary = WebColors.AccentHover,
+    onPrimary = Color(0xFF082F1A),
+    primaryContainer = Color(0xFF165C34),
+    onPrimaryContainer = Color(0xFFD3F3E0),
+    secondary = WebColors.Accent,
+    onSecondary = Color.White,
+    secondaryContainer = WebColors.SurfaceVariantDark,
+    onSecondaryContainer = WebColors.OnDark,
+    tertiary = WebColors.Info,
     onTertiary = Color.White,
-    background = SeleneColors.BackgroundDark,
-    onBackground = Color.White,
-    surface = SeleneColors.SurfaceDark,
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF2A2A2A),
-    onSurfaceVariant = SeleneColors.InactiveDark,
-    outline = SeleneColors.OutlineDark,
-    outlineVariant = SeleneColors.OutlineDark,
-    error = SeleneColors.ErrorRed,
+    background = WebColors.BackgroundDark,
+    onBackground = WebColors.OnDark,
+    surface = WebColors.SurfaceDark,
+    onSurface = WebColors.OnDark,
+    surfaceVariant = WebColors.SurfaceVariantDark,
+    onSurfaceVariant = WebColors.OnDarkMuted,
+    outline = WebColors.OutlineDark,
+    outlineVariant = WebColors.OutlineDark,
+    error = WebColors.Danger,
+    onError = Color.White,
 )
 
 @Composable

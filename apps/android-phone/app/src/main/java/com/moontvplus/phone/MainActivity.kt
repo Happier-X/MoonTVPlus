@@ -17,6 +17,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.ExitToApp
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,7 +63,9 @@ import com.moontvplus.phone.di.appContainer
 import com.moontvplus.phone.di.appViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.ui.theme.MoonTvTheme
-import com.moontvplus.ui.theme.SeleneColors
+import com.moontvplus.ui.theme.WebColors
+import com.moontvplus.ui.shell.WebSheet
+import com.moontvplus.ui.screen.LibraryTab
 import com.moontvplus.phone.feature.AppUiState
 import com.moontvplus.phone.feature.AppViewModel
 import com.moontvplus.phone.feature.detail.DetailScreen
@@ -178,26 +194,6 @@ private fun MoonTvApp(
             // 子页面已有的 safeDrawingPadding 只会处理尚未消费的部分，不会重复留白。
             // 播放器使用独立 Activity，仍由它自己控制全屏画面与控件边距。
             Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-                if (showSettings) {
-                    SettingsDialog(
-                        siteName = (state as? AppUiState.LoggedIn)?.siteName.orEmpty(),
-                        onDismiss = { showSettings = false },
-                        onLogout = {
-                            showSettings = false
-                            viewModel.logout()
-                            viewModel.forgetCredentials()
-                        },
-                        onChangeServer = {
-                            showSettings = false
-                            viewModel.changeServerAndForgetCredentials()
-                        },
-                        onOpenAbout = {
-                            showSettings = false
-                            showAbout = true
-                        },
-                    )
-                }
-
                 if (showAbout) {
                     AboutDialog(
                         updateState = updateState,
@@ -235,6 +231,7 @@ private fun MoonTvApp(
                         is AppUiState.LoggedIn -> when (val route = currentRoute) {
                             is AppRoute.Search -> SearchScreen(
                                 initialQuery = route.query,
+                                siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
                                 onBack = { currentRoute = AppRoute.Home },
                                 onOpenDetail = { source, videoId, title ->
                                     detailParent = route
@@ -245,6 +242,7 @@ private fun MoonTvApp(
                                 source = route.source,
                                 videoId = route.videoId,
                                 fallbackTitle = route.title,
+                                siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
                                 playbackReturn = playbackReturn,
                                 onBack = { currentRoute = detailParent },
                                 onPlay = { index, positionMs ->
@@ -310,6 +308,35 @@ private fun MoonTvApp(
                         modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                     ) { Text("关于与更新") }
                 }
+
+                if (showSettings) {
+                    SettingsDialog(
+                        siteName = (state as? AppUiState.LoggedIn)?.siteName.orEmpty(),
+                        onDismiss = { showSettings = false },
+                        onOpenFavorites = {
+                            showSettings = false
+                            shellController?.openLibrary(LibraryTab.FAVORITES)
+                        },
+                        onOpenHistory = {
+                            showSettings = false
+                            shellController?.openLibrary(LibraryTab.HISTORY)
+                        },
+                        onLogout = {
+                            showSettings = false
+                            viewModel.logout()
+                            viewModel.forgetCredentials()
+                        },
+                        onChangeServer = {
+                            showSettings = false
+                            viewModel.changeServerAndForgetCredentials()
+                        },
+                        onOpenAbout = {
+                            showSettings = false
+                            showAbout = true
+                        },
+                    )
+                }
+
             }
         }
     }
@@ -319,30 +346,49 @@ private fun MoonTvApp(
 private fun SettingsDialog(
     siteName: String,
     onDismiss: () -> Unit,
+    onOpenFavorites: () -> Unit,
+    onOpenHistory: () -> Unit,
     onLogout: () -> Unit,
     onChangeServer: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(siteName.ifBlank { "设置" }) },
-        text = {
-            Column {
-                Text(
-                    text = "收藏、播放历史与设置页还在原生侧逐步接入，这里先提供账号相关操作。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onOpenAbout) { Text("关于与更新") }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onChangeServer) { Text("更换服务器") }
-        },
-        dismissButton = {
-            TextButton(onClick = onLogout) { Text("退出登录") }
-        },
-    )
+    WebSheet(title = siteName.ifBlank { "我的" }, onDismiss = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            SheetRow("我的收藏", onOpenFavorites, Icons.Outlined.FavoriteBorder)
+            SheetRow("播放记录", onOpenHistory, Icons.Outlined.List)
+            SheetRow("关于与更新", onOpenAbout, Icons.Outlined.Info)
+            SheetRow("更换服务器", onChangeServer, Icons.Outlined.Settings)
+            SheetRow("退出登录", onLogout, Icons.Outlined.ExitToApp, danger = true)
+        }
+    }
+}
+
+/** 网页版用户菜单里的行：图标 + 文字，圆角 8、点按高亮。 */
+@Composable
+private fun SheetRow(
+    text: String,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    danger: Boolean = false,
+) {
+    val color = if (danger) WebColors.Danger else MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(text, fontSize = 14.sp, color = color, modifier = Modifier.weight(1f))
+    }
 }
 
 @Composable
@@ -381,7 +427,7 @@ private fun LoadingBox() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SeleneColors.SplashGradientLight),
+            .background(WebColors.SplashGradientLight),
         contentAlignment = Alignment.Center,
     ) {
         Column(

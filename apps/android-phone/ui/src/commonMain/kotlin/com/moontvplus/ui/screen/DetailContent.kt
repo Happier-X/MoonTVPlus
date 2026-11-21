@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,27 +12,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moontvplus.ui.component.NetworkImage
-import com.moontvplus.ui.theme.SeleneColors
+import com.moontvplus.ui.theme.WebColors
 
 /** 详情页视图状态。选集下标 0 起，与服务端 `episodes` 一致。 */
 data class DetailUiState(
@@ -55,8 +54,8 @@ data class DetailUiState(
 )
 
 /**
- * 详情页：海报 + 元信息 + 收藏 + 播放按钮 + 选集。
- * 结构参照 Selene 的详情/选集两个区块合在一屏。
+ * 详情页：对齐网页版播放页下方的信息区 ——
+ * 海报 + 标题 + 元信息 + 收藏，绿色播放按钮，简介，6 列选集。
  */
 @Composable
 fun DetailContent(
@@ -68,7 +67,7 @@ fun DetailContent(
     when {
         state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 state.playHint?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -88,27 +87,26 @@ fun DetailContent(
         else -> Column(
             modifier = modifier
                 .fillMaxSize()
-                .widthIn(max = 980.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
             // 头部：海报 + 标题/元信息/收藏
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 NetworkImage(
                     url = state.posterUrl,
                     contentDescription = state.title,
                     modifier = Modifier
-                        .width(120.dp)
-                        .height(180.dp)
+                        .width(96.dp)
+                        .height(144.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = state.title,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -119,42 +117,51 @@ fun DetailContent(
                             text = state.meta,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
+                            maxLines = 3,
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = onToggleFavorite,
-                        enabled = !state.favoriteBusy,
-                        border = BorderStroke(1.dp, SeleneColors.Accent),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (state.favorite) {
-                                SeleneColors.Accent.copy(alpha = 0.12f)
-                            } else {
-                                androidx.compose.ui.graphics.Color.Transparent
-                            },
-                            contentColor = SeleneColors.Accent,
-                        ),
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (state.favorite) WebColors.Accent.copy(alpha = 0.14f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable(enabled = !state.favoriteBusy) { onToggleFavorite() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FavoriteBorder,
+                            contentDescription = null,
+                            tint = if (state.favorite) WebColors.Accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(16.dp).height(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
                         Text(
                             text = if (state.favorite) "已收藏" else "收藏",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = SeleneColors.Accent,
+                            fontSize = 12.sp,
+                            color = if (state.favorite) WebColors.Accent else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
 
             // 播放主按钮
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(4.dp))
             Button(
                 onClick = { onPlay(state.resumeIndex.coerceAtLeast(0)) },
                 enabled = state.episodes.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = WebColors.Brand,
+                    contentColor = Color.White,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .height(46.dp),
+                    .height(44.dp),
             ) {
                 Text(
                     text = if (state.hasResume) {
@@ -163,7 +170,7 @@ fun DetailContent(
                         "播放"
                     },
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
@@ -180,11 +187,11 @@ fun DetailContent(
             // 简介
             val desc = state.desc
             if (!desc.isNullOrBlank()) {
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
                     text = desc,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 6,
                     overflow = TextOverflow.Ellipsis,
@@ -195,14 +202,24 @@ fun DetailContent(
             // 选集
             if (state.episodes.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
-                Text(
-                    text = "选集（共 ${state.episodes.size} 集）",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "选集",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "1-${state.episodes.size}",
+                        fontSize = 12.sp,
+                        color = WebColors.Accent,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 EpisodeGrid(
                     episodes = state.episodes,
                     activeIndex = if (state.hasResume) state.resumeIndex else -1,
@@ -213,42 +230,44 @@ fun DetailContent(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** 6 列固定网格（与网页版选集一致），避免在 scroll 里嵌滚动容器。 */
 @Composable
 private fun EpisodeGrid(
     episodes: List<String>,
     activeIndex: Int,
     onSelect: (Int) -> Unit,
 ) {
-    // 外层已经是 scroll，选集用流式布局铺开，避免嵌套滚动
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        episodes.forEachIndexed { index, name ->
-            val active = index == activeIndex
-            Box(
-                modifier = Modifier
-                    .width(96.dp)
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        if (active) SeleneColors.Accent.copy(alpha = 0.18f)
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    )
-                    .clickable { onSelect(index) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = name,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (active) SeleneColors.Accent else MaterialTheme.colorScheme.onSurface,
-                )
+        episodes.chunked(6).forEachIndexed { rowIndex, row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEachIndexed { column, name ->
+                    val index = rowIndex * 6 + column
+                    val active = index == activeIndex
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (active) WebColors.Accent
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable { onSelect(index) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = (index + 1).toString().padStart(2, '0'),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

@@ -26,7 +26,6 @@ import com.moontvplus.ui.model.PosterItem
 import com.moontvplus.ui.screen.BrowseUiState
 import com.moontvplus.ui.screen.DetailUiState
 import com.moontvplus.ui.screen.LibraryTab
-import com.moontvplus.ui.screen.HomeTab
 import com.moontvplus.ui.screen.LibraryUiState
 import com.moontvplus.ui.screen.HomeUiState
 import kotlinx.coroutines.CoroutineScope
@@ -62,8 +61,6 @@ class MoonTvController(
         private set
 
     var tab by mutableStateOf(MainTab.HOME)
-        private set
-    var homeTab by mutableStateOf(HomeTab.HOME)
         private set
     var home by mutableStateOf(HomeUiState(loading = true))
         private set
@@ -306,12 +303,6 @@ class MoonTvController(
         library = library.copy(tab = tab)
     }
 
-    /** Selene 首页顶部胶囊：首页 / 播放历史 / 收藏夹。 */
-    fun selectHomeTab(tab: HomeTab) {
-        homeTab = tab
-        if (tab != HomeTab.HOME && library.loading) loadLibrary()
-    }
-
     fun openDetailFromLibrary(item: PosterItem) {
         val source = item.key.substringBefore(':', "").ifBlank { "douban" }
         val id = item.key.substringAfter(':', item.key)
@@ -515,9 +506,14 @@ class MoonTvController(
         key = "his:$key",
         title = record.title,
         posterUrl = imageUrl(record.cover),
-        year = record.year.takeIf { it.isNotBlank() },
-        badge = "第 ${record.index} 集",
         progress = record.progress,
+        episodeText = if (record.totalEpisodes > 0) {
+            "第${record.index}集 · 共${record.totalEpisodes}集"
+        } else {
+            "第${record.index}集"
+        },
+        durationText = formatDuration(record.playTime),
+        sourceText = record.sourceName.ifBlank { source },
         target = OpenTarget.Resume(source = source, id = videoId, title = record.title, index = record.index,
             positionMs = (record.playTime * 1000).toLong().coerceAtLeast(0),
         ),
@@ -626,7 +622,6 @@ class MoonTvController(
             title = title,
             subtitle = null,
             posterUrl = imageUrl(poster),
-            year = year.takeIf { it.isNotBlank() },
             rate = rate.takeIf { it.isNotBlank() },
             target = OpenTarget.Douban(title = title, doubanId = id),
         )
@@ -636,7 +631,6 @@ class MoonTvController(
         key = "bangumi:$id",
         title = displayTitle,
         posterUrl = imageUrl(images?.best),
-        year = year.ifBlank { null },
         rate = rating?.score?.takeIf { it > 0 }?.let { String.format("%.1f", it) },
         target = OpenTarget.Douban(title = displayTitle),
     )
@@ -645,7 +639,6 @@ class MoonTvController(
         key = "tmdb:$id",
         title = title,
         posterUrl = imageUrl(posterUrl),
-        year = year.ifBlank { null },
         rate = voteAverage.takeIf { it > 0 }?.let { String.format("%.1f", it) },
         target = OpenTarget.Douban(title = title),
     )
@@ -660,4 +653,14 @@ class MoonTvController(
         target = OpenTarget.Video(source = source, id = id, title = title),
     )
 
+}
+
+/** 与网页版一致的时长写法：`4分2秒` / `1小时5分`。 */
+private fun formatDuration(seconds: Double): String {
+    if (seconds <= 0.0) return ""
+    val total = seconds.toInt()
+    val hours = total / 3600
+    val minutes = (total % 3600) / 60
+    val secs = total % 60
+    return if (hours > 0) "${hours}小时${minutes}分" else "${minutes}分${secs}秒"
 }
