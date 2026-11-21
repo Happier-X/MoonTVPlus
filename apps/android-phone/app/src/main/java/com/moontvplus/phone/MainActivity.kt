@@ -181,8 +181,12 @@ private fun MoonTvApp(
         }
     }
 
-    // Selene 每次启动都跟随系统主题，不记住手动切换（theme_service.dart）。
-    val darkTheme = isSystemInDarkTheme()
+    // 主题：默认跟随系统；顶栏切换后记住选择（system / light / dark）。
+    val darkTheme = when (settings.themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
 
     MoonTvTheme(darkTheme = darkTheme) {
         UpdateDialog(state = updateState, updater = updater, onInstall = onInstallUpdate)
@@ -232,6 +236,7 @@ private fun MoonTvApp(
                             is AppRoute.Search -> SearchScreen(
                                 initialQuery = route.query,
                                 siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
+                                onToggleTheme = viewModel::toggleTheme,
                                 onBack = { currentRoute = AppRoute.Home },
                                 onOpenDetail = { source, videoId, title ->
                                     detailParent = route
@@ -243,6 +248,7 @@ private fun MoonTvApp(
                                 videoId = route.videoId,
                                 fallbackTitle = route.title,
                                 siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
+                                onToggleTheme = viewModel::toggleTheme,
                                 playbackReturn = playbackReturn,
                                 onBack = { currentRoute = detailParent },
                                 onPlay = { index, positionMs ->
@@ -273,6 +279,7 @@ private fun MoonTvApp(
                                 MoonTvShell(
                                     controller = shell,
                                     darkTheme = darkTheme,
+                                    onToggleTheme = viewModel::toggleTheme,
                                     onOpenTarget = { target ->
                                         currentRoute = when (target) {
                                             is OpenTarget.Douban -> AppRoute.Search(target.title)

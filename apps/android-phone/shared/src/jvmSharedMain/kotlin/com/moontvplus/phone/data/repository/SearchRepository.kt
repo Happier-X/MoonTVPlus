@@ -1,5 +1,8 @@
 package com.moontvplus.phone.data.repository
 
+import com.moontvplus.phone.core.model.AcgItem
+import com.moontvplus.phone.core.model.AcgSearchRequest
+import com.moontvplus.phone.core.model.AcgSource
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.network.ApiUrlResolver
 import com.moontvplus.phone.core.network.MoonApi
@@ -145,6 +148,28 @@ class SearchRepository(
             response.body()?.results.orEmpty()
         }
     }
+
+
+    /** 动漫磁力：四个源共用一个接口，失败时把服务端的话原样抛给界面。 */
+    suspend fun acgSearch(source: AcgSource, keyword: String, page: Int = 1): Result<List<AcgItem>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val response = api.acgSearch(
+                    source = source.value,
+                    body = AcgSearchRequest(keyword = keyword.trim(), page = page),
+                )
+                val body = response.body()
+                if (!response.isSuccessful || body == null) {
+                    val message = if (response.code() == 403) {
+                        "当前账号没有磁力搜索权限"
+                    } else {
+                        body?.error ?: "搜索失败（HTTP ${response.code()}）"
+                    }
+                    error(message)
+                }
+                body.items
+            }
+        }
 
     suspend fun history(): Result<List<String>> = withContext(Dispatchers.IO) {
         runCatching {

@@ -19,12 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.Whatshot
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +59,7 @@ fun WebTopBar(
     onProfile: (() -> Unit)? = null,
     onBack: (() -> Unit)? = null,
     onTitleClick: (() -> Unit)? = null,
+    onToggleTheme: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val dark = isDarkScheme()
@@ -97,6 +100,17 @@ fun WebTopBar(
                 }
 
                 Spacer(Modifier.weight(1f))
+                // 网页版顶栏右侧：主题切换 + 用户入口
+                if (onToggleTheme != null) {
+                    IconButton(onClick = onToggleTheme, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                            contentDescription = if (dark) "切换到浅色" else "切换到深色",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 if (onProfile != null) {
                     IconButton(onClick = onProfile, modifier = Modifier.size(40.dp)) {
                         Icon(

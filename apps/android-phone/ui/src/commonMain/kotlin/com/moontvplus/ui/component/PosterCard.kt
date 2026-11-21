@@ -347,7 +347,8 @@ fun HomeSectionRow(
 ) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(section.title, onMore)
-        Spacer(Modifier.height(12.dp))
+        // 网页版实测：h2 底到海报顶 20dp
+        Spacer(Modifier.height(20.dp))
 
         when {
             section.items.isNotEmpty() -> LazyRow(

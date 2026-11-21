@@ -192,6 +192,14 @@ class AppViewModel(
     /** 换站点：保存新地址时再清会话，避免把 token 发到别的服务器。 */
     fun changeServer() = openServerEditor()
 
+    /** 顶栏的主题按钮：在深色与浅色之间切换并记住，默认仍是跟随系统。 */
+    fun toggleTheme() {
+        viewModelScope.launch {
+            val next = if (settingsStore.snapshot().themeMode == "dark") "light" else "dark"
+            settingsStore.setThemeMode(next)
+        }
+    }
+
     fun sessionExpired(reason: String = "登录已过期，请重新登录") {
         _state.value = AppUiState.NeedLogin(reason)
     }

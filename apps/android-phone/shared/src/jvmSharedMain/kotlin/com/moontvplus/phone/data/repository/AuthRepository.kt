@@ -7,6 +7,7 @@ import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.model.AuthInfo
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.model.LoginRequest
+import com.moontvplus.phone.core.model.QrCreateResponse
 import com.moontvplus.phone.core.network.MoonApi
 import com.moontvplus.phone.core.network.ServerProvider
 import com.moontvplus.phone.core.network.SessionManager
@@ -14,6 +15,7 @@ import com.moontvplus.phone.core.platform.SiteCookies
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.URLDecoder
 import kotlinx.serialization.json.Json
 
 class AuthRepository(
@@ -89,6 +91,69 @@ class AuthRepository(
         }
     }
 
+    /**
+     * 扫码登录第一步：向站点申请一次性二维码。
+     * 二维码内容就是 `qrUrl`，手机浏览器打开后确认，本端轮询状态拿登录态。
+     */
+    suspend fun createQrCode(): ApiResult<QrCreateResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.qrCreate()
+            val body = response.body()
+            if (!response.isSuccessful || body == null || body.token.isBlank()) {
+                return@withContext ApiResult.Err(
+                    AppError.Http(response.code(), body?.let { "二维码生成失败" } ?: "二维码生成失败")
+                )
+            }
+            ApiResult.Ok(body)
+        } catch (e: IOException) {
+            ApiResult.Err(AppError.Network)
+        } catch (e: Exception) {
+            ApiResult.Err(AppError.Unknown(e.message))
+        }
+    }
+
+    /**
+     * 扫码登录第二步：轮询状态。
+     *
+     * 服务端在 `confirmed` 那一次用 `Set-Cookie: auth=...` 把登录态写进响应头，
+     * 值就是登录接口返回的 token 原文，所以直接拿它建会话。
+     */
+    suspend fun pollQrCode(token: String): ApiResult<QrPollResult> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.qrStatus(token)
+            val body = response.body() ?: return@withContext ApiResult.Err(
+                AppError.Http(response.code(), "二维码状态获取失败")
+            )
+            if (body.status != "confirmed") {
+                return@withContext ApiResult.Ok(QrPollResult(body.status, body.expiresAt))
+            }
+
+            val raw = response.headers().values("set-cookie")
+                .firstOrNull { it.startsWith("auth=", ignoreCase = true) }
+                ?.substringAfter("auth=")
+                ?.substringBefore(";")
+                ?: return@withContext ApiResult.Err(AppError.Http(401, "登录态缺失，请重试"))
+
+            val authInfo = json.decodeFromString(
+                AuthInfo.serializer(),
+                URLDecoder.decode(raw, "UTF-8"),
+            )
+            val session = AuthSession(
+                token = raw,
+                auth = authInfo,
+                storageType = settings.snapshot().storageType,
+                savedAt = System.currentTimeMillis(),
+            )
+            sessions.save(session)
+            serverProvider.current()?.origin?.let { cookies.writeAuth(it, raw) }
+            ApiResult.Ok(QrPollResult(body.status, body.expiresAt, session))
+        } catch (e: IOException) {
+            ApiResult.Err(AppError.Network)
+        } catch (e: Exception) {
+            ApiResult.Err(AppError.Unknown(e.message))
+        }
+    }
+
     /** 服务端登出失败也照样清本地会话与站点 cookie。 */
     suspend fun logout() = withContext(Dispatchers.IO) {
         runCatching { api.logout() }
@@ -119,3 +184,10 @@ class AuthRepository(
         else -> "登录失败（HTTP $code）"
     }
 }
+
+/** 扫码轮询结果：[session] 只在 `confirmed` 时有值。 */
+data class QrPollResult(
+    val status: String,
+    val expiresAt: Long = 0L,
+    val session: AuthSession? = null,
+)

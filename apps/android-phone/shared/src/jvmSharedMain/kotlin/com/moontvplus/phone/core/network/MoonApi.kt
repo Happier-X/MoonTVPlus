@@ -1,11 +1,15 @@
 package com.moontvplus.phone.core.network
 
+import com.moontvplus.phone.core.model.AcgSearchRequest
+import com.moontvplus.phone.core.model.AcgSearchResponse
 import com.moontvplus.phone.core.model.BangumiCalendarDay
 import com.moontvplus.phone.core.model.CodedListResponse
 import com.moontvplus.phone.core.model.DoubanCategoriesResponse
 import com.moontvplus.phone.core.model.LoginRequest
 import com.moontvplus.phone.core.model.LoginResponse
 import com.moontvplus.phone.core.model.PlayRecord
+import com.moontvplus.phone.core.model.QrCreateResponse
+import com.moontvplus.phone.core.model.QrStatusResponse
 import com.moontvplus.phone.core.model.SavePlayRecordRequest
 import com.moontvplus.phone.core.model.Favorite
 import com.moontvplus.phone.core.model.SaveFavoriteRequest
@@ -20,6 +24,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
@@ -50,6 +55,41 @@ interface MoonApi {
         @Query("limit") limit: Int = 20,
         @Query("start") start: Int = 0,
     ): Response<DoubanCategoriesResponse>
+
+    /**
+     * 分类页筛选：网页版 `MultiLevelSelector` 的参数原样透传，
+     * 空串表示「全部」（服务端会把 all 当空处理，这里直接不传）。
+     */
+    @GET("api/douban/recommends")
+    suspend fun doubanRecommends(
+        @Query("kind") kind: String,
+        @Query("limit") limit: Int = 24,
+        @Query("start") start: Int = 0,
+        @Query("category") category: String = "",
+        @Query("format") format: String = "",
+        @Query("region") region: String = "",
+        @Query("year") year: String = "",
+        @Query("platform") platform: String = "",
+        @Query("sort") sort: String = "",
+        @Query("label") label: String = "",
+    ): Response<DoubanCategoriesResponse>
+
+    // ---- 扫码登录 ----
+
+    @POST("api/auth/qr/create")
+    suspend fun qrCreate(): Response<QrCreateResponse>
+
+    /** 状态查询在 `confirmed` 时会用 Set-Cookie 带回 auth，登录态从响应头取。 */
+    @GET("api/auth/qr/status")
+    suspend fun qrStatus(@Query("token") token: String): Response<QrStatusResponse>
+
+    // ---- 动漫磁力 ----
+
+    @POST("api/acg/{source}")
+    suspend fun acgSearch(
+        @Path("source") source: String,
+        @Body body: AcgSearchRequest,
+    ): Response<AcgSearchResponse>
 
     @GET("api/bangumi/calendar")
     suspend fun bangumiCalendar(): Response<List<BangumiCalendarDay>>

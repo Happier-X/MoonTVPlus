@@ -35,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -52,9 +54,12 @@ import com.moontvplus.ui.screen.LibraryTab
 import com.moontvplus.ui.screen.HomeContent
 import com.moontvplus.ui.shell.CenteredMessage
 import com.moontvplus.ui.shell.WebBottomBar
-import com.moontvplus.ui.shell.WebSheet
+import com.moontvplus.ui.shell.ModalTextAction
+import com.moontvplus.ui.shell.WebConfirmDialog
+import com.moontvplus.ui.shell.WebModal
 import com.moontvplus.ui.shell.WebTopBar
 import com.moontvplus.ui.theme.MoonTvTheme
+import com.moontvplus.ui.theme.WebColors
 
 /**
  * Android 与桌面端共用的根界面。
@@ -70,6 +75,7 @@ fun MoonTvApp(
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onToggleTheme: (() -> Unit)? = null,
 ) {
     MoonTvTheme(darkTheme) {
         Surface(
@@ -94,6 +100,7 @@ fun MoonTvApp(
                     onMore = onMore,
                     onOpenSearch = onOpenSearch,
                     onOpenSettings = onOpenSettings,
+                    onToggleTheme = onToggleTheme,
                 )
             }
         }
@@ -108,6 +115,7 @@ private fun ShellContent(
     onMore: (MainTab) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleTheme: (() -> Unit)?,
 ) {
     when (val screen = controller.screen) {
         ShellScreen.Main -> MainShell(
@@ -116,6 +124,7 @@ private fun ShellContent(
             onMore = onMore,
             onOpenSearch = onOpenSearch,
             onOpenSettings = onOpenSettings,
+            onToggleTheme = onToggleTheme,
         )
 
         is ShellScreen.Detail -> DetailPane(
@@ -132,8 +141,9 @@ private fun ShellContent(
                 onMore = onMore,
                 onOpenSearch = onOpenSearch,
                 onOpenSettings = onOpenSettings,
+                onToggleTheme = onToggleTheme,
             )
-            LibrarySheet(
+            LibraryModal(
                 controller = controller,
                 onPlay = onPlay,
             )
@@ -148,6 +158,7 @@ private fun MainShell(
     onMore: (MainTab) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleTheme: (() -> Unit)?,
 ) {
     Column(Modifier.fillMaxSize()) {
         // 内容区自己吃掉剩余高度，底部导航固定贴在窗口底边
@@ -156,6 +167,7 @@ private fun MainShell(
                 title = controller.siteName,
                 onSearch = onOpenSearch,
                 onProfile = onOpenSettings,
+                onToggleTheme = onToggleTheme,
                 onTitleClick = { controller.selectTab(MainTab.HOME) },
             )
 
@@ -179,8 +191,8 @@ private fun MainShell(
 
                 else -> BrowseContent(
                     state = controller.browse,
-                    title = controller.tab.label,
                     onItemClick = { item -> controller.open(item.target) },
+                    onFilterChange = controller::setBrowseFilter,
                 )
             }
         }
@@ -202,6 +214,7 @@ fun MoonTvShell(
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onToggleTheme: (() -> Unit)? = null,
 ) {
     MoonTvTheme(darkTheme) {
         Surface(
@@ -215,6 +228,7 @@ fun MoonTvShell(
                 onMore = onMore,
                 onOpenSearch = onOpenSearch,
                 onOpenSettings = onOpenSettings,
+                onToggleTheme = onToggleTheme,
             )
         }
     }
@@ -364,18 +378,61 @@ private fun DetailPane(
 
 // ---- 收藏 / 播放历史 ---------------------------------------------------------
 
-/** 网页版里这是弹层：标题 + 胶囊切换 + 3 列网格，点遮罩关闭。 */
+/**
+ * 我的收藏 / 播放记录：网页版是居中模态窗，
+ * 标题行右侧是「编辑 / 全选 / 删除(n) / 清空全部」，编辑态点海报是选中。
+ */
 @Composable
-private fun LibrarySheet(
+private fun LibraryModal(
     controller: MoonTvController,
     onPlay: (PlayRequest) -> Unit,
 ) {
-    WebSheet(
-        title = if (controller.library.tab == LibraryTab.FAVORITES) "我的收藏" else "播放记录",
+    val state = controller.library
+    val isFavorites = state.tab == LibraryTab.FAVORITES
+    WebModal(
+        title = if (isFavorites) "我的收藏" else "播放记录",
+        icon = if (isFavorites) Icons.Filled.Star else Icons.Outlined.History,
+        iconTint = if (isFavorites) WebColors.Rating else WebColors.Info,
+        count = state.entries.size,
+        countTint = if (isFavorites) WebColors.Rating else WebColors.Info,
         onDismiss = controller::back,
+        actions = {
+            if (state.entries.isNotEmpty()) {
+                if (state.editMode) {
+                    ModalTextAction(
+                        text = if (state.allSelected) "取消全选" else "全选",
+                        onClick = controller::selectAllLibrary,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    ModalTextAction(
+                        text = "删除" + if (state.selected.isEmpty()) "" else "(${state.selected.size})",
+                        onClick = controller::requestDeleteSelected,
+                        color = WebColors.Danger,
+                        enabled = state.selected.isNotEmpty(),
+                    )
+                    ModalTextAction(
+                        text = "取消",
+                        onClick = controller::toggleLibraryEdit,
+                    )
+                } else {
+                    if (!isFavorites) {
+                        ModalTextAction(
+                            text = "编辑",
+                            onClick = controller::toggleLibraryEdit,
+                            color = WebColors.Info,
+                        )
+                    }
+                    ModalTextAction(
+                        text = "清空全部",
+                        onClick = controller::requestClearLibrary,
+                        color = WebColors.Danger,
+                    )
+                }
+            }
+        },
     ) {
         LibraryContent(
-            state = controller.library,
+            state = state,
             onSelectTab = controller::selectLibraryTab,
             onOpen = { item ->
                 when (val target = item.target) {
@@ -386,8 +443,28 @@ private fun LibrarySheet(
                     else -> controller.open(target)
                 }
             },
-            onRemove = controller::removeLibraryItem,
+            onToggleSelect = controller::toggleLibrarySelect,
             modifier = Modifier.weight(1f),
+        )
+    }
+
+    if (state.confirmClear) {
+        WebConfirmDialog(
+            title = if (isFavorites) "清空收藏" else "清空播放记录",
+            message = "确定要清空所有${if (isFavorites) "收藏" else "播放记录"}吗？此操作不可恢复。",
+            confirmText = "确定清空",
+            onConfirm = controller::confirmClearLibrary,
+            onDismiss = controller::dismissLibraryConfirm,
+        )
+    }
+
+    if (state.confirmDelete) {
+        WebConfirmDialog(
+            title = "删除所选",
+            message = "确定要删除选中的 ${state.selected.size} 项吗？此操作不可恢复。",
+            confirmText = "确定删除",
+            onConfirm = controller::confirmDeleteSelected,
+            onDismiss = controller::dismissLibraryConfirm,
         )
     }
 }

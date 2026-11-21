@@ -78,8 +78,9 @@ fun HomeContent(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+            .padding(top = 16.dp, bottom = 24.dp),
+        // 网页版首页两个区块之间实测 72dp（海报底 + 标题 → 下一个 h2）
+        verticalArrangement = Arrangement.spacedBy(72.dp),
     ) {
         state.sections.forEach { section ->
             if (section.items.isEmpty() && section.error == null) return@forEach

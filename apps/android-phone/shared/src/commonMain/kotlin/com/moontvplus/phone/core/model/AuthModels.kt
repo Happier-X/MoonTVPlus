@@ -98,3 +98,25 @@ data class ServerConfig(
     val isLocalStorageMode: Boolean
         get() = StorageType.equals("localstorage", ignoreCase = true)
 }
+
+/**
+ * 扫码登录：`/api/auth/qr/create` 的响应。
+ *
+ * [expiresAt] 是服务端 `Date.now() + ttl` 的毫秒时间戳，用来算倒计时；
+ * [qrUrl] 就是二维码里要编码的内容（手机上打开后确认登录）。
+ */
+@Serializable
+data class QrCreateResponse(
+    val token: String = "",
+    val qrUrl: String = "",
+    val expiresAt: Long = 0L,
+    val ttl: Int = 120,
+)
+
+/** `pending` / `scanned` / `confirmed` / `expired` / `cancelled` / `used`。 */
+@Serializable
+data class QrStatusResponse(
+    val status: String = "",
+    val expiresAt: Long = 0L,
+    val error: String? = null,
+)

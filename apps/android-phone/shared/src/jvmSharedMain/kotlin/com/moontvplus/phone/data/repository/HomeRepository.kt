@@ -100,11 +100,35 @@ class HomeRepository(
         )
     }
 
-    /** 分类页：电影 / 剧集 / 动漫 / 综艺都走同一个豆瓣分类接口。 */
-    suspend fun category(kind: String, category: String, type: String): List<DoubanItem> =
-        withContext(Dispatchers.IO) {
-            api.doubanCategories(kind, category, type).requireBody().list
-        }
+    /**
+     * 分类页：电影 / 剧集 / 动漫 / 综艺都走豆瓣推荐接口。
+     *
+     * 参数与网页版 `MultiLevelSelector` 一一对应，空串代表「全部」；
+     * [format] 用来区分剧集（电视剧）/综艺，[category] 是「类型」筛选。
+     */
+    suspend fun category(
+        kind: String,
+        format: String = "",
+        category: String = "",
+        region: String = "",
+        year: String = "",
+        platform: String = "",
+        sort: String = "",
+        label: String = "",
+        limit: Int = 24,
+    ): List<DoubanItem> = withContext(Dispatchers.IO) {
+        api.doubanRecommends(
+            kind = kind,
+            limit = limit,
+            category = category,
+            format = format,
+            region = region,
+            year = year,
+            platform = platform,
+            sort = sort,
+            label = label,
+        ).requireBody().list
+    }
 
     /** 继续观看：服务端播放记录按保存时间倒序。 */
     suspend fun continueWatching(): Result<List<ContinueItem>> = withContext(Dispatchers.IO) {        safeFetch {

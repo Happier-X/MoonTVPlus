@@ -22,58 +22,72 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.moontvplus.ui.component.FilterSection
 import com.moontvplus.ui.component.PosterCard
+import com.moontvplus.ui.model.BrowseKind
+import com.moontvplus.ui.model.FilterCategory
 import com.moontvplus.ui.model.PosterItem
 
-/** 分类页视图状态。 */
+/** 分类页视图状态：数据集 + 当前筛选。 */
 data class BrowseUiState(
+    val kind: BrowseKind = BrowseKind.MOVIE,
     val loading: Boolean = false,
     val items: List<PosterItem> = emptyList(),
     val error: String? = null,
+    val categories: List<FilterCategory> = emptyList(),
+    val filters: Map<String, String> = emptyMap(),
 )
 
 /**
  * 分类页：与网页版 `/douban?type=` 一致 ——
- * 26sp 标题 + 13sp 副标题，下面 3 列海报网格（列间距 8dp、行间距 48dp、左右 16dp）。
+ * 26sp 标题 + 13sp 副标题，筛选胶囊卡，然后 3 列海报网格（列距 8dp、行距 48dp）。
  */
 @Composable
 fun BrowseContent(
     state: BrowseUiState,
     onItemClick: (PosterItem) -> Unit,
+    onFilterChange: (key: String, value: String) -> Unit,
     modifier: Modifier = Modifier,
-    title: String = "",
 ) {
-    when {
-        state.loading && state.items.isEmpty() -> Column(modifier.fillMaxSize()) {
-            BrowseHeader(title, Modifier.padding(horizontal = 16.dp))
-            Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(48.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            BrowseHeader(state.kind)
         }
 
-        state.items.isEmpty() -> Column(modifier.fillMaxSize()) {
-            BrowseHeader(title, Modifier.padding(horizontal = 16.dp))
-            Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    text = state.error ?: "暂无数据",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp),
+        if (state.categories.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                FilterSection(
+                    categories = state.categories,
+                    values = state.filters,
+                    onChange = onFilterChange,
                 )
             }
         }
 
-        else -> LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(48.dp),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                BrowseHeader(title, Modifier.fillMaxWidth())
+        when {
+            state.loading && state.items.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
             }
-            items(state.items, key = { it.key }) { item ->
+
+            state.items.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = state.error ?: "暂无数据",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            else -> items(state.items, key = { it.key }) { item ->
                 PosterCard(item, onItemClick, width = null, titleLines = 2)
             }
         }
@@ -81,19 +95,20 @@ fun BrowseContent(
 }
 
 @Composable
-private fun BrowseHeader(title: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth()) {
+private fun BrowseHeader(kind: BrowseKind) {
+    Column(Modifier.fillMaxWidth()) {
         Text(
-            text = title,
+            text = kind.label,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "来自豆瓣的精选内容",
+            text = kind.description,
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(12.dp))
     }
 }

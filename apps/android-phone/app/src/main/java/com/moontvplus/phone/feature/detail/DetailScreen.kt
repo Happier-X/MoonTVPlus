@@ -23,6 +23,7 @@ fun DetailScreen(
     onPlay: (index: Int, startPositionMs: Long) -> Unit,
     playbackReturn: Int = 0,
     siteName: String = "MoonTVPlus",
+    onToggleTheme: (() -> Unit)? = null,
     viewModel: DetailViewModel = appViewModel {
         DetailViewModel(
             it.graph.moonApi,
@@ -41,7 +42,7 @@ fun DetailScreen(
             .fillMaxSize()
             .safeDrawingPadding(),
     ) {
-        WebTopBar(title = siteName, onBack = onBack)
+        WebTopBar(title = siteName, onBack = onBack, onToggleTheme = onToggleTheme)
         if (state.loading && state.detail == null) {
             androidx.compose.foundation.layout.Box(
                 Modifier.fillMaxSize(),

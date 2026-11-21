@@ -18,6 +18,14 @@ import com.moontvplus.phone.core.storage.AppSettings
 import com.moontvplus.phone.data.repository.HomeCache
 import com.moontvplus.phone.data.repository.ServerProbeResult
 import com.moontvplus.phone.di.AppGraph
+import com.moontvplus.ui.model.BrowseFilters
+import com.moontvplus.ui.model.BrowseKind
+import com.moontvplus.ui.model.KEY_LABEL
+import com.moontvplus.ui.model.KEY_PLATFORM
+import com.moontvplus.ui.model.KEY_REGION
+import com.moontvplus.ui.model.KEY_SORT
+import com.moontvplus.ui.model.KEY_TYPE
+import com.moontvplus.ui.model.KEY_YEAR
 import com.moontvplus.ui.model.HomeSection
 import com.moontvplus.ui.model.ShellScreen
 import com.moontvplus.ui.model.MainTab
@@ -66,6 +74,9 @@ class MoonTvController(
         private set
     var browse by mutableStateOf(BrowseUiState(loading = true))
         private set
+
+    /** 网页版按当前年份生成「年代」选项，桌面端与安卓端都用本机时间。 */
+    private val currentYear: Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
 
     val siteName: String get() = settings.siteName ?: "MoonTVPlus"
 
@@ -467,6 +478,95 @@ class MoonTvController(
         }
     }
 
+    // ---- 收藏 / 播放记录的编辑模式（网页版：编辑 / 全选 / 删除(n) / 清空全部） ----
+
+    fun toggleLibraryEdit() {
+        val entering = !library.editMode
+        library = library.copy(editMode = entering, selected = emptySet(), message = null)
+    }
+
+    fun toggleLibrarySelect(item: PosterItem) {
+        val selected = library.selected.toMutableSet()
+        if (!selected.add(item.key)) selected.remove(item.key)
+        library = library.copy(selected = selected)
+    }
+
+    fun selectAllLibrary() {
+        library = library.copy(
+            selected = if (library.allSelected) emptySet() else library.entries.map { it.key }.toSet(),
+        )
+    }
+
+    fun requestClearLibrary() {
+        library = library.copy(confirmClear = true)
+    }
+
+    fun requestDeleteSelected() {
+        if (library.selected.isNotEmpty()) library = library.copy(confirmDelete = true)
+    }
+
+    fun dismissLibraryConfirm() {
+        library = library.copy(confirmClear = false, confirmDelete = false)
+    }
+
+    fun confirmClearLibrary() {
+        val isFavorite = library.tab == LibraryTab.FAVORITES
+        val before = library
+        val keys = library.entries.map { it.key }
+        library = library.copy(
+            confirmClear = false,
+            busy = true,
+            favorites = if (isFavorite) emptyList() else library.favorites,
+            history = if (isFavorite) library.history else emptyList(),
+        )
+        scope.launch {
+            var failure: String? = null
+            keys.forEach { key ->
+                val result = if (isFavorite) {
+                    graph.libraryRepository.removeFavorite(key.substringAfter(':'))
+                } else {
+                    graph.libraryRepository.removePlayRecord(key.substringAfter(':'))
+                }
+                if (result.isFailure) failure = result.exceptionOrNull()?.message ?: "清空失败"
+            }
+            library = if (failure == null) {
+                library.copy(busy = false)
+            } else {
+                before.copy(busy = false, error = failure)
+            }
+        }
+    }
+
+    fun confirmDeleteSelected() {
+        val isFavorite = library.tab == LibraryTab.FAVORITES
+        val before = library
+        val keys = library.selected.toList()
+        library = library.copy(
+            confirmDelete = false,
+            busy = true,
+            selected = emptySet(),
+            editMode = false,
+            favorites = if (isFavorite) library.favorites.filterNot { it.key in keys } else library.favorites,
+            history = if (isFavorite) library.history else library.history.filterNot { it.key in keys },
+        )
+        scope.launch {
+            var failure: String? = null
+            keys.forEach { key ->
+                val result = if (isFavorite) {
+                    graph.libraryRepository.removeFavorite(key.substringAfter(':'))
+                } else {
+                    graph.libraryRepository.removePlayRecord(key.substringAfter(':'))
+                }
+                if (result.isFailure) failure = result.exceptionOrNull()?.message ?: "删除失败"
+            }
+            library = if (failure == null) {
+                library.copy(busy = false)
+            } else {
+                before.copy(busy = false, error = failure)
+            }
+        }
+    }
+
     fun removeLibraryItem(item: PosterItem) {
         val isFavorite = library.tab == LibraryTab.FAVORITES
         val before = library
@@ -591,20 +691,51 @@ class MoonTvController(
     // ---- 分类页 ------------------------------------------------------------
 
     private fun loadBrowse(target: MainTab) {
+        val kind = target.browseKind
+        val filters = browse.takeIf { it.kind == kind }?.filters
+            ?: BrowseFilters.defaults(kind, currentYear)
         scope.launch {
-            browse = BrowseUiState(loading = true)
+            browse = BrowseUiState(
+                kind = kind,
+                loading = true,
+                categories = BrowseFilters.categories(kind, currentYear),
+                filters = filters,
+            )
             val result = runCatching {
-                graph.homeRepository.category(target.kind, target.category, target.type)
+                graph.homeRepository.category(
+                    kind = kind.apiKind,
+                    format = kind.apiFormat,
+                    category = kind.fixedCategory.ifBlank { filters.value(KEY_TYPE) },
+                    region = filters.value(KEY_REGION),
+                    year = filters.value(KEY_YEAR),
+                    platform = filters.value(KEY_PLATFORM),
+                    sort = filters.value(KEY_SORT),
+                    label = filters.value(KEY_LABEL),
+                )
             }
             browse = result.fold(
                 onSuccess = { items ->
-                    BrowseUiState(loading = false, items = items.map { it.toPoster() })
+                    browse.copy(loading = false, items = items.map { it.toPoster() }, error = null)
                 },
                 onFailure = { e ->
-                    BrowseUiState(loading = false, error = e.message ?: "加载失败")
+                    browse.copy(loading = false, error = e.message ?: "加载失败")
                 },
             )
         }
+    }
+
+    /** 筛选变化：换一项就重新拉一次，和网页版一致（不做本地过滤）。 */
+    fun setBrowseFilter(key: String, value: String) {
+        val kind = browse.kind
+        val filters = (browse.filters + (key to value)).toMutableMap()
+        if (key == KEY_TYPE || key == KEY_LABEL) {
+            // 换类型时清掉别的维度，网页版会按新类型重算可选项
+            BrowseFilters.categories(kind, currentYear)
+                .filter { it.key != key }
+                .forEach { filters[it.key] = it.defaultValue }
+        }
+        browse = browse.copy(filters = filters)
+        if (tab.isBrowse) loadBrowse(tab)
     }
 
     fun refreshBrowse() {
@@ -664,3 +795,7 @@ private fun formatDuration(seconds: Double): String {
     val secs = total % 60
     return if (hours > 0) "${hours}小时${minutes}分" else "${minutes}分${secs}秒"
 }
+
+/** 取筛选值，缺省返回空串（表示「全部」，不拼进请求）。 */
+private fun Map<String, String>.value(key: String): String =
+    this[key].orEmpty().takeIf { it != "all" && it.isNotBlank() }.orEmpty()

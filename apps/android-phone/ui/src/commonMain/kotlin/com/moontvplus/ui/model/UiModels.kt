@@ -1,6 +1,8 @@
 package com.moontvplus.ui.model
 
-/** 底部导航的六项，顺序与 Selene 一致。 */
+/**
+ * 底部导航的六项，顺序与网页版一致（网页里第 6 项是「电视直播」）。
+ */
 enum class MainTab(val label: String) {
     HOME("首页"),
     MOVIE("电影"),
@@ -13,29 +15,18 @@ enum class MainTab(val label: String) {
     /** 非首页的标签都走豆瓣推荐列表。 */
     val isBrowse: Boolean get() = this != HOME && this != LIVE
 
-    /** 对应 `/api/douban/categories` 的 kind 参数。 */
-    val kind: String
-        get() = if (this == MOVIE) "movie" else "tv"
-
-    /** 对应 `category` 参数。 */
-    val category: String
+    /** 对应网页版 `/douban?type=` 的取值。 */
+    val routeType: String
         get() = when (this) {
-            MOVIE -> "热门"
+            MOVIE -> "movie"
             TV -> "tv"
-            ANIME -> "动画"
+            ANIME -> "anime"
             SHOW -> "show"
-            else -> "热门"
+            else -> "movie"
         }
 
-    /** 对应 `type` 参数。 */
-    val type: String
-        get() = when (this) {
-            MOVIE -> "全部"
-            TV -> "tv"
-            ANIME -> "动画"
-            SHOW -> "show"
-            else -> "全部"
-        }
+    /** 分类页的内容类型（决定筛选项与接口参数）。 */
+    val browseKind: BrowseKind get() = BrowseKind.fromType(routeType)
 }
 
 /** 点击海报卡片后要去哪儿。 */

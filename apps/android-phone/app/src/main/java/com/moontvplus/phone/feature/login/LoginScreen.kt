@@ -1,5 +1,7 @@
 package com.moontvplus.phone.feature.login
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -17,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.di.appViewModel
+import com.moontvplus.ui.component.CapsuleTabs
 import com.moontvplus.ui.component.WebCard
 import com.moontvplus.ui.component.WebHint
 import com.moontvplus.ui.component.WebPrimaryButton
@@ -80,7 +85,20 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(12.dp))
+                    CapsuleTabs(
+                        options = LoginTab.entries.map { it.label },
+                        selectedIndex = state.tab.ordinal,
+                        onSelect = { index ->
+                            viewModel.selectTab(LoginTab.entries[index])
+                            if (LoginTab.entries[index] == LoginTab.QR) viewModel.startQrLogin(onLoggedIn)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(16.dp))
 
+                    if (state.tab == LoginTab.QR) {
+                        QrLoginBlock(state = state, onRefresh = { viewModel.startQrLogin(onLoggedIn) })
+                    } else {
                     if (state.askUsername) {
                         WebTextField(
                             value = state.username,
@@ -146,6 +164,8 @@ fun LoginScreen(
                         loading = state.submitting,
                     )
 
+                    }
+
                     Spacer(Modifier.height(8.dp))
                     TextButton(
                         onClick = onChangeServer,
@@ -167,6 +187,62 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+/** 扫码登录区：二维码 + 倒计时 + 状态提示，过期可刷新。 */
+@Composable
+private fun QrLoginBlock(state: LoginViewModel.UiState, onRefresh: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val qr = state.qr
+        when {
+            state.qrStatus == "creating" || qr == null && state.qrStatus != "error" -> {
+                Box(Modifier.height(200.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = WebColors.Brand)
+                }
+            }
+
+            state.qrStatus == "error" -> {
+                WebHint(state.qrMessage ?: "二维码生成失败", isError = true)
+            }
+
+            qr != null -> {
+                Box {
+                    QrCode(text = qr.qrUrl, size = 200.dp)
+                    if (state.qrStatus == "expired" || state.qrStatus == "cancelled") {
+                        Box(
+                            modifier = Modifier
+                                .size(200.dp)
+                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f))
+                                .clickable(onClick = onRefresh),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "点击刷新",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = androidx.compose.ui.graphics.Color.White,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = state.qrMessage
+                        ?: if (state.qrCountdown > 0) "请用已登录的手机扫码，剩余 ${state.qrCountdown} 秒" else "二维码已过期",
+                    fontSize = 12.sp,
+                    color = if (state.qrStatus == "scanned") WebColors.Brand else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onRefresh) {
+                    Text("刷新二维码", fontSize = 13.sp, color = WebColors.Brand)
+                }
+            }
         }
     }
 }

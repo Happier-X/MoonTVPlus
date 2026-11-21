@@ -1,6 +1,9 @@
 package com.moontvplus.phone.feature.search
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +22,8 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,12 +44,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -51,9 +63,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.moontvplus.phone.core.model.AcgItem
+import com.moontvplus.phone.core.model.AcgSource
 import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.ui.PosterImage
 import com.moontvplus.phone.di.appViewModel
+import com.moontvplus.ui.component.CapsuleTabs
+import com.moontvplus.ui.component.FilterBar
 import com.moontvplus.ui.shell.WebTopBar
 import com.moontvplus.ui.theme.WebColors
 
@@ -64,6 +80,7 @@ fun SearchScreen(
     onBack: () -> Unit,
     onOpenDetail: (source: String, videoId: String, title: String) -> Unit,
     siteName: String = "MoonTVPlus",
+    onToggleTheme: (() -> Unit)? = null,
     viewModel: SearchViewModel = appViewModel {
         SearchViewModel(it.graph.searchRepository, it.graph.imageUrlBuilder)
     },
@@ -88,6 +105,7 @@ fun SearchScreen(
         WebTopBar(
             title = siteName,
             onBack = onBack,
+            onToggleTheme = onToggleTheme,
         )
 
         // 搜索输入框：48dp、圆角 8、浅灰底
@@ -153,107 +171,115 @@ fun SearchScreen(
             }
         }
 
-        // 影视搜索胶囊（点一下就用当前关键词搜）
+        // 网页版 Tab 胶囊：影视搜索 / 动漫磁力
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             horizontalArrangement = Arrangement.Center,
         ) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(enabled = state.query.isNotBlank()) { viewModel.submit() }
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.width(14.dp).height(14.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "影视搜索",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
+            CapsuleTabs(
+                options = SearchTab.entries.map { it.label },
+                selectedIndex = state.tab.ordinal,
+                onSelect = { index -> viewModel.selectTab(SearchTab.entries[index]) },
+            )
         }
 
-        if (state.running) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                LinearProgressIndicator(
-                    progress = { state.progress },
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = WebColors.Accent,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+        when (state.tab) {
+            SearchTab.VIDEO -> {
+                if (state.running) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        LinearProgressIndicator(
+                            progress = { state.progress },
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            color = WebColors.Accent,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (state.totalSources > 0) {
+                                    "已扫描 ${state.scanned}/${state.totalSources} 个源"
+                                } else {
+                                    "正在搜索…"
+                                },
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "停止",
+                                fontSize = 12.sp,
+                                color = WebColors.Brand,
+                                modifier = Modifier.clickable { viewModel.stop() }.padding(4.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (state.error != null) {
                     Text(
-                        text = if (state.totalSources > 0) {
-                            "已扫描 ${state.scanned}/${state.totalSources} 个源"
-                        } else {
-                            "正在搜索…"
-                        },
+                        text = state.error.orEmpty(),
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "停止",
-                        fontSize = 12.sp,
-                        color = WebColors.Brand,
-                        modifier = Modifier.clickable { viewModel.stop() }.padding(4.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }
-            }
-        }
 
-        if (state.error != null) {
-            Text(
-                text = state.error.orEmpty(),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            )
-        }
-
-        if (state.results.isEmpty() && !state.running) {
-            HistoryBlock(
-                history = state.history,
-                onPick = { keyword ->
-                    viewModel.onQueryChange(keyword)
-                    viewModel.submit(keyword)
-                },
-                onRemove = viewModel::removeHistory,
-                onClear = { state.history.forEach(viewModel::removeHistory) },
-            )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                SearchResultHeader(
-                    count = state.results.size,
-                    scanned = state.scanned,
-                    totalSources = state.totalSources,
-                    running = state.running,
-                    onRefresh = { viewModel.submit() },
-                )
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(40.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(state.results, key = { it.key }) { item ->
-                        ResultCard(item = item, onClick = { viewModel.openPicker(item.key) })
+                if (state.results.isEmpty() && !state.running) {
+                    HistoryBlock(
+                        history = state.history,
+                        onPick = { keyword ->
+                            viewModel.onQueryChange(keyword)
+                            viewModel.submit(keyword)
+                        },
+                        onRemove = viewModel::removeHistory,
+                        onClear = { state.history.forEach(viewModel::removeHistory) },
+                    )
+                } else {
+                    Column(Modifier.fillMaxSize()) {
+                        SearchResultHeader(
+                            count = state.visibleResults.size,
+                            scanned = state.scanned,
+                            totalSources = state.totalSources,
+                            running = state.running,
+                            onRefresh = { viewModel.submit() },
+                        )
+                        if (state.results.isNotEmpty()) {
+                            FilterBar(
+                                categories = state.filterCategories,
+                                values = state.filters,
+                                onChange = viewModel::setFilter,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                trailing = { YearOrderButton(state.yearOrder, viewModel::cycleYearOrder) },
+                            )
+                        }
+                        if (state.visibleResults.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "未找到相关结果",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(56.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(state.visibleResults, key = { it.key }) { item ->
+                                    ResultCard(item = item, onClick = { viewModel.openPicker(item.key) })
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            SearchTab.ACG -> AcgTabBody(state = state, viewModel = viewModel)
         }
     }
 
@@ -269,6 +295,200 @@ fun SearchScreen(
             )
         }
     }
+}
+
+/** 「年份」排序按钮：无 → 降序 → 升序，和网页版的图标切换一致。 */
+@Composable
+private fun YearOrderButton(order: String, onClick: () -> Unit) {
+    val active = order != "none"
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (active) WebColors.Accent.copy(alpha = 0.14f)
+                else Color.Transparent
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "年份排序",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            text = when (order) {
+                "desc" -> "降序"
+                "asc" -> "升序"
+                else -> "默认"
+            },
+            fontSize = 13.sp,
+            color = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** 动漫磁力：四个源的胶囊 + 资源卡片列表（复制磁链 / 打开详情）。 */
+@Composable
+private fun AcgTabBody(state: SearchViewModel.UiState, viewModel: SearchViewModel) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    var copiedKey by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            CapsuleTabs(
+                options = AcgSource.entries.map { it.label },
+                selectedIndex = state.acgSource.ordinal,
+                onSelect = { index -> viewModel.setAcgSource(AcgSource.entries[index]) },
+            )
+        }
+
+        when {
+            state.acgLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+
+            state.acgError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = state.acgError,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
+
+            state.acgItems.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (state.query.isBlank()) "先输入关键词再搜索" else "未找到相关资源",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            else -> LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(state.acgItems, key = { it.key }) { item ->
+                    AcgCard(
+                        item = item,
+                        copied = copiedKey == item.key,
+                        onCopy = {
+                            clipboard.setText(AnnotatedString(item.downloadUrl))
+                            copiedKey = item.key
+                        },
+                        onOpen = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(item.link.ifBlank { item.downloadUrl }))
+                                )
+                            }
+                        },
+                    )
+                }
+                if (state.acgSource.supportsPaging && state.acgItems.isNotEmpty()) {
+                    item {
+                        LaunchedEffect(state.acgItems.size) { viewModel.loadMoreAcg() }
+                        Box(
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (state.acgLoadingMore) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.width(20.dp).height(20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AcgCard(item: AcgItem, copied: Boolean, onCopy: () -> Unit, onOpen: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                RoundedCornerShape(8.dp),
+            )
+            .padding(16.dp),
+    ) {
+        Text(
+            text = item.title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        val published = formatPubDate(item.pubDate)
+        if (published.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = published,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (item.images.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item.images.take(3).forEach { image ->
+                    PosterImage(
+                        url = image,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .height(80.dp)
+                            .width(80.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surface),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AcgAction(if (copied) "已复制" else "复制磁链", onCopy)
+            AcgAction("详情", onOpen)
+        }
+    }
+}
+
+/** RSS 里的 RFC822 时间转成本地时间，和网页版 toLocaleString 一致。 */
+private fun formatPubDate(raw: String): String {
+    if (raw.isBlank()) return ""
+    val parsed = runCatching {
+        java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", java.util.Locale.ENGLISH).parse(raw)
+    }.getOrNull() ?: return raw
+    return java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.CHINA).format(parsed)
+}
+
+@Composable
+private fun AcgAction(text: String, onClick: () -> Unit) {
+    Text(
+        text = text,
+        fontSize = 13.sp,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 /** 「搜索结果 聚合结果 N 组」+ 右侧刷新。 */
