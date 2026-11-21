@@ -1,11 +1,15 @@
 package com.moontvplus.ui.player
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,13 +58,19 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.moontvplus.phone.core.storage.PlayerPreferences
+import com.moontvplus.phone.playback.PlayerCapabilities
 import com.moontvplus.phone.playback.GestureContext
 import com.moontvplus.phone.playback.GestureEffect
 import com.moontvplus.phone.playback.PlayerGestureMachine
@@ -85,6 +95,7 @@ fun PlayerScreen(
     val state by controller.state.collectAsState()
     val playback by controller.playback.collectAsState()
     val preferences by controller.preferences.collectAsState()
+    val danmaku by controller.danmaku.collectAsState()
     val capabilities = controller.capabilities
 
     var controlsVisible by remember { mutableStateOf(true) }
@@ -94,6 +105,11 @@ fun PlayerScreen(
     var sliderPosition by remember { mutableStateOf<Float?>(null) }
     var interacting by remember { mutableStateOf(false) }
     val machine = remember { PlayerGestureMachine() }
+    // 顶部标题栏 / 底部控制条的像素高度：手势层在这两块区域不抢指针，
+    // 否则「拖一下进度条附近」会被当成亮度/音量手势（反过来把子按钮切成手势就更糟）。
+    val density = LocalDensity.current
+    val topBarPx = with(density) { PlayerBarZones.TopHeight.toPx() }
+    val bottomBarPx = with(density) { PlayerBarZones.BottomHeight.toPx() }
     // 面板打开或锁屏时，返回键先关面板/解锁，再交给宿主退出
     PlayerBackHandler(enabled = panel != PlayerPanel.NONE || locked) {
         if (panel != PlayerPanel.NONE) panel = PlayerPanel.NONE else locked = false
@@ -106,6 +122,25 @@ fun PlayerScreen(
     val currentDuration by rememberUpdatedState(playback.durationMs)
     val machineRef = rememberUpdatedState(machine)
     val platformRef = rememberUpdatedState(controller.platform)
+
+    // 暂停态（网站版 ArtPlayer 行为）：中央大播放按钮 + 常驻控制栏。
+    // 加载/报错/锁屏/画中画都不算「暂停态」。
+    val showPausedChrome = !isPip && capabilities.inlinePlayback && !locked &&
+        !playback.isPlaying && !state.loading && state.error == null &&
+        playback.status != PlaybackStatus.BUFFERING
+
+    /**
+     * 播放/暂停。播完（ENDED）后再点播放要像网页 `<video>` 一样从头重播：
+     * ExoPlayer 在 ENDED 上调 play() 不会有任何反应。
+     */
+    fun togglePlayWithRestart() {
+        if (playback.isPlaying) {
+            controller.pause()
+        } else {
+            if (playback.status == PlaybackStatus.ENDED) controller.seekTo(0L)
+            controller.play()
+        }
+    }
 
     fun applyEffects(effects: List<GestureEffect>) {
         effects.forEach { effect ->
@@ -137,6 +172,10 @@ fun PlayerScreen(
     }
 
     if (!isPip) {
+        // 播放中 3.5 秒后自动隐藏控制栏；一旦暂停就立刻恢复显示（对齐网站版）
+        LaunchedEffect(showPausedChrome) {
+            if (showPausedChrome) controlsVisible = true
+        }
         LaunchedEffect(controlsVisible, panel, currentPlaying, locked, interacting) {
             if (controlsVisible && panel == PlayerPanel.NONE && currentPlaying && !locked && !interacting) {
                 delay(3_500)
@@ -174,6 +213,10 @@ fun PlayerScreen(
                         awaitEachGesture {
                             val down = awaitFirstDown()
                             tapCommit?.cancel()
+                            // 控制栏区域：不处理手势（也不消费事件），只让按钮/滑块自己响应
+                            if (down.position.y <= topBarPx || down.position.y >= size.height - bottomBarPx) {
+                                return@awaitEachGesture
+                            }
                             val context = GestureContext(
                                 locked = currentLocked,
                                 playing = currentPlaying,
@@ -223,25 +266,50 @@ fun PlayerScreen(
             SkipOverlays(controller, state, onSkipHandled = { controlsVisible = true })
         }
 
+        // 暂停态中央大播放按钮：对齐网站版 ArtPlayer 的 `.art-state`
+        // （约 80dp、opacity .8、scale 2→1）。加载/报错/锁屏/画中画时不出现。
+        if (showPausedChrome) {
+            PlayerCenterPlayButton(
+                onClick = { togglePlayWithRestart() },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+
         // 控制栏
         if (controlsVisible && !isPip && !locked) {
             PlayerControls(
-                controller = controller,
-                state = state,
-                playback = playback,
-                isFullscreen = isFullscreen,
-                panel = panel,
+                displayTitle = state.displayTitle,
+                index = state.index,
+                episodeTitle = state.episodeTitle,
+                sourceLabel = state.sourceLabel,
+                isPlaying = playback.isPlaying,
+                positionMs = playback.positionMs,
+                durationMs = playback.durationMs,
                 sliderPosition = sliderPosition,
+                speed = preferences.speed,
+                danmakuEnabled = danmaku.enabled,
+                hasEpisodes = state.detail != null,
+                hasNext = state.hasNext,
+                capabilities = capabilities,
+                isFullscreen = isFullscreen,
+                onBack = onBack,
+                onToggleFullscreen = onToggleFullscreen,
+                onEnterPip = onEnterPip,
+                onToggleLock = { locked = true; controlsVisible = false },
+                onTogglePlay = { togglePlayWithRestart() },
                 onSliderPosition = { sliderPosition = it; interacting = true },
                 onSliderFinished = {
                     sliderPosition?.let { controller.seekTo(it.toLong()) }
                     sliderPosition = null
                     interacting = false
                 },
-                onBack = onBack,
-                onToggleFullscreen = onToggleFullscreen,
-                onEnterPip = onEnterPip,
-                onToggleLock = { locked = true; controlsVisible = false },
+                onCycleSpeed = {
+                    val steps = PlayerPreferences.SPEED_STEPS
+                    val next = steps.firstOrNull { it > preferences.speed + 0.01f } ?: steps.first()
+                    controller.setSpeed(next)
+                },
+                onToggleDanmaku = { controller.setDanmakuEnabled(!danmaku.enabled) },
+                onPlayNext = { controller.playNext() },
                 onOpenPanel = { panel = it; controlsVisible = true },
             )
         }
@@ -393,57 +461,166 @@ private fun BoxScope.PlayerHudView(hud: PlayerHud) {
     }
 }
 
-/** 控制栏区域吞掉指针事件，避免滑动进度条/横向滚动按钮时误触播放手势。 */
-private fun Modifier.consumePlayerTouches(): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        awaitFirstDown(requireUnconsumed = false).consume()
-        while (true) {
-            val event = awaitPointerEvent()
-            event.changes.forEach { it.consume() }
-            if (event.changes.all { !it.pressed }) break
-        }
+/** 底部控制条上的文字按钮：比 Material 默认内边距更紧，320dp 屏也能多放两个入口。 */
+@Composable
+private fun PlayerBarTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    // 不用 TextButton：Material3 的 defaultMinSize(58dp) 会在 320dp 屏上把「换源」挤断
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
+            maxLines = 1,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 
+/**
+ * 顶部标题栏 / 底部控制条占用的高度。
+ *
+ * 手势层（亮度、音量、拖动进度）在这两块区域里不处理指针：控制栏自己的按钮和滑块
+ * 需要收到原始事件。1.9.7 曾在控制栏父级上整体消费指针，结果所有按钮「看得见点不动」。
+ */
+internal object PlayerBarZones {
+    val TopHeight = 72.dp
+    val BottomHeight = 96.dp
+}
+
+/**
+ * 暂停态的中央播放按钮，对齐网站版 ArtPlayer 的 `.art-state`：
+ * 约 80dp 的圆形、opacity 0.8、出现时从 scale 2 收拢到 1。
+ */
 @Composable
-private fun PlayerControls(
-    controller: PlayerUiController,
-    state: com.moontvplus.phone.player.PlayerScreenState,
-    playback: com.moontvplus.phone.playback.PlaybackState,
-    isFullscreen: Boolean,
-    panel: PlayerPanel,
+fun PlayerCenterPlayButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val scale by animateFloatAsState(
+        targetValue = if (appeared) 1f else 2f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "player-center-play-scale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (appeared) 0.8f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "player-center-play-alpha",
+    )
+    Box(
+        modifier = modifier
+            .size(80.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = alpha
+            }
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.28f))
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag(PlayerControlTags.CENTER_PLAY),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.PlayArrow,
+            contentDescription = "播放视频",
+            tint = Color.White,
+            modifier = Modifier.size(52.dp),
+        )
+    }
+}
+
+/** 控制栏的测试锚点：Robolectric 点击测试按这些 tag 找控件。 */
+object PlayerControlTags {
+    const val TOP_BAR = "player-top-bar"
+    const val BOTTOM_BAR = "player-bottom-bar"
+    const val BACK = "player-control-back"
+    const val PIP = "player-control-pip"
+    const val LOCK = "player-control-lock"
+    const val PLAY_PAUSE = "player-control-play"
+    const val SPEED = "player-control-speed"
+    const val EPISODES = "player-control-episodes"
+    const val SOURCES = "player-control-sources"
+    const val TRACKS = "player-control-tracks"
+    const val SUBTITLES = "player-control-subtitles"
+    const val DANMAKU = "player-control-danmaku"
+    const val CAST = "player-control-cast"
+    const val NEXT = "player-control-next"
+    const val SETTINGS = "player-control-settings"
+    const val FULLSCREEN = "player-control-fullscreen"
+    const val CENTER_PLAY = "player-center-play"
+}
+
+/**
+ * 播放器控制栏（顶部标题 + 进度条 + 单行控制条）。
+ *
+ * 刻意只接收数据与回调、不依赖控制器：这样 Robolectric 的点击测试能直接渲染它，
+ * 一旦有人在父级重新加回「整体消费指针」，测试会立刻失败。
+ */
+@Composable
+fun PlayerControls(
+    displayTitle: String,
+    index: Int,
+    episodeTitle: String,
+    sourceLabel: String,
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
     sliderPosition: Float?,
-    onSliderPosition: (Float) -> Unit,
-    onSliderFinished: () -> Unit,
+    speed: Float,
+    danmakuEnabled: Boolean,
+    hasEpisodes: Boolean,
+    hasNext: Boolean,
+    capabilities: PlayerCapabilities,
+    isFullscreen: Boolean,
     onBack: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onEnterPip: () -> Unit,
     onToggleLock: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onSliderPosition: (Float) -> Unit,
+    onSliderFinished: () -> Unit,
+    onCycleSpeed: () -> Unit,
+    onToggleDanmaku: () -> Unit,
+    onPlayNext: () -> Unit,
     onOpenPanel: (PlayerPanel) -> Unit,
 ) {
-    val capabilities = controller.capabilities
-    val prefs by controller.preferences.collectAsState()
-    val duration = playback.durationMs.coerceAtLeast(1L).toFloat()
-    val shown = sliderPosition ?: playback.positionMs.coerceAtMost(duration.toLong()).toFloat()
+    val duration = durationMs.coerceAtLeast(1L).toFloat()
+    val shown = sliderPosition ?: positionMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.82f)),
-                ),
-            ),
-    ) {
-        // 顶部
+    // 注意：这个 Column 只是布局/渐变，不能加 pointerInput 去消费整块事件 —— 那会吞掉
+    // 下面每个按钮的点击（1.9.7 的回归）。空白处的点击应该漏给手势层去切换控制栏。
+    Column(Modifier.fillMaxSize()) {
+        // 顶部：半透明渐变 + 轻量图标，样式对齐网站版
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp).consumePlayerTouches(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.62f), Color.Black.copy(alpha = 0.22f), Color.Transparent),
+                    ),
+                )
+                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 14.dp)
+                .testTag(PlayerControlTags.TOP_BAR),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerIconButton(Icons.Filled.ArrowBack, "返回", onBack)
-            Column(Modifier.weight(1f)) {
+            PlayerIconButton(
+                Icons.Filled.ArrowBack,
+                "返回",
+                onBack,
+                modifier = Modifier.testTag(PlayerControlTags.BACK),
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
                 Text(
-                    state.displayTitle,
+                    displayTitle,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -451,54 +628,64 @@ private fun PlayerControls(
                 )
                 Text(
                     buildList {
-                        add("第 ${state.index} 集")
-                        if (state.episodeTitle.isNotBlank()) add(state.episodeTitle)
-                        if (state.sourceLabel.isNotBlank()) add(state.sourceLabel)
+                        add("第 $index 集")
+                        if (episodeTitle.isNotBlank()) add(episodeTitle)
+                        if (sourceLabel.isNotBlank()) add(sourceLabel)
                     }.joinToString(" · "),
-                    color = Color.White.copy(alpha = 0.75f),
+                    color = Color.White.copy(alpha = 0.72f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
             if (capabilities.pictureInPicture) {
-                PlayerIconButton(Icons.Filled.PictureInPictureAlt, "画中画", onEnterPip)
+                PlayerIconButton(
+                    Icons.Filled.PictureInPictureAlt,
+                    "画中画",
+                    onEnterPip,
+                    modifier = Modifier.testTag(PlayerControlTags.PIP),
+                )
             }
             if (capabilities.screenLock) {
-                PlayerIconButton(Icons.Filled.LockOpen, "锁定屏幕", onToggleLock)
-            }
-            if (capabilities.fullscreenToggle) {
                 PlayerIconButton(
-                    if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                    if (isFullscreen) "退出全屏" else "全屏",
-                    onToggleFullscreen,
+                    Icons.Filled.LockOpen,
+                    "锁定屏幕",
+                    onToggleLock,
+                    modifier = Modifier.testTag(PlayerControlTags.LOCK),
                 )
             }
         }
 
         Spacer(Modifier.weight(1f))
 
-        // 底部
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp).consumePlayerTouches()) {
+        // 底部：渐变 + 进度条 + 单行控制条
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.9f)),
+                    ),
+                )
+                .padding(start = 10.dp, end = 10.dp, bottom = 2.dp)
+                .testTag(PlayerControlTags.BOTTOM_BAR),
+        ) {
             if (capabilities.inlinePlayback) {
+                // 进度条一行：当前时间 ── 滑块 ── 总时长（网站版的 progress 层）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    PlayerIconButton(
-                        if (playback.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        if (playback.isPlaying) "暂停" else "播放",
-                        { controller.togglePlay() },
-                    )
                     Text(
                         formatPlayerTime(shown.toLong()),
                         color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
                     )
                     Slider(
                         value = shown,
                         onValueChange = onSliderPosition,
                         onValueChangeFinished = onSliderFinished,
                         valueRange = 0f..duration,
-                        enabled = capabilities.seekBar && playback.durationMs > 0L,
-                        modifier = Modifier.weight(1f).height(24.dp),
+                        enabled = capabilities.seekBar && durationMs > 0L,
+                        modifier = Modifier.weight(1f).padding(horizontal = 2.dp).height(22.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color.White,
@@ -506,46 +693,101 @@ private fun PlayerControls(
                         ),
                     )
                     Text(
-                        formatPlayerTime(playback.durationMs),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
+                        formatPlayerTime(durationMs),
+                        color = Color.White.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }
             Row(
-                // 小屏（320dp）放不下所有入口：横向滚动而不是裁掉按钮
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().height(44.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (capabilities.speedControl) {
-                    TextButton(onClick = {
-                        val steps = PlayerPreferences.SPEED_STEPS
-                        val next = steps.firstOrNull { it > prefs.speed + 0.01f } ?: steps.first()
-                        controller.setSpeed(next)
-                    }) { Text("%.1fx".format(prefs.speed), color = Color.White) }
-                }
-                TextButton(onClick = { onOpenPanel(PlayerPanel.EPISODES) }, enabled = state.detail != null) {
-                    Text("选集", color = Color.White)
-                }
-                TextButton(onClick = { onOpenPanel(PlayerPanel.SOURCES) }) { Text("换源", color = Color.White) }
-                if (capabilities.trackSelection) {
-                    TextButton(onClick = { onOpenPanel(PlayerPanel.TRACKS) }) { Text("清晰度", color = Color.White) }
-                }
-                if (capabilities.subtitles || capabilities.externalSubtitles) {
-                    PlayerIconButton(Icons.Filled.Subtitles, "字幕设置", onClick = { onOpenPanel(PlayerPanel.SUBTITLES) })
-                }
-                if (capabilities.danmaku) {
-                    val enabled by controller.danmaku.collectAsState()
-                    TextButton(onClick = { controller.setDanmakuEnabled(!enabled.enabled) }) {
-                        Text(if (enabled.enabled) "弹幕开" else "弹幕关", color = Color.White)
+                PlayerIconButton(
+                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    if (isPlaying) "暂停" else "播放",
+                    onTogglePlay,
+                    modifier = Modifier.testTag(PlayerControlTags.PLAY_PAUSE),
+                )
+                // 小屏（320dp）放不下所有入口：中间这一段横向滚动，播放键/设置/全屏固定可见
+                Row(
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (capabilities.speedControl) {
+                        PlayerBarTextButton(
+                            text = "%.1fx".format(speed),
+                            onClick = onCycleSpeed,
+                            modifier = Modifier.testTag(PlayerControlTags.SPEED),
+                        )
+                    }
+                    PlayerBarTextButton(
+                        text = "选集",
+                        onClick = { onOpenPanel(PlayerPanel.EPISODES) },
+                        enabled = hasEpisodes,
+                        modifier = Modifier.testTag(PlayerControlTags.EPISODES),
+                    )
+                    PlayerBarTextButton(
+                        text = "换源",
+                        onClick = { onOpenPanel(PlayerPanel.SOURCES) },
+                        modifier = Modifier.testTag(PlayerControlTags.SOURCES),
+                    )
+                    if (capabilities.trackSelection) {
+                        PlayerBarTextButton(
+                            text = "清晰度",
+                            onClick = { onOpenPanel(PlayerPanel.TRACKS) },
+                            modifier = Modifier.testTag(PlayerControlTags.TRACKS),
+                        )
+                    }
+                    if (capabilities.subtitles || capabilities.externalSubtitles) {
+                        PlayerIconButton(
+                            Icons.Filled.Subtitles,
+                            "字幕设置",
+                            onClick = { onOpenPanel(PlayerPanel.SUBTITLES) },
+                            modifier = Modifier.testTag(PlayerControlTags.SUBTITLES),
+                        )
+                    }
+                    if (capabilities.danmaku) {
+                        PlayerBarTextButton(
+                            text = if (danmakuEnabled) "弹幕开" else "弹幕关",
+                            onClick = onToggleDanmaku,
+                            modifier = Modifier.testTag(PlayerControlTags.DANMAKU),
+                        )
+                    }
+                    if (capabilities.casting) {
+                        PlayerIconButton(
+                            Icons.Filled.Cast,
+                            "投屏",
+                            onClick = { onOpenPanel(PlayerPanel.CAST) },
+                            modifier = Modifier.testTag(PlayerControlTags.CAST),
+                        )
+                    }
+                    if (hasNext) {
+                        PlayerIconButton(
+                            Icons.Filled.SkipNext,
+                            "下一集",
+                            onClick = onPlayNext,
+                            modifier = Modifier.testTag(PlayerControlTags.NEXT),
+                        )
                     }
                 }
-                if (capabilities.casting) PlayerIconButton(Icons.Filled.Cast, "投屏", onClick = { onOpenPanel(PlayerPanel.CAST) })
-                if (state.hasNext) {
-                    PlayerIconButton(Icons.Filled.SkipNext, "下一集", onClick = { controller.playNext() })
+                PlayerIconButton(
+                    Icons.Filled.Settings,
+                    "播放设置",
+                    onClick = { onOpenPanel(PlayerPanel.SETTINGS) },
+                    modifier = Modifier.testTag(PlayerControlTags.SETTINGS),
+                )
+                if (capabilities.fullscreenToggle) {
+                    PlayerIconButton(
+                        if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        if (isFullscreen) "退出全屏" else "全屏",
+                        onToggleFullscreen,
+                        modifier = Modifier.testTag(PlayerControlTags.FULLSCREEN),
+                    )
                 }
-                PlayerIconButton(Icons.Filled.Settings, "播放设置", onClick = { onOpenPanel(PlayerPanel.SETTINGS) })
             }
         }
     }

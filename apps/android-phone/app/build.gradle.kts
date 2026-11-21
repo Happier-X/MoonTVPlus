@@ -14,9 +14,9 @@ fun propOrEnv(propName: String, envName: String, defaultValue: String): String {
 val rawBaseUrl = propOrEnv("BASE_URL", "BASE_URL", "")
 val appDisplayName = propOrEnv("APP_NAME", "APP_NAME", "MoonTVPlus")
 // 默认值与 .github/workflows/android-phone.yml 的输入默认值保持一致。
-// 1.9.6 的 versionCode 是 16，覆盖升级要求本版继续递增。
-val versionNameValue = propOrEnv("VERSION_NAME", "VERSION_NAME", "1.9.7")
-val versionCodeValue = propOrEnv("VERSION_CODE", "VERSION_CODE", "17").toIntOrNull() ?: 17
+// 1.9.7 的 versionCode 是 17，覆盖升级要求本版继续递增。
+val versionNameValue = propOrEnv("VERSION_NAME", "VERSION_NAME", "1.9.8")
+val versionCodeValue = propOrEnv("VERSION_CODE", "VERSION_CODE", "18").toIntOrNull() ?: 18
 val minSdkValue = propOrEnv("MIN_SDK", "MIN_SDK", "23").toIntOrNull() ?: 23
 
 fun escapeJavaString(value: String): String = value
