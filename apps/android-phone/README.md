@@ -65,7 +65,7 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 产物在 Actions 的 artifacts 里。默认必须配置完整的
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 才能产出正式签名 release APK（和 TV 版共用同一套 secrets）；只有显式关闭 `require_signed` 才允许 debug。
-当前安卓默认版本是 **1.9.14 / versionCode 24**。
+当前安卓默认版本是 **1.9.15 / versionCode 25**。
 
 ## 安卓应用内更新
 

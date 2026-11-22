@@ -288,12 +288,31 @@ private fun MoonTvApp(
                                     darkTheme = darkTheme,
                                     onToggleTheme = viewModel::toggleTheme,
                                     onOpenTarget = { target ->
-                                        currentRoute = when (target) {
-                                            is OpenTarget.Douban -> AppRoute.Search(target.title)
-                                            is OpenTarget.Video ->
-                                                AppRoute.Detail(target.source, target.id, target.title)
-                                            is OpenTarget.Resume ->
-                                                AppRoute.Detail(target.source, target.id, target.title)
+                                        when (target) {
+                                            is OpenTarget.Douban -> currentRoute = AppRoute.Search(target.title)
+                                            is OpenTarget.Video -> {
+                                                playerLauncher.launch(
+                                                    PlayerActivity.intent(
+                                                        context = context,
+                                                        source = target.source,
+                                                        videoId = target.id,
+                                                        title = target.title,
+                                                        index = 1,
+                                                    )
+                                                )
+                                            }
+                                            is OpenTarget.Resume -> {
+                                                playerLauncher.launch(
+                                                    PlayerActivity.intent(
+                                                        context = context,
+                                                        source = target.source,
+                                                        videoId = target.id,
+                                                        title = target.title,
+                                                        index = target.index,
+                                                        positionMs = target.positionMs,
+                                                    )
+                                                )
+                                            }
                                         }
                                     },
                                     onPlay = { request ->
