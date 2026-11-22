@@ -48,13 +48,13 @@ class SessionManager(
     suspend fun save(session: AuthSession) {
         _session.value = session
         store.write(session)
-        runCatching { onSessionSaved(session) }
+        onSessionSaved(session)
     }
 
     suspend fun clear() {
         _session.value = null
         store.clear()
-        runCatching { onSessionCleared() }
+        onSessionCleared()
     }
 
     /**

@@ -112,7 +112,6 @@ private fun WebPageScreen(
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
-                databaseEnabled = true
                 javaScriptCanOpenWindowsAutomatically = true
                 mediaPlaybackRequiresUserGesture = false
                 loadWithOverviewMode = true
