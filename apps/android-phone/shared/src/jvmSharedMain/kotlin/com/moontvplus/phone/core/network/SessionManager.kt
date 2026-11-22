@@ -29,6 +29,9 @@ class SessionManager(
     private val urls: ApiUrlResolver,
     private val json: Json,
     private val refreshClient: OkHttpClient,
+    /** 会话写入 / 清除后同步站点 Cookie（网页版入口靠它保持登录态）。 */
+    private val onSessionSaved: suspend (AuthSession) -> Unit = {},
+    private val onSessionCleared: suspend () -> Unit = {},
 ) {
 
     private val _session = MutableStateFlow<AuthSession?>(null)
@@ -45,11 +48,13 @@ class SessionManager(
     suspend fun save(session: AuthSession) {
         _session.value = session
         store.write(session)
+        runCatching { onSessionSaved(session) }
     }
 
     suspend fun clear() {
         _session.value = null
         store.clear()
+        runCatching { onSessionCleared() }
     }
 
     /**

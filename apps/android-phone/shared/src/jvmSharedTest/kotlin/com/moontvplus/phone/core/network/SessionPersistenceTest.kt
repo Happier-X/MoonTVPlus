@@ -121,4 +121,25 @@ class SessionPersistenceTest {
         assertNull(settings.snapshot().savedPassword)
         assertFalse(settings.snapshot().legacyCookieMigrationDone)
     }
+
+    @Test fun sessionChangesSyncSiteCookies(): Unit = runBlocking {
+        var cookieToken: String? = null
+        var cleared = false
+        val manager = SessionManager(
+            store = store,
+            urls = ApiUrlResolver(ServerProvider().apply {
+                set(ServerAddress.parseStored(server.url("/").toString()))
+            }),
+            json = json,
+            refreshClient = OkHttpClient(),
+            onSessionSaved = { session -> cookieToken = session.token },
+            onSessionCleared = { cleared = true },
+        )
+
+        manager.save(AuthSession(token = "token-cookie", auth = AuthInfo(role = "owner"), storageType = "redis"))
+        assertTrue(cookieToken == "token-cookie")
+
+        manager.clear()
+        assertTrue(cleared)
+    }
 }

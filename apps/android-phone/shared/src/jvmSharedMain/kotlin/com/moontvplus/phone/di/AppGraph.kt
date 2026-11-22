@@ -63,7 +63,18 @@ class AppGraph(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    val sessionManager = SessionManager(sessionStore, urlResolver, json, refreshClient)
+    val sessionManager = SessionManager(
+        store = sessionStore,
+        urls = urlResolver,
+        json = json,
+        refreshClient = refreshClient,
+        onSessionSaved = { session ->
+            serverProvider.current()?.origin?.let { platformServices.cookies.writeAuth(it, session.token) }
+        },
+        onSessionCleared = {
+            serverProvider.current()?.origin?.let { platformServices.cookies.clearAuth(it) }
+        },
+    )
 
     private val authInterceptor = AuthInterceptor(sessionManager, urlResolver)
     private val authenticator = TokenAuthenticator(sessionManager, urlResolver)
