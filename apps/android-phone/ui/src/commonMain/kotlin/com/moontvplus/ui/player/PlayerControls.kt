@@ -157,8 +157,15 @@ fun PlayerScreen(
                     controller.seekTo(effect.targetMs)
                     hud = null
                 }
-                is GestureEffect.Brightness -> hud = PlayerHud.Brightness(effect.value)
-                is GestureEffect.Volume -> hud = PlayerHud.Volume(effect.value)
+                // HUD 只是反馈，必须同时改窗口亮度/系统媒体音量，否则画面和声音不变。
+                is GestureEffect.Brightness -> {
+                    controller.setBrightness(effect.value)
+                    hud = PlayerHud.Brightness(effect.value)
+                }
+                is GestureEffect.Volume -> {
+                    controller.setSystemVolume(effect.value)
+                    hud = PlayerHud.Volume(effect.value)
+                }
                 GestureEffect.SpeedBoostStart -> {
                     controller.beginSpeedBoost()
                     hud = PlayerHud.Speed
