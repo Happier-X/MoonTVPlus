@@ -82,3 +82,12 @@ data class PlayRequest(
     val index: Int,
     val positionMs: Long = 0,
 )
+
+/** 站内网页入口。path 相对于站点部署根路径，子路径部署也能正确拼接。 */
+data class WebPage(val path: String, val title: String)
+
+object WebPages {
+    val Home = WebPage(path = "", title = "网页版")
+    val Live = WebPage(path = "live", title = "电视直播")
+    val WebLive = WebPage(path = "web-live", title = "网络直播")
+}

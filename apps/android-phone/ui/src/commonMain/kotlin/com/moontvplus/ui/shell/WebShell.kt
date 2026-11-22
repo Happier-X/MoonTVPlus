@@ -2,8 +2,11 @@ package com.moontvplus.ui.shell
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -42,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -161,23 +166,30 @@ fun WebBottomBar(
             thickness = 1.dp,
             color = if (dark) WebColors.OutlineDark.copy(alpha = 0.6f) else WebColors.OutlineLight,
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    if (dark) MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
-                    else Color.White.copy(alpha = 0.96f)
-                )
-                .height(56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            tabs.forEach { tab ->
-                BottomItem(
-                    tab = tab,
-                    selected = tab == selected,
-                    onClick = { onSelect(tab) },
-                    modifier = Modifier.weight(1f),
-                )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // 网页版底栏每项固定 20vw，超过 5 项时横向滑动；
+            // 等分会把「电视直播 / 网络直播」挤到截断。
+            val scrollable = tabs.size > 5
+            val itemWidth = maxWidth * 0.2f
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                    .background(
+                        if (dark) MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                        else Color.White.copy(alpha = 0.96f)
+                    )
+                    .height(56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tabs.forEach { tab ->
+                    BottomItem(
+                        tab = tab,
+                        selected = tab == selected,
+                        onClick = { onSelect(tab) },
+                        modifier = if (scrollable) Modifier.width(itemWidth) else Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -198,6 +210,7 @@ private fun BottomItem(
     Column(
         modifier = modifier
             .fillMaxHeight()
+            .testTag("bottom-tab-${tab.name}")
             .clickable { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,

@@ -74,10 +74,15 @@ import com.moontvplus.phone.feature.login.RegisterScreen
 import com.moontvplus.phone.feature.player.PlayerActivity
 import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
+import com.moontvplus.phone.feature.web.SiteWebLinks
+import com.moontvplus.phone.feature.web.WebViewActivity
+import com.moontvplus.phone.core.network.ServerAddress
 import com.moontvplus.ui.app.MoonTvController
 import com.moontvplus.ui.app.MoonTvShell
 import com.moontvplus.ui.model.OpenTarget
 import com.moontvplus.ui.model.ShellScreen
+import com.moontvplus.ui.model.WebPage
+import com.moontvplus.ui.model.WebPages
 
 /** 桌面图标的「服务器设置」快捷方式走这个 action。 */
 const val ACTION_OPEN_SETTINGS = "com.moontvplus.phone.OPEN_SETTINGS"
@@ -149,8 +154,32 @@ private fun MoonTvApp(
     var showAbout by remember { mutableStateOf(false) }
     var showRegister by remember { mutableStateOf(false) }
     var registeredUsername by remember { mutableStateOf<String?>(null) }
+    val webScope = rememberCoroutineScope()
     val updateState by (context.applicationContext as MoonTvApplication).updater.state.collectAsStateWithLifecycle()
     val updater = (context.applicationContext as MoonTvApplication).updater
+
+    // 直播等尚未原生的页面统一开站内 WebView。打开前补写当前 token，
+    // 避免原生侧刷新过 token 后网页还拿着旧 Cookie。
+    val openWeb: (WebPage) -> Unit = { page ->
+        val address = ServerAddress.parseStored(settings.serverAddress)
+        if (address == null) {
+            viewModel.openServerEditor()
+        } else {
+            webScope.launch {
+                val graph = appContainer(context).graph
+                graph.sessionManager.session.value?.token?.let { token ->
+                    graph.platformServices.cookies.writeAuth(address.origin, token)
+                }
+                context.startActivity(
+                    WebViewActivity.intent(
+                        context = context,
+                        url = SiteWebLinks.url(address, page),
+                        title = page.title,
+                    )
+                )
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         // Silent, non-blocking startup check at most twice a day; failures stay out of the way.
@@ -359,6 +388,7 @@ private fun MoonTvApp(
                                     },
                                     onOpenSearch = { currentRoute = AppRoute.Search(null) },
                                     onOpenSettings = { showSettings = true },
+                                    onOpenWeb = openWeb,
                                 )
                             }
                         }
@@ -396,6 +426,10 @@ private fun MoonTvApp(
                             showSettings = false
                             showAbout = true
                         },
+                        onOpenWeb = {
+                            showSettings = false
+                            openWeb(WebPages.Home)
+                        },
                     )
                 }
 
@@ -413,11 +447,13 @@ private fun SettingsDialog(
     onLogout: () -> Unit,
     onChangeServer: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenWeb: () -> Unit,
 ) {
     WebSheet(title = siteName.ifBlank { "我的" }, onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             SheetRow("我的收藏", onOpenFavorites, Icons.Outlined.FavoriteBorder)
             SheetRow("播放记录", onOpenHistory, Icons.Outlined.List)
+            SheetRow("网页版", onOpenWeb, Icons.Outlined.Info)
             SheetRow("关于与更新", onOpenAbout, Icons.Outlined.Info)
             SheetRow("更换服务器", onChangeServer, Icons.Outlined.Settings)
             SheetRow("退出登录", onLogout, Icons.Outlined.ExitToApp, danger = true)

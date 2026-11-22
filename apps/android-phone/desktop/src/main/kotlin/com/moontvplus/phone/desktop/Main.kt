@@ -23,6 +23,7 @@ import com.moontvplus.ui.app.MoonTvController
 import com.moontvplus.ui.component.DesktopImageLoader
 import com.moontvplus.ui.model.PlayRequest
 import com.moontvplus.ui.model.ShellScreen
+import com.moontvplus.ui.model.WebPage
 import java.awt.Desktop
 import java.net.URI
 import java.net.URLEncoder
@@ -75,6 +76,7 @@ fun main() = application {
             // 默认跟随系统：Selene 的浅色底是 #F8F9FA，不是纯黑
             darkTheme = isSystemInDarkTheme(),
             onPlay = { request -> playerRequest = request },
+            onOpenWeb = { page -> openInBrowser(webPageUrl(graph, page)) },
         )
     }
 
@@ -105,6 +107,12 @@ private fun webPlayUrl(graph: AppGraph, request: PlayRequest): String {
     val source = URLEncoder.encode(request.source, "UTF-8")
     val id = URLEncoder.encode(request.videoId, "UTF-8")
     return "$origin/play?source=$source&id=$id&episode=${request.index.coerceAtLeast(0)}"
+}
+
+private fun webPageUrl(graph: AppGraph, page: WebPage): String {
+    val base = graph.serverProvider.current()?.base ?: return ""
+    val path = page.path.trim('/')
+    return if (path.isEmpty()) base.toString() else base.newBuilder().addPathSegments(path).build().toString()
 }
 
 private fun openInBrowser(url: String) {

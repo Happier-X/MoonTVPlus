@@ -47,6 +47,8 @@ import com.moontvplus.ui.model.MainTab
 import com.moontvplus.ui.model.PlayRequest
 import com.moontvplus.ui.model.ShellScreen
 import com.moontvplus.ui.model.OpenTarget
+import com.moontvplus.ui.model.WebPage
+import com.moontvplus.ui.model.WebPages
 import com.moontvplus.ui.screen.BrowseContent
 import com.moontvplus.ui.screen.DetailContent
 import com.moontvplus.ui.screen.LibraryContent
@@ -75,6 +77,7 @@ fun MoonTvApp(
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenWeb: (WebPage) -> Unit = {},
     onToggleTheme: (() -> Unit)? = null,
 ) {
     MoonTvTheme(darkTheme) {
@@ -100,6 +103,7 @@ fun MoonTvApp(
                     onMore = onMore,
                     onOpenSearch = onOpenSearch,
                     onOpenSettings = onOpenSettings,
+                    onOpenWeb = onOpenWeb,
                     onToggleTheme = onToggleTheme,
                 )
             }
@@ -115,6 +119,7 @@ private fun ShellContent(
     onMore: (MainTab) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenWeb: (WebPage) -> Unit,
     onToggleTheme: (() -> Unit)?,
 ) {
     when (val screen = controller.screen) {
@@ -124,6 +129,7 @@ private fun ShellContent(
             onMore = onMore,
             onOpenSearch = onOpenSearch,
             onOpenSettings = onOpenSettings,
+            onOpenWeb = onOpenWeb,
             onToggleTheme = onToggleTheme,
         )
 
@@ -141,6 +147,7 @@ private fun ShellContent(
                 onMore = onMore,
                 onOpenSearch = onOpenSearch,
                 onOpenSettings = onOpenSettings,
+                onOpenWeb = onOpenWeb,
                 onToggleTheme = onToggleTheme,
             )
             LibraryModal(
@@ -158,6 +165,7 @@ private fun MainShell(
     onMore: (MainTab) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenWeb: (WebPage) -> Unit,
     onToggleTheme: (() -> Unit)?,
 ) {
     Column(Modifier.fillMaxSize()) {
@@ -184,19 +192,25 @@ private fun MainShell(
         }
 
         // 网页版底栏顺序：首页/电影/剧集/动漫/综艺，直播入口按站点配置追加。
-        // Android 还没有真正的直播/网络直播页面：开关打开时也不放占位页，避免死入口。
+        // 直播页不在原生范围内，点击后用带登录 Cookie 的 WebView 打开站内页面。
         val bottomTabs = buildList {
             add(MainTab.HOME)
             add(MainTab.MOVIE)
             add(MainTab.TV)
             add(MainTab.ANIME)
             add(MainTab.SHOW)
-            if (controller.liveEnabled && LiveModuleImplemented) add(MainTab.LIVE)
-            if (controller.webLiveEnabled && WebLiveModuleImplemented) add(MainTab.WEB_LIVE)
+            if (controller.liveEnabled) add(MainTab.LIVE)
+            if (controller.webLiveEnabled) add(MainTab.WEB_LIVE)
         }
         WebBottomBar(
             selected = controller.tab,
-            onSelect = controller::selectTab,
+            onSelect = { next ->
+                when (next) {
+                    MainTab.LIVE -> onOpenWeb(WebPages.Live)
+                    MainTab.WEB_LIVE -> onOpenWeb(WebPages.WebLive)
+                    else -> controller.selectTab(next)
+                }
+            },
             tabs = bottomTabs,
         )
     }
@@ -237,6 +251,7 @@ fun MoonTvShell(
     onMore: (MainTab) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenWeb: (WebPage) -> Unit = {},
     onToggleTheme: (() -> Unit)? = null,
 ) {
     MoonTvTheme(darkTheme) {
@@ -251,15 +266,12 @@ fun MoonTvShell(
                 onMore = onMore,
                 onOpenSearch = onOpenSearch,
                 onOpenSettings = onOpenSettings,
+                onOpenWeb = onOpenWeb,
                 onToggleTheme = onToggleTheme,
             )
         }
     }
 }
-
-/** 直播入口的能力开关：页面实现后改成 true，底栏就会按服务端配置出现。 */
-private const val LiveModuleImplemented = false
-private const val WebLiveModuleImplemented = false
 
 private fun sectionToTab(sectionId: String): MainTab? = when (sectionId) {
     "hotMovies" -> MainTab.MOVIE
