@@ -86,3 +86,6 @@ apps/*/.kotlin/
 apps/*/local.properties
 *.apk
 *.aab
+
+# Android update package staged from GitHub Release by CI
+public/downloads/

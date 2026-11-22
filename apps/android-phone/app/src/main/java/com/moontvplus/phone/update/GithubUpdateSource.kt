@@ -23,10 +23,10 @@ class GithubUpdateSource(
         .followRedirects(false).followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.MINUTES).build(),
-) {
+) : UpdateSource {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun check(currentVersion: String): ClientUpdate? {
+    override suspend fun check(currentVersion: String): ClientUpdate? {
         val releases = mutableListOf<GithubRelease>()
         // Exhaust the public release list; /latest can point at a website-only release.
         for (page in 1..20) {
@@ -37,10 +37,10 @@ class GithubUpdateSource(
             }
             if (!hasNext) return UpdatePolicy.select(releases, currentVersion)
         }
-        throw IOException("发布记录过多，暂时无法完整检查，请稍后重试或查看 GitHub 发布页。")
+        throw IOException("发布记录过多，暂时无法完整检查，请稍后重试。")
     }
 
-    suspend fun download(update: ClientUpdate, destination: File, progress: (Long, Long) -> Unit): String {
+    override suspend fun download(update: ClientUpdate, destination: File, progress: (Long, Long) -> Unit): String {
         val sums = update.sums?.let { asset ->
             response(asset.url) { boundedText(it, 262144) }
         }
@@ -107,7 +107,7 @@ class GithubUpdateSource(
                     if (!current.startsWith("https://api.github.com/repos/${UpdatePolicy.REPOSITORY}/releases?")) {
                         throw IOException("更新接口地址不可信。")
                     }
-                } else if (!UpdatePolicy.redirectUrl(current)) throw IOException("下载地址不是可信的 GitHub HTTPS 附件。")
+                } else if (!UpdatePolicy.downloadUrl(current)) throw IOException("下载地址不是可信的更新附件。")
                 val request = Request.Builder().url(current)
                     .header("User-Agent", "MoonTVPlus-Android-Updater")
                     .header("Accept", if (api) "application/vnd.github+json" else "application/octet-stream")
@@ -121,15 +121,15 @@ class GithubUpdateSource(
                     try {
                         call.execute().use { result ->
                             if (result.code in listOf(301, 302, 303, 307, 308)) {
-                                if (api) throw IOException("GitHub 更新接口异常，请稍后重试。")
+                                if (api) throw IOException("更新服务接口异常，请稍后重试。")
                                 val location = result.header("Location") ?: throw IOException("下载重定向缺少地址。")
                                 return@coroutineScope Exchange.Redirect(result.request.url.resolve(location)?.toString()
                                     ?: throw IOException("下载重定向地址无效。"))
                             }
                             if (result.code == 403 || result.code == 429) {
-                                throw IOException("GitHub 暂时限制了访问频率，请稍后再检查更新。")
+                                throw IOException("更新服务暂时限制了访问频率，请稍后再检查更新。")
                             }
-                            if (!result.isSuccessful) throw IOException("GitHub 请求失败（HTTP ${result.code}），请稍后重试。")
+                            if (!result.isSuccessful) throw IOException("更新服务器请求失败（HTTP ${result.code}），请稍后重试。")
                             Exchange.Done(block(result))
                         }
                     } finally {

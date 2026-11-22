@@ -415,7 +415,7 @@ private fun AboutDialog(updateState: com.moontvplus.phone.update.UpdateUiState, 
             Column {
                 Text("安卓客户端 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）")
                 Text(
-                    "从 GitHub 获取安卓正式版本。下载完成后，由系统确认安装。",
+                    "从官方更新源获取安卓正式版本；国内网络优先走 MoonTVPlus 站点，下载完成后由系统确认安装。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

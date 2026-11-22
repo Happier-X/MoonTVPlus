@@ -2,6 +2,7 @@ package com.moontvplus.phone.update
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.io.File
 import java.io.IOException
 import java.net.URI
 
@@ -40,8 +41,30 @@ data class GithubRelease(
 @Serializable
 data class ClientUpdate(val version: String, val notes: String, val apk: ReleaseAsset, val sums: ReleaseAsset? = null)
 
+/** A source of signed Android releases. Implementations must validate every URL before downloading. */
+interface UpdateSource {
+    suspend fun check(currentVersion: String): ClientUpdate?
+    suspend fun download(update: ClientUpdate, destination: File, progress: (Long, Long) -> Unit): String
+}
+
+@Serializable
+data class SiteUpdateAsset(
+    val name: String,
+    val url: String,
+    val size: Long,
+    val sha256: String? = null,
+)
+
+@Serializable
+data class SiteUpdateManifest(
+    val version: String,
+    val notes: String = "",
+    val apk: SiteUpdateAsset,
+)
+
 object UpdatePolicy {
     const val REPOSITORY = "Happier-X/MoonTVPlus"
+    const val SITE_BASE_URL = "https://tv.370125.xyz"
     private const val PREFIX = "https://github.com/$REPOSITORY/releases/download/"
     const val MAX_APK_BYTES = 512L * 1024 * 1024
 
@@ -57,6 +80,16 @@ object UpdatePolicy {
         uri.scheme == "https" && uri.port == -1 && uri.rawUserInfo == null &&
             uri.host in setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
     }.getOrDefault(false)
+
+    /** APK and manifest URLs served by the MoonTVPlus site itself, for users who cannot reach GitHub. */
+    fun siteUrl(url: String): Boolean = runCatching {
+        val uri = URI(url)
+        uri.scheme == "https" && uri.host == "tv.370125.xyz" && uri.port == -1 &&
+            uri.rawUserInfo == null && uri.fragment == null &&
+            (uri.rawPath.startsWith("/downloads/") || uri.rawPath.startsWith("/api/app/"))
+    }.getOrDefault(false)
+
+    fun downloadUrl(url: String): Boolean = releaseUrl(url) || siteUrl(url)
 
     fun select(releases: List<GithubRelease>, current: String): ClientUpdate? {
         val installed = ClientVersion.parse(current) ?: throw IOException("当前客户端版本无法识别，请前往项目发布页检查。")

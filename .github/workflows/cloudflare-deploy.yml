@@ -184,6 +184,27 @@ jobs:
           echo "Updated wrangler.toml:"
           cat wrangler.toml
 
+      - name: Stage Android update package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p public/downloads
+          TAG=$(gh release list -R Happier-X/MoonTVPlus --limit 30 --json tagName,isDraft,isPrerelease,publishedAt --jq '[.[] | select(.isDraft == false and .isPrerelease == false and (.tagName | startswith("client-v"))) ] | sort_by(.publishedAt) | last | .tagName')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "No client release found; skipping Android package staging."
+            exit 0
+          fi
+          VERSION="${TAG#client-v}"
+          APK="moontvplus-phone-${VERSION}-release-signed.apk"
+          gh release download "$TAG" -R Happier-X/MoonTVPlus --pattern "$APK" --dir public/downloads --clobber
+          mv "public/downloads/$APK" public/downloads/moontvplus-phone-latest.apk
+          SHA=$(sha256sum public/downloads/moontvplus-phone-latest.apk | cut -d' ' -f1)
+          SIZE=$(stat -c%s public/downloads/moontvplus-phone-latest.apk)
+          BODY=$(gh release view "$TAG" -R Happier-X/MoonTVPlus --json body --jq .body)
+          jq -n --arg version "$VERSION" --arg notes "$BODY" --arg url "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk" --arg sha "$SHA" --argjson size "$SIZE" '{version:$version,notes:$notes,apk:{name:"moontvplus-phone-latest.apk",url:$url,size:$size,sha256:$sha}}' > public/downloads/latest.json
+          cat public/downloads/latest.json
+
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
 

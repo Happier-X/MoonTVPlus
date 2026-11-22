@@ -37,7 +37,7 @@ private data class ReadyDownload(val update: ClientUpdate, val hash: String)
 /** Application-owned work survives activity recreation; partial downloads are discarded after process death. */
 class AppUpdater(
     private val context: Context,
-    private val source: GithubUpdateSource = GithubUpdateSource(),
+    private val source: UpdateSource = CompositeUpdateSource(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     private val currentVersion: String = BuildConfig.VERSION_NAME,
 ) {
@@ -197,9 +197,9 @@ class AppUpdater(
 
     private fun failure(error: Exception, visible: Boolean = state.value.visible) {
         val message = when {
-            error is java.net.UnknownHostException || error is java.net.ConnectException -> "无法连接 GitHub，请检查网络后重试。"
+            error is java.net.UnknownHostException || error is java.net.ConnectException -> "无法连接更新服务器，请检查网络后重试。"
             error is java.net.SocketTimeoutException -> "连接或下载超时，请检查网络后重试。"
-            error is javax.net.ssl.SSLException -> "GitHub 安全连接失败，请检查网络与设备时间后重试。"
+            error is javax.net.ssl.SSLException -> "更新服务器安全连接失败，请检查网络与设备时间后重试。"
             error is IOException -> error.message?.takeIf { it.any { char -> char in '一'..'鿿' } }
                 ?: "网络连接或文件读写失败，请检查网络与可用空间后重试。"
             else -> "更新检查或文件处理失败，请稍后重试。"
