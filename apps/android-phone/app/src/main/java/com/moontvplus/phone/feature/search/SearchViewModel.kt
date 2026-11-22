@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 class SearchViewModel(
     private val repository: SearchRepository,
     private val imageUrls: ImageUrlBuilder,
+    private val settingsStore: com.moontvplus.phone.core.storage.SettingsStore,
 ) : ViewModel() {
 
     data class UiState(
@@ -32,6 +33,8 @@ class SearchViewModel(
         val scanned: Int = 0,
         val totalSources: Int = 0,
         val results: List<AggregatedResult> = emptyList(),
+        /** 未聚合的逐源结果，网页版 viewMode=all 用。 */
+        val flatResults: List<AggregatedResult> = emptyList(),
         val error: String? = null,
         val history: List<String> = emptyList(),
         /** 影视搜索 / 动漫磁力 */
@@ -45,6 +48,10 @@ class SearchViewModel(
         val acgLoading: Boolean = false,
         val acgLoadingMore: Boolean = false,
         val acgError: String? = null,
+        /** card / list */
+        val displayMode: String = "card",
+        /** 聚合同一部片子的多个源 */
+        val aggregate: Boolean = true,
     ) {
         val progress: Float
             get() = if (totalSources <= 0) 0f else (scanned.toFloat() / totalSources).coerceIn(0f, 1f)
@@ -80,7 +87,8 @@ class SearchViewModel(
                 val source = filters[KEY_SOURCE] ?: "all"
                 val title = filters[KEY_TITLE] ?: "all"
                 val year = filters[KEY_YEAR] ?: "all"
-                val filtered = results.filter { item ->
+                val sourceList = if (aggregate) results else flatResults
+                val filtered = sourceList.filter { item ->
                     val itemYear = item.year.ifBlank { "unknown" }
                     (source == "all" || item.sources.any { it.source == source }) &&
                         (title == "all" || item.title == title) &&
@@ -103,6 +111,26 @@ class SearchViewModel(
 
     init {
         loadHistory()
+        viewModelScope.launch {
+            val stored = settingsStore.snapshot()
+            _state.update {
+                it.copy(
+                    displayMode = stored.searchDisplayMode,
+                    aggregate = stored.searchAggregate,
+                )
+            }
+        }
+    }
+
+    fun setDisplayMode(mode: String) {
+        if (mode != "card" && mode != "list") return
+        _state.update { it.copy(displayMode = mode) }
+        viewModelScope.launch { settingsStore.setSearchDisplayMode(mode) }
+    }
+
+    fun setAggregate(enabled: Boolean) {
+        _state.update { it.copy(aggregate = enabled) }
+        viewModelScope.launch { settingsStore.setSearchAggregate(enabled) }
     }
 
     fun onQueryChange(value: String) {
@@ -145,7 +173,12 @@ class SearchViewModel(
             var failedMessage: String? = null
 
             fun publish() {
-                _state.update { it.copy(results = decorate(SearchAggregator.aggregate(collected))) }
+                _state.update {
+                    it.copy(
+                        results = decorate(SearchAggregator.aggregate(collected)),
+                        flatResults = flatten(collected),
+                    )
+                }
             }
 
             val streamJob = launch {
@@ -206,6 +239,7 @@ class SearchViewModel(
                     it.copy(
                         running = false,
                         results = decorate(SearchAggregator.aggregate(collected)),
+                        flatResults = flatten(collected),
                         error = if (list.isEmpty()) reason ?: "没有找到相关结果" else null,
                         totalSources = 0,
                         scanned = 0,
@@ -321,6 +355,19 @@ class SearchViewModel(
     /** 海报统一换成站点图片代理地址。 */
     private fun decorate(items: List<AggregatedResult>): List<AggregatedResult> =
         items.map { item -> item.copy(poster = imageUrls.proxied(item.poster)) }
+
+    /** 逐源结果：与网页版「不聚合」视图一致，一条源一张卡。 */
+    private fun flatten(items: List<SearchResult>): List<AggregatedResult> =
+        items.filter { it.title.isNotBlank() }.map { result ->
+            AggregatedResult(
+                key = "video:" + result.source + "+" + result.id,
+                title = result.title,
+                poster = imageUrls.proxied(result.poster),
+                year = result.year,
+                typeLabel = SearchAggregator.typeLabelOf(result),
+                sources = listOf(result),
+            )
+        }
 
     private companion object {
         const val START_TIMEOUT_MS = 8_000L

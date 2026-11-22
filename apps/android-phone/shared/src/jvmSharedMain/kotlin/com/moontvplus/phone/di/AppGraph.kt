@@ -11,6 +11,8 @@ import com.moontvplus.phone.core.network.TokenAuthenticator
 import com.moontvplus.phone.core.network.UserAgentInterceptor
 import com.moontvplus.phone.core.platform.Platform
 import com.moontvplus.phone.core.platform.PlatformServices
+import com.moontvplus.phone.core.storage.CredentialVault
+import com.moontvplus.phone.core.storage.InMemoryCredentialVault
 import com.moontvplus.phone.core.storage.SessionStore
 import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.storage.TextFileStore
@@ -39,6 +41,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 class AppGraph(
     val platformServices: PlatformServices = PlatformServices(),
     val json: Json = defaultJson(),
+    /** 「记住密码」的存储：Android 注入 Keystore 实现，桌面端默认只在内存里。 */
+    val credentialVault: CredentialVault = InMemoryCredentialVault(),
 ) {
 
     val textStore = TextFileStore()

@@ -3,6 +3,7 @@ package com.moontvplus.phone.feature
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moontvplus.phone.core.storage.AppSettings
+import com.moontvplus.phone.core.storage.CredentialVault
 import com.moontvplus.phone.core.storage.SettingsStore
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.network.ServerAddress
@@ -40,6 +41,7 @@ class AppViewModel(
     private val authRepository: AuthRepository,
     private val serverRepository: ServerRepository,
     private val legacyMigration: LegacySessionBridge,
+    private val credentialVault: CredentialVault,
     /** 启动时把设置从磁盘读进内存，只做一次 */
     private val initialize: suspend () -> Unit = {},
 ) : ViewModel() {
@@ -100,6 +102,27 @@ class AppViewModel(
             sessions.load()
             if (sessions.session.value == null) {
                 legacyMigration.restoreSessionOnce(address, settingsStore)?.let { sessions.save(it) }
+            }
+
+            // 旧版本把账号密码写进 settings.json：开机时搬进 Keystore 并清掉明文。
+            val legacyUsername = snapshot.savedUsername
+            val legacyPassword = snapshot.savedPassword
+            if (!legacyUsername.isNullOrBlank() && !legacyPassword.isNullOrBlank()) {
+                credentialVault.save(legacyUsername, legacyPassword)
+                settingsStore.clearCredentials()
+                snapshot = settingsStore.snapshot()
+            }
+            // 会话文件里不存凭据；冷启动时从 Keystore 取回，供 token 过期后静默重登。
+            val remembered = credentialVault.load()
+            sessions.session.value?.let { current ->
+                if (remembered != null) {
+                    sessions.save(
+                        current.copy(
+                            savedUsername = remembered.username,
+                            savedPassword = remembered.password,
+                        )
+                    )
+                }
             }
 
             val session = sessions.session.value
@@ -180,23 +203,31 @@ class AppViewModel(
 
     /** 用户主动退出登录后，不再保留账号密码预填。 */
     fun forgetCredentials() {
-        viewModelScope.launch { settingsStore.clearCredentials() }
+        viewModelScope.launch {
+            settingsStore.clearCredentials()
+            credentialVault.clear()
+        }
     }
 
     /** 用户手动更换站点时清掉旧站点的凭据，避免泄露到别的地址。 */
     fun changeServerAndForgetCredentials() {
-        viewModelScope.launch { settingsStore.clearCredentials() }
+        viewModelScope.launch {
+            settingsStore.clearCredentials()
+            credentialVault.clear()
+        }
         changeServer()
     }
 
     /** 换站点：保存新地址时再清会话，避免把 token 发到别的服务器。 */
     fun changeServer() = openServerEditor()
 
-    /** 顶栏的主题按钮：在深色与浅色之间切换并记住，默认仍是跟随系统。 */
-    fun toggleTheme() {
+    /**
+     * 顶栏的主题按钮：按当前实际显示效果取反并记住。
+     * 默认跟随系统时也要一次点亮/切暗，不能先把 system 改成 dark 却看不出变化。
+     */
+    fun toggleTheme(currentDark: Boolean) {
         viewModelScope.launch {
-            val next = if (settingsStore.snapshot().themeMode == "dark") "light" else "dark"
-            settingsStore.setThemeMode(next)
+            settingsStore.setThemeMode(if (currentDark) "light" else "dark")
         }
     }
 

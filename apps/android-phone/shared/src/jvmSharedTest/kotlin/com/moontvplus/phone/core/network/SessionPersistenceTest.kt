@@ -55,7 +55,7 @@ class SessionPersistenceTest {
         root.deleteRecursively()
     }
 
-    @Test fun credentialsAndSessionSurviveProcessRestart(): Unit = runBlocking {
+    @Test fun credentialsStayOutOfSessionFileAndVaultRestoresAutoLogin(): Unit = runBlocking {
         settings.saveServer(server.url("/").toString(), "Site", "1.9.4", "redis")
         sessions.save(
             AuthSession(
@@ -66,7 +66,6 @@ class SessionPersistenceTest {
                 savedPassword = "secret",
             )
         )
-        settings.saveCredentials("tester", "secret")
 
         // 模拟进程重启：清空内存态，只保留磁盘文件
         val fileStore = TextFileStore(root = root.absolutePath)
@@ -83,10 +82,27 @@ class SessionPersistenceTest {
         reloadedSettings.load()
         reloadedSessions.load()
 
-        assertNotNull(reloadedSessions.session.value)
+        val restarted = reloadedSessions.session.value
+        assertNotNull(restarted)
+        // session.json 不落明文凭据
+        assertNull(restarted.savedUsername)
+        assertNull(restarted.savedPassword)
+        val raw = fileStore.read("session.json").orEmpty()
+        assertFalse(raw.contains("secret"))
+        assertFalse(raw.contains("savedPassword"))
+
+        // 启动时由 Keystore 侧的 CredentialVault 把凭据注回内存会话
+        val vault = com.moontvplus.phone.core.storage.InMemoryCredentialVault()
+        vault.save("tester", "secret")
+        val remembered = vault.load()!!
+        reloadedSessions.save(
+            restarted.copy(
+                savedUsername = remembered.username,
+                savedPassword = remembered.password,
+            )
+        )
         assertTrue(reloadedSessions.session.value!!.canAutoLogin)
         assertTrue(reloadedSettings.snapshot().serverAddress!!.contains(server.hostName))
-        assertTrue(reloadedSettings.snapshot().savedPassword == "secret")
     }
 
     @Test fun unknownStorageTypeStillRefreshesToken(): Unit = runBlocking {

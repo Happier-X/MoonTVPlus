@@ -9,11 +9,12 @@ enum class MainTab(val label: String) {
     TV("剧集"),
     ANIME("动漫"),
     SHOW("综艺"),
-    LIVE("直播"),
+    LIVE("电视直播"),
+    WEB_LIVE("网络直播"),
     ;
 
     /** 非首页的标签都走豆瓣推荐列表。 */
-    val isBrowse: Boolean get() = this != HOME && this != LIVE
+    val isBrowse: Boolean get() = this != HOME && this != LIVE && this != WEB_LIVE
 
     /** 对应网页版 `/douban?type=` 的取值。 */
     val routeType: String

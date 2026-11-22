@@ -12,6 +12,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.moontvplus.phone.core.storage.PlayerPreferences
 import com.moontvplus.phone.core.storage.SubtitleAppearance
@@ -513,38 +520,57 @@ private fun CastPanel(controller: PlayerUiController) {
 private fun SettingsPanel(controller: PlayerUiController, onOpenPanel: (PlayerPanel) -> Unit) {
     val state by controller.state.collectAsState()
     val preferences by controller.preferences.collectAsState()
-    LazyColumn(Modifier.heightIn(max = 440.dp)) {
-        item { SwitchRow("自动连播下一集", preferences.autoNext, { controller.persistAutoNext(it) }) }
-        item { SwitchRow("自动跳过片头", state.autoSkipIntro, { controller.setAutoSkipIntro(it) }, "需要本集已记忆片头时间点") }
-        item { SwitchRow("自动跳过片尾", state.autoSkipOutro, { controller.setAutoSkipOutro(it) }, "到达片尾起点后进入下一集") }
-        item { PlayerSmallLabel("本集片头片尾（只影响这一集，按当前位置记忆）") }
+    LazyColumn(Modifier.heightIn(max = 300.dp)) {
+        item { PlayerSmallLabel("播放") }
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { controller.markIntroHere() }, modifier = Modifier.weight(1f)) { Text("标记片头结束", color = Color.White) }
-                OutlinedButton(onClick = { controller.markOutroHere() }, modifier = Modifier.weight(1f)) { Text("标记片尾开始", color = Color.White) }
+            PlayerMenuRow(Icons.Filled.Speed, "播放倍速", formatPlayerSpeed(preferences.speed)) {
+                onOpenPanel(PlayerPanel.SPEED)
             }
         }
-        item {
-            TextButton(onClick = { controller.clearSkipMarks() }, modifier = Modifier.padding(horizontal = 12.dp)) {
-                Text("清除本集记录", color = Color.White)
+        if (controller.capabilities.trackSelection) {
+            item {
+                PlayerMenuRow(Icons.Filled.HighQuality, "清晰度与音轨") {
+                    onOpenPanel(PlayerPanel.TRACKS)
+                }
             }
         }
-        item { PlayerSmallLabel("更多设置") }
-        item {
-            TextButton(onClick = { onOpenPanel(PlayerPanel.SUBTITLES) }, modifier = Modifier.fillMaxWidth()) {
-                Text("字幕外观与延迟", color = Color.White, modifier = Modifier.fillMaxWidth())
+        if (controller.capabilities.subtitles || controller.capabilities.externalSubtitles) {
+            item {
+                PlayerMenuRow(Icons.Filled.Subtitles, "字幕与外观") {
+                    onOpenPanel(PlayerPanel.SUBTITLES)
+                }
             }
         }
-        item {
-            TextButton(onClick = { onOpenPanel(PlayerPanel.DANMAKU) }, modifier = Modifier.fillMaxWidth()) {
-                Text("弹幕、屏蔽词与凭据", color = Color.White, modifier = Modifier.fillMaxWidth())
+        if (controller.capabilities.danmaku) {
+            item {
+                PlayerMenuRow(Icons.Filled.ChatBubbleOutline, "弹幕与屏蔽词") {
+                    onOpenPanel(PlayerPanel.DANMAKU)
+                }
             }
         }
         if (controller.capabilities.casting) {
             item {
-                TextButton(onClick = { onOpenPanel(PlayerPanel.CAST) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("投屏", color = Color.White, modifier = Modifier.fillMaxWidth())
+                PlayerMenuRow(Icons.Filled.Cast, "投屏") {
+                    onOpenPanel(PlayerPanel.CAST)
                 }
+            }
+        }
+
+        item { PlayerSmallLabel("播放行为") }
+        item { SwitchRow("自动连播下一集", preferences.autoNext, { controller.persistAutoNext(it) }) }
+        item { SwitchRow("自动跳过片头", state.autoSkipIntro, { controller.setAutoSkipIntro(it) }, "需要本集已记忆片头时间点") }
+        item { SwitchRow("自动跳过片尾", state.autoSkipOutro, { controller.setAutoSkipOutro(it) }, "到达片尾起点后进入下一集") }
+
+        item { PlayerSmallLabel("本集片头片尾（按当前位置记忆）") }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { controller.markIntroHere() }, modifier = Modifier.weight(1f)) { Text("标记片头结束", color = Color.White, fontSize = 12.sp) }
+                OutlinedButton(onClick = { controller.markOutroHere() }, modifier = Modifier.weight(1f)) { Text("标记片尾开始", color = Color.White, fontSize = 12.sp) }
+            }
+        }
+        item {
+            TextButton(onClick = { controller.clearSkipMarks() }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text("清除本集记录", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             }
         }
         if (!controller.capabilities.inlinePlayback) {
@@ -552,7 +578,8 @@ private fun SettingsPanel(controller: PlayerUiController, onOpenPanel: (PlayerPa
                 Text(
                     "桌面端没有内嵌播放器，画面、进度条、字幕与弹幕均不可用；投屏入口仍然可用。",
                     color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(12.dp),
+                    fontSize = 12.sp,
                 )
             }
         }

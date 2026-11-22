@@ -110,6 +110,17 @@ class PlayerSessionTest {
     )
 
     @Test
+    fun loadByTitleSearchesAndStartsBestSource() = runTest(dispatcher) {
+        player.available += "preferred"
+        val session = session()
+        session.loadByTitle("Fixture", 1, 0)
+        settle { !session.state.value.loading }
+        assertEquals(null, session.state.value.error)
+        assertEquals("preferred", session.state.value.source?.source)
+        assertTrue(player.requests.isNotEmpty())
+    }
+
+    @Test
     fun endOfEpisodeStartsAutoNextCountdownThenAdvances() = runTest(dispatcher) {
         player.available += "preferred"
         val session = session()

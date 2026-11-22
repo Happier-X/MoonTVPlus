@@ -3,6 +3,8 @@ package com.moontvplus.phone.feature.search
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,9 +34,15 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -62,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.model.AcgItem
+import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.model.AcgSource
 import com.moontvplus.phone.core.ui.PosterImage
 import com.moontvplus.phone.di.appViewModel
@@ -79,7 +89,7 @@ fun SearchScreen(
     siteName: String = "MoonTVPlus",
     onToggleTheme: (() -> Unit)? = null,
     viewModel: SearchViewModel = appViewModel {
-        SearchViewModel(it.graph.searchRepository, it.graph.imageUrlBuilder)
+        SearchViewModel(it.graph.searchRepository, it.graph.imageUrlBuilder, it.graph.settingsStore)
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -248,7 +258,15 @@ fun SearchScreen(
                                 values = state.filters,
                                 onChange = viewModel::setFilter,
                                 modifier = Modifier.padding(horizontal = 12.dp),
-                                trailing = { YearOrderButton(state.yearOrder, viewModel::cycleYearOrder) },
+                                trailing = {
+                                    YearOrderButton(state.yearOrder, viewModel::cycleYearOrder)
+                                    AdvancedMenu(
+                                        aggregate = state.aggregate,
+                                        displayMode = state.displayMode,
+                                        onAggregate = viewModel::setAggregate,
+                                        onDisplayMode = viewModel::setDisplayMode,
+                                    )
+                                },
                             )
                         }
                         if (state.visibleResults.isEmpty()) {
@@ -258,6 +276,19 @@ fun SearchScreen(
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        } else if (state.displayMode == "list") {
+                            LazyColumn(
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(state.visibleResults, key = { it.key }) { item ->
+                                    ResultListRow(item = item, onClick = {
+                                        val best = item.primary
+                                        onPlay(best.source, best.id, item.title.ifBlank { best.title })
+                                    })
+                                }
                             }
                         } else {
                             LazyVerticalGrid(
@@ -552,19 +583,6 @@ private fun ResultCard(item: AggregatedResult, onClick: () -> Unit) {
                         .padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
-            if (item.sourceCount > 1) {
-                Text(
-                    text = "${item.sourceCount} 个源",
-                    fontSize = 11.sp,
-                    color = androidx.compose.ui.graphics.Color.White,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(WebColors.Accent)
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
-                )
-            }
         }
         Spacer(Modifier.height(6.dp))
         Text(
@@ -589,6 +607,219 @@ private fun ResultCard(item: AggregatedResult, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        SourceTags(item.sources, compact = true)
+    }
+}
+
+/** 网页播放源的胶囊标签：最多 3 个，其余收进「+N」，点标签不会触发播放。 */
+@Composable
+private fun SourceTags(sources: List<SearchResult>, compact: Boolean) {
+    val names = sources.map { it.sourceName.ifBlank { it.source } }.distinct().filter { it.isNotBlank() }
+    if (names.isEmpty()) return
+    var expanded by remember(names) { mutableStateOf(false) }
+    val shown = names.take(3)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        shown.forEach { name ->
+            SourceChip(text = name, compact = compact, onClick = {})
+        }
+        if (names.size > shown.size) {
+            Box {
+                SourceChip(
+                    text = "+" + (names.size - shown.size),
+                    compact = compact,
+                    active = true,
+                    onClick = { expanded = true },
+                )
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    names.forEach { name ->
+                        DropdownMenuItem(
+                            text = { Text(name, fontSize = 13.sp, maxLines = 1) },
+                            onClick = { expanded = false },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceChip(
+    text: String,
+    compact: Boolean,
+    onClick: () -> Unit,
+    active: Boolean = false,
+) {
+    Text(
+        text = text,
+        fontSize = if (compact) 9.sp else 11.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        color = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .widthIn(max = if (compact) 58.dp else 150.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(
+                if (active) WebColors.Accent.copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
+}
+
+/** 列表视图：标题、年份、类型、集数、简介、来源标签。 */
+@Composable
+private fun ResultListRow(item: AggregatedResult, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+    ) {
+        PosterImage(
+            url = item.poster,
+            contentDescription = item.title,
+            modifier = Modifier
+                .width(64.dp)
+                .height(96.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val meta = buildList {
+                item.year.takeIf { it.isNotBlank() }?.let { add(it) }
+                item.typeLabel?.let { add(it) }
+                if (item.episodeCount > 0) add(item.episodeCount.toString() + " 集")
+            }.joinToString(" · ")
+            if (meta.isNotEmpty()) {
+                Text(
+                    text = meta,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            item.primary.desc?.takeIf { it.isNotBlank() }?.let { desc ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = desc,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            SourceTags(item.sources, compact = false)
+        }
+    }
+}
+
+/** 网页版「高级」下拉：聚合开关 + 卡片/列表。 */
+@Composable
+private fun AdvancedMenu(
+    aggregate: Boolean,
+    displayMode: String,
+    onAggregate: (Boolean) -> Unit,
+    onDisplayMode: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Text(
+            text = "高级",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(220.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("聚合", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Switch(checked = aggregate, onCheckedChange = onAggregate)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text(
+                    "显示方式",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(3.dp),
+                ) {
+                    DisplayModeButton("卡片", Icons.Filled.Menu, displayMode == "card", Modifier.weight(1f)) {
+                        onDisplayMode("card")
+                    }
+                    DisplayModeButton("列表", Icons.AutoMirrored.Filled.List, displayMode == "list", Modifier.weight(1f)) {
+                        onDisplayMode("list")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DisplayModeButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (active) MaterialTheme.colorScheme.surface else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(14.dp).height(14.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

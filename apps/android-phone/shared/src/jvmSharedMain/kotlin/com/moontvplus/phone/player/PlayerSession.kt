@@ -116,6 +116,7 @@ class PlayerSession(
     private var sourceSearch: Job? = null
     private var danmakuJob: Job? = null
     private var castSearchJob: Job? = null
+    private var titleSearchJob: Job? = null
     private var castPollJob: Job? = null
     private var autoNextJob: Job? = null
     private var bufferingJob: Job? = null
@@ -170,6 +171,51 @@ class PlayerSession(
         original = SearchResult(source = source, id = videoId, title = title)
         _state.value = PlayerScreenState(title = title, castSupported = castClient != null)
         start(original, index.coerceAtLeast(1), startPositionMs.coerceAtLeast(0L), autoSwitch = true)
+    }
+
+    /**
+     * 只有标题时直接起播（网页版 /play?title=...&prefer=true 的安卓实现）：
+     * 先用 /api/search 拿到所有源，按 matchingSources + 权重挑最佳源，再走正常起播。
+     *
+     * 没有结果时给明确错误并主动把片源列表拉出来，用户可以从「手动换源」重新挑。
+     */
+    fun loadByTitle(title: String, index: Int, positionMs: Long) {
+        if (title.isBlank() || ::original.isInitialized) return
+        original = SearchResult(title = title)
+        _state.value = PlayerScreenState(title = title, castSupported = castClient != null)
+        updateState { it.copy(loading = true, error = null, index = index.coerceAtLeast(1)) }
+        titleSearchJob = scope.launch {
+            val results = withTimeoutOrNull(15_000) {
+                apiResult {
+                    val response = api.search(title)
+                    if (!response.isSuccessful) emptyList() else response.body()?.results.orEmpty()
+                }
+            }.orEmpty()
+            val reference = SearchResult(title = title)
+            val wanted = index.coerceAtLeast(1)
+            val matched = matchingSources(reference, results)
+                .ifEmpty {
+                    // 标题带季号/后缀时严格匹配会全空：退回到按权重取同一批搜索结果
+                    results
+                        .filter { it.id.isNotBlank() && it.source.isNotBlank() }
+                        .sortedByDescending { it.weight ?: 0.0 }
+                }
+                .filter { it.episodes.size >= wanted || it.episodes.isNotEmpty() }
+            val best = matched.firstOrNull()
+            if (best == null) {
+                updateState {
+                    it.copy(
+                        loading = false,
+                        error = "没有搜到可播放的片源，可以点「手动选源」重新查找",
+                    )
+                }
+                findSources()
+                return@launch
+            }
+            original = best.copy(title = title.ifBlank { best.title })
+            identity = best
+            start(best, wanted, positionMs.coerceAtLeast(0L), autoSwitch = true)
+        }
     }
 
     /**

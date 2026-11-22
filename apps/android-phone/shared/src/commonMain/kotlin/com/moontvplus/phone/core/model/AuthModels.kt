@@ -53,6 +53,21 @@ data class AuthSession(
 }
 
 @Serializable
+data class RegisterRequest(
+    val username: String,
+    val password: String,
+    val inviteCode: String? = null,
+    val turnstileToken: String? = null,
+)
+
+@Serializable
+data class RegisterResponse(
+    val ok: Boolean? = null,
+    val message: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
 data class LoginRequest(
     val username: String? = null,
     val password: String,
@@ -93,6 +108,10 @@ data class ServerConfig(
     val TurnstileSiteKey: String? = null,
     val EnableOfflineDownload: Boolean? = null,
     val DanmakuAutoLoadDefault: Boolean? = null,
+    /** 底栏「电视直播」开关（站点存在启用的直播源）。 */
+    val LiveEnabled: Boolean? = null,
+    /** 底栏「网络直播」开关。 */
+    val WebLiveEnabled: Boolean? = null,
     @SerialName("AIEnabled") val aiEnabled: Boolean? = null,
 ) {
     val isLocalStorageMode: Boolean

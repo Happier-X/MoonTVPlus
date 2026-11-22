@@ -38,6 +38,9 @@ interface MoonApi {
     @POST("api/login")
     suspend fun login(@Body body: LoginRequest): Response<LoginResponse>
 
+    @POST("api/register")
+    suspend fun register(@Body body: com.moontvplus.phone.core.model.RegisterRequest): Response<com.moontvplus.phone.core.model.RegisterResponse>
+
     @POST("api/logout")
     suspend fun logout(): Response<Unit>
 

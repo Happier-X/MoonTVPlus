@@ -13,6 +13,13 @@ export async function GET(request: NextRequest) {
 
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
 
+  // 底栏直播入口的公开开关：只暴露布尔值，不泄露频道/密钥配置。
+  const publicConfig = await getConfig();
+  const liveEnabled = (publicConfig.LiveConfig || []).some(
+    (source) => !source.disabled
+  );
+  const webLiveEnabled = publicConfig.WebLiveEnabled ?? false;
+
   const isLiteMode = process.env.MOONTV_LITE === 'true';
 
   // Lite 镜像不暴露内置观影室能力，避免前端尝试连接本地 Socket.IO 服务
@@ -40,6 +47,8 @@ export async function GET(request: NextRequest) {
       WatchRoom: watchRoomConfig,
       EnableOfflineDownload: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',
       DanmakuAutoLoadDefault: true,
+      LiveEnabled: liveEnabled,
+      WebLiveEnabled: webLiveEnabled,
       EnableTelegramLogin: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_USERNAME && process.env.TELEGRAM_LOGIN_ENABLED !== 'false'),
       TelegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || '',
     });
@@ -70,6 +79,8 @@ export async function GET(request: NextRequest) {
     ),
     TelegramBotUsername: config.TelegramConfig?.botUsername || process.env.TELEGRAM_BOT_USERNAME || '',
     DanmakuAutoLoadDefault: config.SiteConfig.DanmakuAutoLoadDefault !== false,
+    LiveEnabled: liveEnabled,
+    WebLiveEnabled: webLiveEnabled,
     loginBackgroundImage: config.ThemeConfig?.loginBackgroundImage || '',
     registerBackgroundImage: config.ThemeConfig?.registerBackgroundImage || '',
     homeBackgroundImage: config.ThemeConfig?.homeBackgroundImage || '',

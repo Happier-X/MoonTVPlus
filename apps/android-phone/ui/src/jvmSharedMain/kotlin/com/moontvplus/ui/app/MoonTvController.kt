@@ -80,6 +80,10 @@ class MoonTvController(
 
     val siteName: String get() = settings.siteName ?: "MoonTVPlus"
 
+    /** 底栏直播入口的站点开关（服务端公开布尔值）。 */
+    val liveEnabled: Boolean get() = settings.liveEnabled
+    val webLiveEnabled: Boolean get() = settings.webLiveEnabled
+
     // ---- 启动流程 ----------------------------------------------------------
 
     fun start() {

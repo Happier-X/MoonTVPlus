@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moontvplus.phone.core.common.ApiResult
 import com.moontvplus.phone.core.common.userMessage
+import com.moontvplus.phone.core.storage.CredentialVault
 import com.moontvplus.phone.core.storage.SettingsStore
+import com.moontvplus.phone.core.network.SessionManager
 import com.moontvplus.phone.core.model.AuthSession
 import com.moontvplus.phone.core.model.QrCreateResponse
 import com.moontvplus.phone.core.network.ServerProvider
@@ -23,6 +25,8 @@ class LoginViewModel(
     private val authRepository: AuthRepository,
     private val settingsStore: SettingsStore,
     serverProvider: ServerProvider,
+    private val credentialVault: CredentialVault,
+    private val sessions: SessionManager,
 ) : ViewModel() {
 
     data class UiState(
@@ -33,6 +37,11 @@ class LoginViewModel(
         val password: String = "",
         val requireTurnstile: Boolean = false,
         val turnstileSiteKey: String? = null,
+        /** 登录页「记住密码」；勾选时凭据只进 Keystore 加密存储。 */
+        val rememberPassword: Boolean = false,
+        val enableRegistration: Boolean = false,
+        val requireRegistrationInviteCode: Boolean = false,
+        val registrationRequireTurnstile: Boolean = false,
         val turnstileToken: String? = null,
         /** 自增后重建 Turnstile WebView，等价网页端的 turnstile.reset() */
         val turnstileReset: Int = 0,
@@ -68,16 +77,27 @@ class LoginViewModel(
     init {
         viewModelScope.launch {
             val settings = settingsStore.snapshot()
+            val remembered = credentialVault.load()
             _state.value = _state.value.copy(
                 storageType = settings.storageType,
                 siteName = settings.siteName,
                 origin = serverProvider.current()?.origin,
-                username = settings.savedUsername.orEmpty(),
-                password = settings.savedPassword.orEmpty(),
+                username = remembered?.username.orEmpty(),
+                password = remembered?.password.orEmpty(),
+                rememberPassword = remembered != null,
                 requireTurnstile = settings.loginRequireTurnstile,
                 turnstileSiteKey = settings.turnstileSiteKey,
+                enableRegistration = settings.enableRegistration,
+                requireRegistrationInviteCode = settings.requireRegistrationInviteCode,
+                registrationRequireTurnstile = settings.registrationRequireTurnstile,
             )
         }
+    }
+
+    /** 取消勾选立即清除已保存的密码；重新勾选等下次登录成功再写入。 */
+    fun setRememberPassword(enabled: Boolean) {
+        _state.value = _state.value.copy(rememberPassword = enabled)
+        if (!enabled) viewModelScope.launch { credentialVault.clear() }
     }
 
     fun onUsernameChange(value: String) {
@@ -224,6 +244,17 @@ class LoginViewModel(
             when (result) {
                 is ApiResult.Ok -> {
                     _state.value = _state.value.copy(submitting = false, error = null)
+                    if (current.rememberPassword) {
+                        credentialVault.save(current.username, current.password)
+                        sessions.save(
+                            result.value.copy(
+                                savedUsername = current.username.trim().takeIf { it.isNotEmpty() },
+                                savedPassword = current.password,
+                            )
+                        )
+                    } else {
+                        credentialVault.clear()
+                    }
                     onSuccess(result.value)
                 }
                 is ApiResult.Err -> {

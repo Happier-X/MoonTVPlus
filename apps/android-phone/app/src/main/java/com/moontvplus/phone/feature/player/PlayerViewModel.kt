@@ -72,6 +72,10 @@ class PlayerViewModel private constructor(
     /** Debug 构建用来直接验证一个流地址。 */
     fun loadDirect(url: String, title: String) = session.loadDirect(url, title)
 
+    /** 只有标题（豆瓣/推荐卡片）时：搜索并优选最佳片源后起播。 */
+    fun loadByTitle(title: String, index: Int, startPositionMs: Long) =
+        session.loadByTitle(title, index, startPositionMs)
+
     /** 手动换源（旧入口）。 */
     fun chooseSource(source: SearchResult) = session.chooseSource(source)
 

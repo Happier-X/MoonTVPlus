@@ -23,7 +23,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.List
@@ -68,7 +72,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.moontvplus.phone.core.storage.PlayerPreferences
 import com.moontvplus.phone.playback.PlayerCapabilities
 import com.moontvplus.phone.playback.GestureContext
@@ -639,24 +645,25 @@ fun PlayerControls(
                 onBack,
                 modifier = Modifier.testTag(PlayerControlTags.BACK),
             )
-            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+            Row(
+                modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 网页版标题栏是「片名 > 第N集」的面包屑，不是两行标题
                 Text(
-                    displayTitle,
+                    text = displayTitle,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
-                    buildList {
-                        add("第 $index 集")
-                        if (episodeTitle.isNotBlank()) add(episodeTitle)
-                        if (sourceLabel.isNotBlank()) add(sourceLabel)
-                    }.joinToString(" · "),
+                    text = "  >  第" + index + "集",
                     color = Color.White.copy(alpha = 0.72f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 13.sp,
                 )
             }
             if (capabilities.pictureInPicture) {
@@ -721,10 +728,68 @@ fun PlayerControls(
                     )
                 }
             }
+            // 网站版播放页把「选集/换源/弹幕」放在播放器下方的操作行里；
+            // 全屏浮层里用同一行横滑胶囊，控制条只留播放/下一集/设置/全屏。
             Row(
-                modifier = Modifier.fillMaxWidth().height(44.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (capabilities.speedControl) {
+                    PlayerBarTextButton(
+                        text = formatPlayerSpeed(speed),
+                        onClick = onCycleSpeed,
+                        modifier = Modifier.testTag(PlayerControlTags.SPEED),
+                    )
+                }
+                PlayerBarTextButton(
+                    text = "选集",
+                    onClick = { onOpenPanel(PlayerPanel.EPISODES) },
+                    enabled = hasEpisodes,
+                    modifier = Modifier.testTag(PlayerControlTags.EPISODES),
+                )
+                PlayerBarTextButton(
+                    text = "换源",
+                    onClick = { onOpenPanel(PlayerPanel.SOURCES) },
+                    modifier = Modifier.testTag(PlayerControlTags.SOURCES),
+                )
+                if (capabilities.trackSelection) {
+                    PlayerBarTextButton(
+                        text = "清晰度",
+                        onClick = { onOpenPanel(PlayerPanel.TRACKS) },
+                        modifier = Modifier.testTag(PlayerControlTags.TRACKS),
+                    )
+                }
+                if (capabilities.subtitles || capabilities.externalSubtitles) {
+                    PlayerIconButton(
+                        Icons.Filled.Subtitles,
+                        "字幕设置",
+                        onClick = { onOpenPanel(PlayerPanel.SUBTITLES) },
+                        modifier = Modifier.testTag(PlayerControlTags.SUBTITLES),
+                    )
+                }
+                if (capabilities.danmaku) {
+                    PlayerBarTextButton(
+                        text = if (danmakuEnabled) "弹幕开" else "弹幕关",
+                        onClick = onToggleDanmaku,
+                        modifier = Modifier.testTag(PlayerControlTags.DANMAKU),
+                    )
+                }
+                if (capabilities.casting) {
+                    PlayerIconButton(
+                        Icons.Filled.Cast,
+                        "投屏",
+                        onClick = { onOpenPanel(PlayerPanel.CAST) },
+                        modifier = Modifier.testTag(PlayerControlTags.CAST),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 PlayerIconButton(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -732,69 +797,22 @@ fun PlayerControls(
                     onTogglePlay,
                     modifier = Modifier.testTag(PlayerControlTags.PLAY_PAUSE),
                 )
-                // 小屏（320dp）放不下所有入口：中间这一段横向滚动，播放键/设置/全屏固定可见
-                Row(
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (capabilities.speedControl) {
-                        PlayerBarTextButton(
-                            text = formatPlayerSpeed(speed),
-                            onClick = onCycleSpeed,
-                            modifier = Modifier.testTag(PlayerControlTags.SPEED),
-                        )
-                    }
-                    PlayerBarTextButton(
-                        text = "选集",
-                        onClick = { onOpenPanel(PlayerPanel.EPISODES) },
-                        enabled = hasEpisodes,
-                        modifier = Modifier.testTag(PlayerControlTags.EPISODES),
+                if (hasNext) {
+                    PlayerIconButton(
+                        Icons.Filled.SkipNext,
+                        "下一集",
+                        onClick = onPlayNext,
+                        modifier = Modifier.testTag(PlayerControlTags.NEXT),
                     )
-                    PlayerBarTextButton(
-                        text = "换源",
-                        onClick = { onOpenPanel(PlayerPanel.SOURCES) },
-                        modifier = Modifier.testTag(PlayerControlTags.SOURCES),
-                    )
-                    if (capabilities.trackSelection) {
-                        PlayerBarTextButton(
-                            text = "清晰度",
-                            onClick = { onOpenPanel(PlayerPanel.TRACKS) },
-                            modifier = Modifier.testTag(PlayerControlTags.TRACKS),
-                        )
-                    }
-                    if (capabilities.subtitles || capabilities.externalSubtitles) {
-                        PlayerIconButton(
-                            Icons.Filled.Subtitles,
-                            "字幕设置",
-                            onClick = { onOpenPanel(PlayerPanel.SUBTITLES) },
-                            modifier = Modifier.testTag(PlayerControlTags.SUBTITLES),
-                        )
-                    }
-                    if (capabilities.danmaku) {
-                        PlayerBarTextButton(
-                            text = if (danmakuEnabled) "弹幕开" else "弹幕关",
-                            onClick = onToggleDanmaku,
-                            modifier = Modifier.testTag(PlayerControlTags.DANMAKU),
-                        )
-                    }
-                    if (capabilities.casting) {
-                        PlayerIconButton(
-                            Icons.Filled.Cast,
-                            "投屏",
-                            onClick = { onOpenPanel(PlayerPanel.CAST) },
-                            modifier = Modifier.testTag(PlayerControlTags.CAST),
-                        )
-                    }
-                    if (hasNext) {
-                        PlayerIconButton(
-                            Icons.Filled.SkipNext,
-                            "下一集",
-                            onClick = onPlayNext,
-                            modifier = Modifier.testTag(PlayerControlTags.NEXT),
-                        )
-                    }
                 }
+                Text(
+                    text = formatPlayerTime(shown.toLong()) + " / " + formatPlayerTime(durationMs),
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+                Spacer(Modifier.weight(1f))
                 PlayerIconButton(
                     Icons.Filled.Settings,
                     "播放设置",

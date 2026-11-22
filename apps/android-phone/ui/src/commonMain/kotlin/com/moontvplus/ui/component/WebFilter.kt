@@ -5,9 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,6 +34,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,12 +63,12 @@ fun FilterBar(
     var openKey by remember(categories) { mutableStateOf<String?>(null) }
     val openCategory = categories.firstOrNull { it.key == openKey }
 
-    Column(modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 0.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -80,15 +88,27 @@ fun FilterBar(
             }
         }
 
+        // 网页版的筛选是浮层下拉：展开时盖在列表上，不把内容推下去。
         if (openCategory != null) {
-            FilterPanel(
-                category = openCategory,
-                selected = values[openCategory.key] ?: openCategory.defaultValue,
-                onPick = { option ->
-                    onChange(openCategory.key, option.value)
-                    openKey = null
-                },
-            )
+            val density = LocalDensity.current
+            val offsetX = with(density) { 12.dp.roundToPx() }
+            val offsetY = with(density) { 40.dp.roundToPx() }
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(offsetX, offsetY),
+                onDismissRequest = { openKey = null },
+                properties = PopupProperties(focusable = true),
+            ) {
+                FilterPanel(
+                    category = openCategory,
+                    selected = values[openCategory.key] ?: openCategory.defaultValue,
+                    width = if (maxWidth > 324.dp) 300.dp else maxWidth - 24.dp,
+                    onPick = { option ->
+                        onChange(openCategory.key, option.value)
+                        openKey = null
+                    },
+                )
+            }
         }
     }
 }
@@ -118,7 +138,7 @@ private fun FilterPill(
     ) {
         Text(
             text = text,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             color = color,
             maxLines = 1,
@@ -140,12 +160,12 @@ private fun FilterPill(
 private fun FilterPanel(
     category: FilterCategory,
     selected: String,
+    width: androidx.compose.ui.unit.Dp,
     onPick: (FilterOption) -> Unit,
 ) {
     Surface(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .width(width),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -167,14 +187,14 @@ private fun FilterPanel(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(
                                     if (active) WebColors.Accent.copy(alpha = 0.14f)
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    else Color.Transparent
                                 )
                                 .clickable { onPick(option) }
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
                             Text(
                                 text = option.label,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 color = if (active) WebColors.AccentHover else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -188,7 +208,10 @@ private fun FilterPanel(
     }
 }
 
-/** 分类页顶部：「筛选」小标题 + 胶囊条，和网页版外层卡片一致。 */
+/**
+ * 分类页顶部：网页版的两段结构 —— 「分类」一行 + 「筛选」一行（地区/年代/平台/排序）。
+ * 两个胶囊条都带浮层下拉，展开不会改变列表位置。
+ */
 @Composable
 fun FilterSection(
     categories: List<FilterCategory>,
@@ -206,10 +229,34 @@ fun FilterSection(
                 MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
             ),
         ) {
-            Column(Modifier.padding(vertical = 8.dp)) {
-                FilterBar(categories = categories, values = values, onChange = onChange)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+                val primary = categories.take(1)
+                val rest = categories.drop(1)
+                FilterRow(label = "分类", categories = primary, values = values, onChange = onChange)
+                if (rest.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    FilterRow(label = "筛选", categories = rest, values = values, onChange = onChange)
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun FilterRow(
+    label: String,
+    categories: List<FilterCategory>,
+    values: Map<String, String>,
+    onChange: (key: String, value: String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        FilterBar(categories = categories, values = values, onChange = onChange)
     }
 }
 

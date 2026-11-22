@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -20,11 +22,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,11 +57,23 @@ fun LoginScreen(
     reason: String?,
     onLoggedIn: (AuthSession) -> Unit,
     onChangeServer: () -> Unit,
+    onOpenRegister: () -> Unit = {},
+    initialUsername: String? = null,
     viewModel: LoginViewModel = appViewModel {
-        LoginViewModel(it.graph.authRepository, it.graph.settingsStore, it.graph.serverProvider)
+        LoginViewModel(
+            it.graph.authRepository,
+            it.graph.settingsStore,
+            it.graph.serverProvider,
+            it.graph.credentialVault,
+            it.graph.sessionManager,
+        )
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(initialUsername) {
+        if (!initialUsername.isNullOrBlank()) viewModel.onUsernameChange(initialUsername)
+    }
 
     // 输入错误优先，其次是外部原因（如会话过期）
     val hint = state.error ?: reason
@@ -156,7 +172,29 @@ fun LoginScreen(
                         WebHint(hint, isError = true)
                     }
 
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = state.rememberPassword,
+                            onCheckedChange = viewModel::setRememberPassword,
+                            enabled = !state.submitting,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "记住密码",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                viewModel.setRememberPassword(!state.rememberPassword)
+                            },
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
                     WebPrimaryButton(
                         text = if (state.submitting) "正在登录…" else "登录",
                         onClick = { viewModel.login(onLoggedIn) },
@@ -164,6 +202,20 @@ fun LoginScreen(
                         loading = state.submitting,
                     )
 
+                    }
+
+                    if (state.enableRegistration && state.askUsername) {
+                        TextButton(
+                            onClick = onOpenRegister,
+                            enabled = !state.submitting,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = "还没有账号？立即注册",
+                                fontSize = 13.sp,
+                                color = WebColors.Brand,
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(8.dp))

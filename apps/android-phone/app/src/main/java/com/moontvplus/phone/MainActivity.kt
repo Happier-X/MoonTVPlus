@@ -70,6 +70,7 @@ import com.moontvplus.phone.feature.AppUiState
 import com.moontvplus.phone.feature.AppViewModel
 import com.moontvplus.phone.feature.detail.DetailScreen
 import com.moontvplus.phone.feature.login.LoginScreen
+import com.moontvplus.phone.feature.login.RegisterScreen
 import com.moontvplus.phone.feature.player.PlayerActivity
 import com.moontvplus.phone.feature.search.SearchScreen
 import com.moontvplus.phone.feature.server.ServerSetupScreen
@@ -134,6 +135,7 @@ private fun MoonTvApp(
             authRepository = it.graph.authRepository,
             serverRepository = it.graph.serverRepository,
             legacyMigration = it.graph.platformServices.legacy,
+            credentialVault = it.graph.credentialVault,
             initialize = { it.graph.initialize() },
         )
     },
@@ -145,6 +147,8 @@ private fun MoonTvApp(
     var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var showRegister by remember { mutableStateOf(false) }
+    var registeredUsername by remember { mutableStateOf<String?>(null) }
     val updateState by (context.applicationContext as MoonTvApplication).updater.state.collectAsStateWithLifecycle()
     val updater = (context.applicationContext as MoonTvApplication).updater
 
@@ -227,16 +231,28 @@ private fun MoonTvApp(
                                 viewModel.onServerSaved()
                             },
                         )
-                        is AppUiState.NeedLogin -> LoginScreen(
-                            reason = current.reason,
-                            onLoggedIn = viewModel::onLoggedIn,
-                            onChangeServer = viewModel::changeServerAndForgetCredentials,
-                        )
+                        is AppUiState.NeedLogin -> if (showRegister) {
+                            RegisterScreen(
+                                onBack = { showRegister = false },
+                                onRegistered = { username ->
+                                    registeredUsername = username
+                                    showRegister = false
+                                },
+                            )
+                        } else {
+                            LoginScreen(
+                                reason = current.reason,
+                                onLoggedIn = viewModel::onLoggedIn,
+                                onChangeServer = viewModel::changeServerAndForgetCredentials,
+                                onOpenRegister = { showRegister = true },
+                                initialUsername = registeredUsername,
+                            )
+                        }
                         is AppUiState.LoggedIn -> when (val route = currentRoute) {
                             is AppRoute.Search -> SearchScreen(
                                 initialQuery = route.query,
                                 siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
-                                onToggleTheme = viewModel::toggleTheme,
+                                onToggleTheme = { viewModel.toggleTheme(darkTheme) },
                                 onBack = { currentRoute = AppRoute.Home },
                                 onPlay = { source, videoId, title ->
                                     playerLauncher.launch(
@@ -255,7 +271,7 @@ private fun MoonTvApp(
                                 videoId = route.videoId,
                                 fallbackTitle = route.title,
                                 siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
-                                onToggleTheme = viewModel::toggleTheme,
+                                onToggleTheme = { viewModel.toggleTheme(darkTheme) },
                                 playbackReturn = playbackReturn,
                                 onBack = { currentRoute = detailParent },
                                 onPlay = { index, positionMs ->
@@ -278,15 +294,28 @@ private fun MoonTvApp(
                                 val shell = remember(container) { MoonTvController(container.graph, scope) }
                                 SideEffect { shellController = shell }
                                 LaunchedEffect(shell) {
-                                    // 安卓端保留自己的搜索页（能挑源），豆瓣卡片走它
-                                    shell.onNeedSearch = { title -> currentRoute = AppRoute.Search(title) }
+                                    // 豆瓣/推荐卡片只有标题：和网页版一致，直接进播放页搜源起播。
+                                    // 搜索页仍可从顶栏进入。
+                                    shell.onNeedSearch = { title ->
+                                        if (title.isNotBlank()) {
+                                            playerLauncher.launch(
+                                                PlayerActivity.intent(
+                                                    context = context,
+                                                    source = "",
+                                                    videoId = "",
+                                                    title = title,
+                                                    index = 1,
+                                                )
+                                            )
+                                        }
+                                    }
                                     shell.enterShell()
                                 }
 
                                 MoonTvShell(
                                     controller = shell,
                                     darkTheme = darkTheme,
-                                    onToggleTheme = viewModel::toggleTheme,
+                                    onToggleTheme = { viewModel.toggleTheme(darkTheme) },
                                     onOpenTarget = { target ->
                                         when (target) {
                                             is OpenTarget.Douban -> currentRoute = AppRoute.Search(target.title)

@@ -72,13 +72,10 @@ class AuthRepository(
                 auth = auth,
                 storageType = storageType,
                 savedAt = System.currentTimeMillis(),
-                // Selene 同款自动登录：Turnstile 不能复用，但账号密码可复用。
-                savedUsername = username?.trim()?.takeIf { it.isNotBlank() },
-                savedPassword = password.takeIf { it.isNotEmpty() },
             )
             sessions.save(session)
-            // 登录凭据与 token 一起持久化；即使 token 被服务端轮换/吊销，下次启动也能静默重登。
-            settings.saveCredentials(session.savedUsername, session.savedPassword)
+            // 记住密码由登录页写进 Keystore 加密的 CredentialVault；
+            // 这里不再把账号密码写进设置或 session.json。
             // 网页版入口要靠 cookie 带登录态，登录成功后同步写一份
             if (token.isNotBlank()) {
                 serverProvider.current()?.origin?.let { cookies.writeAuth(it, token) }
@@ -147,6 +144,40 @@ class AuthRepository(
             sessions.save(session)
             serverProvider.current()?.origin?.let { cookies.writeAuth(it, raw) }
             ApiResult.Ok(QrPollResult(body.status, body.expiresAt, session))
+        } catch (e: IOException) {
+            ApiResult.Err(AppError.Network)
+        } catch (e: Exception) {
+            ApiResult.Err(AppError.Unknown(e.message))
+        }
+    }
+
+    /** 注册：字段与校验跟网页版 /register 一致，错误信息由服务端返回。 */
+    suspend fun register(
+        username: String,
+        password: String,
+        inviteCode: String?,
+        turnstileToken: String?,
+    ): ApiResult<String> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.register(
+                com.moontvplus.phone.core.model.RegisterRequest(
+                    username = username.trim(),
+                    password = password,
+                    inviteCode = inviteCode?.trim()?.takeIf { it.isNotEmpty() },
+                    turnstileToken = turnstileToken?.takeIf { it.isNotBlank() },
+                ),
+            )
+            val payload = response.body()
+            if (!response.isSuccessful || payload?.ok != true) {
+                val message = payload?.error
+                    ?: parseServerMessage(
+                        json,
+                        runCatching { response.errorBody()?.string() }.getOrNull(),
+                    )
+                    ?: "注册失败（HTTP " + response.code() + "）"
+                return@withContext ApiResult.Err(AppError.Http(response.code(), message))
+            }
+            ApiResult.Ok(username.trim())
         } catch (e: IOException) {
             ApiResult.Err(AppError.Network)
         } catch (e: Exception) {

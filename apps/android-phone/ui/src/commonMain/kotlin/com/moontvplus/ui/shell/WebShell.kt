@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Pets
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Tv
@@ -152,6 +153,7 @@ fun WebTopBar(
 fun WebBottomBar(
     selected: MainTab,
     onSelect: (MainTab) -> Unit,
+    tabs: List<MainTab> = MainTab.entries,
 ) {
     val dark = isDarkScheme()
     Column(Modifier.fillMaxWidth()) {
@@ -169,7 +171,7 @@ fun WebBottomBar(
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MainTab.entries.forEach { tab ->
+            tabs.forEach { tab ->
                 BottomItem(
                     tab = tab,
                     selected = tab == selected,
@@ -223,6 +225,7 @@ private fun MainTab.icon(): ImageVector = when (this) {
     MainTab.ANIME -> Icons.Outlined.Pets
     MainTab.SHOW -> Icons.Outlined.Whatshot
     MainTab.LIVE -> Icons.Outlined.LiveTv
+    MainTab.WEB_LIVE -> Icons.Outlined.Public
 }
 
 /**

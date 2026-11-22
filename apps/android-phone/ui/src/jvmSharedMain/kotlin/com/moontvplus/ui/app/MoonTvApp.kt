@@ -172,22 +172,8 @@ private fun MainShell(
             )
 
             when (controller.tab) {
-                MainTab.HOME -> HomeContent(
-                    state = controller.home,
-                    onItemClick = { item ->
-                        when (val target = item.target) {
-                            is OpenTarget.Resume -> onPlay(PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs))
-                            else -> controller.open(target)
-                        }
-                    },
-                    onMore = { section ->
-                        // 「更多」跳到对应分类页；返回时回到原来的标签页
-                        sectionToTab(section.id)?.let(controller::openSectionTab)
-                    },
-                    onOpenHistory = { controller.openLibrary(LibraryTab.HISTORY) },
-                )
-
-                MainTab.LIVE -> CenteredMessage("直播模块正在接入")
+                MainTab.HOME, MainTab.LIVE, MainTab.WEB_LIVE ->
+                    HomePane(controller, onPlay)
 
                 else -> BrowseContent(
                     state = controller.browse,
@@ -197,8 +183,45 @@ private fun MainShell(
             }
         }
 
-        WebBottomBar(selected = controller.tab, onSelect = controller::selectTab)
+        // 网页版底栏顺序：首页/电影/剧集/动漫/综艺，直播入口按站点配置追加。
+        // Android 还没有真正的直播/网络直播页面：开关打开时也不放占位页，避免死入口。
+        val bottomTabs = buildList {
+            add(MainTab.HOME)
+            add(MainTab.MOVIE)
+            add(MainTab.TV)
+            add(MainTab.ANIME)
+            add(MainTab.SHOW)
+            if (controller.liveEnabled && LiveModuleImplemented) add(MainTab.LIVE)
+            if (controller.webLiveEnabled && WebLiveModuleImplemented) add(MainTab.WEB_LIVE)
+        }
+        WebBottomBar(
+            selected = controller.tab,
+            onSelect = controller::selectTab,
+            tabs = bottomTabs,
+        )
     }
+}
+
+/** 首页内容：顶栏之外的主体，直播页尚未实现时也回落到这里而不是空白。 */
+@Composable
+private fun HomePane(
+    controller: MoonTvController,
+    onPlay: (PlayRequest) -> Unit,
+) {
+    HomeContent(
+        state = controller.home,
+        onItemClick = { item ->
+            when (val target = item.target) {
+                is OpenTarget.Resume -> onPlay(PlayRequest(target.source, target.id, target.title, target.index - 1, target.positionMs))
+                else -> controller.open(target)
+            }
+        },
+        onMore = { section ->
+            // 「更多」跳到对应分类页；返回时回到原来的标签页
+            sectionToTab(section.id)?.let(controller::openSectionTab)
+        },
+        onOpenHistory = { controller.openLibrary(LibraryTab.HISTORY) },
+    )
 }
 
 /**
@@ -233,6 +256,10 @@ fun MoonTvShell(
         }
     }
 }
+
+/** 直播入口的能力开关：页面实现后改成 true，底栏就会按服务端配置出现。 */
+private const val LiveModuleImplemented = false
+private const val WebLiveModuleImplemented = false
 
 private fun sectionToTab(sectionId: String): MainTab? = when (sectionId) {
     "hotMovies" -> MainTab.MOVIE

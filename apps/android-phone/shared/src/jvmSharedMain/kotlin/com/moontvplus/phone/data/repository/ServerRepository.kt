@@ -86,6 +86,11 @@ class ServerRepository(
             storageType = config?.StorageType,
             loginRequireTurnstile = config?.LoginRequireTurnstile == true,
             turnstileSiteKey = config?.TurnstileSiteKey?.takeIf { it.isNotBlank() },
+            enableRegistration = config?.EnableRegistration == true,
+            requireRegistrationInviteCode = config?.RequireRegistrationInviteCode == true,
+            registrationRequireTurnstile = config?.RegistrationRequireTurnstile == true,
+            liveEnabled = config?.LiveEnabled == true,
+            webLiveEnabled = config?.WebLiveEnabled == true,
         )
         serverProvider.set(address)
     }

@@ -8,12 +8,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -26,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** 播放器里的时间格式：一小时以内 mm:ss，超过则 h:mm:ss。 */
 fun formatPlayerTime(positionMs: Long): String {
@@ -49,8 +55,51 @@ fun PlayerIconButton(
     tint: Color = Color.White,
     modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = modifier) {
-        Icon(icon, contentDescription = description, tint = tint)
+    // 网站版控制条按钮是 46dp 见方、图标 24dp；IconButton 的 48dp 最小尺寸会把
+    // 320dp 屏挤爆，所以这里用 Box 自己画，点击事件仍然是按钮自己的。
+    Box(
+        modifier = modifier
+            .size(46.dp)
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (enabled) tint else tint.copy(alpha = 0.4f),
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+/** 设置面板里的一行：图标 + 标题 + 右侧值 + 箭头，高度对齐 ArtPlayer 的 44dp 行。 */
+@Composable
+fun PlayerMenuRow(
+    icon: ImageVector,
+    title: String,
+    value: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(title, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
+        if (value != null) {
+            Text(value, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1)
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.45f),
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
@@ -83,7 +132,10 @@ fun SwitchRow(
     }
 }
 
-/** 统一的面板外壳：底部弹出、半透明暗底，点外面关闭。 */
+/**
+ * 统一的面板外壳：对齐 ArtPlayer 的设置面板 ——
+ * 右下角浮层、宽 300dp、最高 300dp、黑 85% 底、圆角 6dp，点外面关闭。
+ */
 @Composable
 fun PlayerPanelScaffold(
     title: String,
@@ -94,38 +146,42 @@ fun PlayerPanelScaffold(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
             .clickable(onClick = onClose),
-        contentAlignment = Alignment.BottomCenter,
+        contentAlignment = Alignment.BottomEnd,
     ) {
         Surface(
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-            color = Color(0xFF1B1B20),
+            shape = RoundedCornerShape(6.dp),
+            color = Color.Black.copy(alpha = 0.85f),
             modifier = modifier
-                .fillMaxWidth()
-                .heightIn(max = 520.dp)
+                .padding(end = 10.dp, bottom = 96.dp)
+                .width(300.dp)
+                .heightIn(max = 300.dp)
                 .clickable { },
         ) {
             Column {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .height(36.dp)
+                        .padding(start = 12.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         title,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    PlayerIconButton(
-                        icon = Icons.Filled.Close,
-                        description = "关闭面板",
-                        onClick = onClose,
-                    )
+                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "关闭面板",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
                 Column(modifier = Modifier.fillMaxWidth()) { content() }
             }
@@ -137,8 +193,8 @@ fun PlayerPanelScaffold(
 fun PlayerSmallLabel(text: String) {
     Text(
         text,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        fontSize = 11.sp,
         color = Color.White.copy(alpha = 0.6f),
     )
 }

@@ -16,7 +16,10 @@ class SessionStore(
 
     suspend fun write(session: AuthSession) {
         runCatching {
-            store.write(FILE, json.encodeToString(AuthSession.serializer(), session))
+            // 账号密码只放在 Keystore 加密的 CredentialVault 与内存会话里，
+            // session.json 永远不落明文凭据。
+            val safe = session.copy(savedUsername = null, savedPassword = null)
+            store.write(FILE, json.encodeToString(AuthSession.serializer(), safe))
         }
     }
 

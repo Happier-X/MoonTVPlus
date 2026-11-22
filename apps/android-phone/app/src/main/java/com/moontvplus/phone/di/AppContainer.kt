@@ -9,6 +9,7 @@ import com.moontvplus.phone.BuildConfig
 import com.moontvplus.phone.core.platform.Platform
 import com.moontvplus.phone.core.platform.PlatformInfo
 import com.moontvplus.phone.core.platform.PlatformServices
+import com.moontvplus.phone.data.local.AndroidCredentialVault
 import com.moontvplus.phone.data.local.AndroidLegacySessionBridge
 import com.moontvplus.phone.data.local.AndroidSiteCookies
 import com.moontvplus.phone.di.AppGraph
@@ -57,6 +58,7 @@ class AppContainer(context: Context) {
             cookies = AndroidSiteCookies(),
             legacy = AndroidLegacySessionBridge(appContext),
         ),
+        credentialVault = AndroidCredentialVault(appContext),
     )
 
     init {

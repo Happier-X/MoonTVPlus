@@ -14,14 +14,14 @@ on:
         default: 'MoonTVPlus'
         type: string
       version_name:
-        description: '版本名（默认 1.9.15；需与 version_code 同步递增）'
+        description: '版本名（默认 1.9.16；需与 version_code 同步递增）'
         required: false
-        default: '1.9.15'
+        default: '1.9.16'
         type: string
       version_code:
-        description: '版本号，必须是整数且大于 24（默认 25）'
+        description: '版本号，必须是整数且大于 25（默认 26）'
         required: false
-        default: '25'
+        default: '26'
         type: string
       min_sdk:
         description: '最低 Android API（默认 23 = Android 6）'
@@ -90,8 +90,8 @@ jobs:
             echo "::error::version_code 必须是整数，当前为：$VERSION_CODE"
             exit 1
           fi
-          if (( VERSION_CODE < 25 )); then
-            echo "::error::version_code 必须大于已发布的 24（1.9.14），当前为：$VERSION_CODE"
+          if (( VERSION_CODE < 26 )); then
+            echo "::error::version_code 必须大于已发布的 25（1.9.15），当前为：$VERSION_CODE"
             exit 1
           fi
           if [[ ! "$MIN_SDK" =~ ^[0-9]+$ ]]; then

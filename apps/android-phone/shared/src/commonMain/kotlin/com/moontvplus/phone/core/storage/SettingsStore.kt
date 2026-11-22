@@ -14,6 +14,13 @@ data class AppSettings(
     val serverVersion: String? = null,
     val storageType: String? = null,
     val loginRequireTurnstile: Boolean = false,
+    /** 站点是否开启注册（登录页「立即注册」入口）。 */
+    val enableRegistration: Boolean = false,
+    val requireRegistrationInviteCode: Boolean = false,
+    val registrationRequireTurnstile: Boolean = false,
+    /** 站点是否开启电视直播 / 网络直播（只用于底栏入口，公开配置）。 */
+    val liveEnabled: Boolean = false,
+    val webLiveEnabled: Boolean = false,
     val turnstileSiteKey: String? = null,
     /** 旧壳 cookie 迁移只做一次，避免退出登录后被旧 cookie 顶回来 */
     val legacyCookieMigrationDone: Boolean = false,
@@ -25,6 +32,10 @@ data class AppSettings(
     val savedPassword: String? = null,
     /** system / light / dark */
     val themeMode: String = "system",
+    /** 搜索页显示方式：card / list（网页版「高级」里的卡片/列表）。 */
+    val searchDisplayMode: String = "card",
+    /** 搜索页是否聚合同一部片子的多个源（网页版 viewMode=agg/all）。 */
+    val searchAggregate: Boolean = true,
     val fluidSearch: Boolean = true,
     val exactSearch: Boolean = true,
     val autoNext: Boolean = true,
@@ -73,6 +84,11 @@ class SettingsStore(
         storageType: String?,
         loginRequireTurnstile: Boolean = false,
         turnstileSiteKey: String? = null,
+        enableRegistration: Boolean = false,
+        requireRegistrationInviteCode: Boolean = false,
+        registrationRequireTurnstile: Boolean = false,
+        liveEnabled: Boolean = false,
+        webLiveEnabled: Boolean = false,
     ) = update { current ->
         current.copy(
             serverAddress = address,
@@ -81,6 +97,11 @@ class SettingsStore(
             storageType = storageType ?: current.storageType,
             loginRequireTurnstile = loginRequireTurnstile,
             turnstileSiteKey = turnstileSiteKey,
+            enableRegistration = enableRegistration,
+            requireRegistrationInviteCode = requireRegistrationInviteCode,
+            registrationRequireTurnstile = registrationRequireTurnstile,
+            liveEnabled = liveEnabled,
+            webLiveEnabled = webLiveEnabled,
         )
     }
 
@@ -110,6 +131,10 @@ class SettingsStore(
     }
 
     suspend fun setThemeMode(mode: String) = update { it.copy(themeMode = mode) }
+
+    suspend fun setSearchDisplayMode(mode: String) = update { it.copy(searchDisplayMode = mode) }
+
+    suspend fun setSearchAggregate(enabled: Boolean) = update { it.copy(searchAggregate = enabled) }
 
     suspend fun setFluidSearch(enabled: Boolean) = update { it.copy(fluidSearch = enabled) }
 

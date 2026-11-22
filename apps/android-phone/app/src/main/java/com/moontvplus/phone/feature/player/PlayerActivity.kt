@@ -93,16 +93,18 @@ class PlayerActivity : ComponentActivity() {
         } else {
             null
         }
+        val source = intent.getStringExtra("source").orEmpty()
+        val videoId = intent.getStringExtra("video_id").orEmpty()
+        val title = intent.getStringExtra("title").orEmpty()
+        val index = intent.getIntExtra("index", 1)
+        val position = intent.getLongExtra("position", 0L)
         if (!directUrl.isNullOrBlank()) {
-            viewModel.loadDirect(directUrl, intent.getStringExtra("title").orEmpty())
+            viewModel.loadDirect(directUrl, title)
+        } else if (source.isBlank() || videoId.isBlank()) {
+            // 豆瓣/推荐卡片只有标题：和网页版 /play?title=...&prefer=true 一样先搜源再起播
+            viewModel.loadByTitle(title, index, position)
         } else {
-            viewModel.load(
-                intent.getStringExtra("source").orEmpty(),
-                intent.getStringExtra("video_id").orEmpty(),
-                intent.getStringExtra("title").orEmpty(),
-                intent.getIntExtra("index", 1),
-                intent.getLongExtra("position", 0L),
-            )
+            viewModel.load(source, videoId, title, index, position)
         }
         if (savedInstanceState?.getBoolean("fullscreen") == true) applyFullscreen(true)
 
