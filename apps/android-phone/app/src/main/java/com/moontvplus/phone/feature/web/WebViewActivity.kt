@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -104,7 +105,6 @@ private fun WebPageScreen(
     val context = LocalContext.current
     var pageTitle by remember { mutableStateOf(fallbackTitle) }
     var loading by remember { mutableStateOf(true) }
-    var canGoBack by remember { mutableStateOf(false) }
 
     val webView = remember {
         WebView(context).apply {
@@ -134,12 +134,10 @@ private fun WebPageScreen(
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                     loading = true
-                    canGoBack = view.canGoBack()
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     loading = false
-                    canGoBack = view.canGoBack()
                 }
             }
             webChromeClient = object : WebChromeClient() {
@@ -154,6 +152,7 @@ private fun WebPageScreen(
         webView.loadUrl(url)
         onDispose {
             webView.stopLoading()
+            (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         }
     }
