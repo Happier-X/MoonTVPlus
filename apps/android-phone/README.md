@@ -65,7 +65,7 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 产物在 Actions 的 artifacts 里。默认必须配置完整的
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 才能产出正式签名 release APK（和 TV 版共用同一套 secrets）；只有显式关闭 `require_signed` 才允许 debug。
-当前安卓默认版本是 **1.9.11 / versionCode 21**。
+当前安卓默认版本是 **1.9.12 / versionCode 22**。
 
 ## 安卓应用内更新
 
@@ -75,6 +75,7 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 - 启动后延迟 4 秒静默检查，最多每 12 小时一次；失败不弹窗、不阻塞启动。发现新版展示版本和发布说明，不自动下载、不强制更新。
 - 可忽略当前版本；手动检查不受检查间隔与忽略状态限制。下载可收起、取消与重试，后台或 Activity 重建继续由应用管理；进程被回收后删除未完成文件，重新下载，已完成且仍通过校验的文件可恢复。
 - 优先读取 MoonTVPlus 站点 /downloads/latest.json，APK 也由站点提供，国内网络不需要访问 GitHub；站点不可用时再回退到 Happier-X/MoonTVPlus GitHub Releases。
+- 下载前并行探测站点与 GitHub 的 64 KiB 分片，按实际吞吐自动选最快线路；选中线路下载中失败会自动切到另一条，不会因为某条线路慢而卡住更新。
 - 下载限 HTTPS、官方站点与 GitHub 附件域名，核对发布文件大小（最大 512 MiB）；站点清单、附件 digest 或 SHA256SUMS.txt 提供 SHA-256 时必须匹配。
 - 下载完成及每次安装前都检查包名、APK 实际 versionName、严格递增的 versionCode、非调试包、系统版本与签名。API 28+ 允许 Android 已验证的向前签名轮换，旧版要求签名集合完全一致。
 - APK 存放在应用私有 `files/updates/`，通过专用 FileProvider 临时只读 `content://` URI 交给系统安装器。API 26+ 未授权时先打开该应用的「安装未知应用」页面，授权返回后继续安装；拒绝或取消可重试。不申请存储、通知或全文件访问权限。

@@ -39,7 +39,13 @@ data class GithubRelease(
 )
 
 @Serializable
-data class ClientUpdate(val version: String, val notes: String, val apk: ReleaseAsset, val sums: ReleaseAsset? = null)
+data class ClientUpdate(
+    val version: String,
+    val notes: String,
+    val apk: ReleaseAsset,
+    val sums: ReleaseAsset? = null,
+    val mirrors: List<ReleaseAsset> = emptyList(),
+)
 
 /** A source of signed Android releases. Implementations must validate every URL before downloading. */
 interface UpdateSource {
@@ -65,6 +71,7 @@ data class SiteUpdateManifest(
 object UpdatePolicy {
     const val REPOSITORY = "Happier-X/MoonTVPlus"
     const val SITE_BASE_URL = "https://tv.370125.xyz"
+    const val SITE_APK_URL = "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk"
     private const val PREFIX = "https://github.com/$REPOSITORY/releases/download/"
     const val MAX_APK_BYTES = 512L * 1024 * 1024
 

@@ -42,7 +42,7 @@ fun UpdateDialog(state: UpdateUiState, updater: AppUpdater, onInstall: () -> Uni
                     }
                     UpdateStage.CANCELLING -> Text("正在取消下载…")
                     UpdateStage.VERIFYING -> Text("正在校验安装包、版本与签名…")
-                    UpdateStage.IDLE -> Text("从官方更新源检查安卓客户端稳定版，下载后由系统确认安装。")
+                    UpdateStage.IDLE -> Text("自动选择站点或 GitHub 的最快线路，下载后由系统确认安装。")
                     else -> Unit
                 }
                 state.message?.let { Text(it, color = if (state.stage == UpdateStage.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }

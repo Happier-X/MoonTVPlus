@@ -111,7 +111,7 @@ class AppUpdater(
         val update = state.value.update ?: return
         if (state.value.busy || work?.isActive == true) return
         clearReady()
-        mutable.update { it.copy(stage = UpdateStage.DOWNLOADING, received = 0, total = update.apk.size, message = null) }
+        mutable.update { it.copy(stage = UpdateStage.DOWNLOADING, received = 0, total = update.apk.size, message = "正在测速，自动选择最快线路…") }
         work = scope.launch {
             try {
                 val hash = withContext(Dispatchers.IO) {
