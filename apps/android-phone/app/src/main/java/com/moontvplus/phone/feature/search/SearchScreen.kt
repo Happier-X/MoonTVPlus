@@ -676,6 +676,7 @@ private fun SourceChip(
 }
 
 /** 列表视图：标题、年份、类型、集数、简介、来源标签。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ResultListRow(item: AggregatedResult, onClick: () -> Unit) {
     Row(
@@ -701,35 +702,56 @@ private fun ResultListRow(item: AggregatedResult, onClick: () -> Unit) {
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val meta = buildList {
-                item.year.takeIf { it.isNotBlank() }?.let { add(it) }
-                item.typeLabel?.let { add(it) }
-                if (item.episodeCount > 0) add(item.episodeCount.toString() + " 集")
-            }.joinToString(" · ")
-            if (meta.isNotEmpty()) {
-                Text(
-                    text = meta,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
+            val primary = item.primary
+            val muted = MaterialTheme.colorScheme.onSurfaceVariant
+            val tags = buildList {
+                item.typeLabel?.let { add(it to WebColors.Accent) }
+                item.year.takeIf { it.isNotBlank() }?.let { add(it to muted) }
+                if (item.episodeCount > 0) add(item.episodeCount.toString() + "集" to WebColors.Info)
+                primary.vodRemarks?.takeIf { it.isNotBlank() }?.let { add(it to WebColors.Rating) }
+                if (primary.doubanId > 0) add("豆瓣" to WebColors.AccentDeep)
             }
-            item.primary.desc?.takeIf { it.isNotBlank() }?.let { desc ->
+            if (tags.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    tags.forEach { (label, color) -> ListTag(label, color) }
+                }
+            }
+            primary.desc?.takeIf { it.isNotBlank() }?.let { desc ->
                 Spacer(Modifier.height(3.dp))
                 Text(
                     text = desc,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             SourceTags(item.sources, compact = false)
         }
     }
+}
+
+/** 列表视图的元信息标签，对应网页版的类型 / 年份 / 集数 / 更新状态 / 豆瓣。 */
+@Composable
+private fun ListTag(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        text = text,
+        fontSize = 11.sp,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
 }
 
 /** 网页版「高级」下拉：聚合开关 + 卡片/列表。 */
