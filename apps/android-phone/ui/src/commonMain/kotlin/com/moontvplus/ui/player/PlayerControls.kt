@@ -80,6 +80,7 @@ import com.moontvplus.phone.player.PlayerUiController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** 播放器主界面：Android / 桌面共用。 */
 @Composable
@@ -461,6 +462,19 @@ private fun BoxScope.PlayerHudView(hud: PlayerHud) {
     }
 }
 
+
+/** 1.25 必须显示为 1.25x，不能四舍五入成 1.3x；整数去掉小数位。 */
+internal fun formatPlayerSpeed(speed: Float): String {
+    val hundredths = (speed * 100f).roundToInt()
+    val whole = hundredths / 100
+    val fraction = hundredths % 100
+    return when {
+        fraction == 0 -> "${whole}x"
+        fraction % 10 == 0 -> "$whole.${fraction / 10}x"
+        else -> "$whole.${fraction.toString().padStart(2, '0')}x"
+    }
+}
+
 /** 底部控制条上的文字按钮：比 Material 默认内边距更紧，320dp 屏也能多放两个入口。 */
 @Composable
 private fun PlayerBarTextButton(
@@ -719,7 +733,7 @@ fun PlayerControls(
                 ) {
                     if (capabilities.speedControl) {
                         PlayerBarTextButton(
-                            text = "%.1fx".format(speed),
+                            text = formatPlayerSpeed(speed),
                             onClick = onCycleSpeed,
                             modifier = Modifier.testTag(PlayerControlTags.SPEED),
                         )

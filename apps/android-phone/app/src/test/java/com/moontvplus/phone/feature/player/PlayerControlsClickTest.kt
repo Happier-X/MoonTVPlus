@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -109,6 +110,13 @@ class PlayerControlsClickTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun speedLabelShowsQuarterStepsWithoutRounding() {
+        compose.setContent { MoonTvTheme { Controls(playing = true, speed = 1.25f) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("1.25x").assertIsDisplayed()
     }
 
     /** 宽屏一次放下所有入口，逐个点一遍，确认没有一个按钮被父级吞掉。 */
