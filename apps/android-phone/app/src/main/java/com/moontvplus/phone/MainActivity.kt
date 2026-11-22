@@ -238,9 +238,16 @@ private fun MoonTvApp(
                                 siteName = current.siteName.orEmpty().ifBlank { "MoonTVPlus" },
                                 onToggleTheme = viewModel::toggleTheme,
                                 onBack = { currentRoute = AppRoute.Home },
-                                onOpenDetail = { source, videoId, title ->
-                                    detailParent = route
-                                    currentRoute = AppRoute.Detail(source, videoId, title)
+                                onPlay = { source, videoId, title ->
+                                    playerLauncher.launch(
+                                        PlayerActivity.intent(
+                                            context = context,
+                                            source = source,
+                                            videoId = videoId,
+                                            title = title,
+                                            index = 1,
+                                        )
+                                    )
                                 },
                             )
                             is AppRoute.Detail -> DetailScreen(

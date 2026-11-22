@@ -34,7 +34,6 @@ class SearchViewModel(
         val results: List<AggregatedResult> = emptyList(),
         val error: String? = null,
         val history: List<String> = emptyList(),
-        val pickerKey: String? = null,
         /** 影视搜索 / 动漫磁力 */
         val tab: SearchTab = SearchTab.VIDEO,
         /** 来源 / 标题 / 年份筛选，值 `all` 表示不限。 */
@@ -47,7 +46,6 @@ class SearchViewModel(
         val acgLoadingMore: Boolean = false,
         val acgError: String? = null,
     ) {
-        val picker: AggregatedResult? get() = results.firstOrNull { it.key == pickerKey }
         val progress: Float
             get() = if (totalSources <= 0) 0f else (scanned.toFloat() / totalSources).coerceIn(0f, 1f)
 
@@ -130,7 +128,6 @@ class SearchViewModel(
                 totalSources = 0,
                 results = emptyList(),
                 error = null,
-                pickerKey = null,
                 filters = emptyMap(),
                 yearOrder = "none",
             )
@@ -305,10 +302,6 @@ class SearchViewModel(
     }
 
     private var acgPage = 1
-
-    fun openPicker(key: String?) {
-        _state.update { it.copy(pickerKey = key) }
-    }
 
     fun removeHistory(keyword: String) {
         viewModelScope.launch {

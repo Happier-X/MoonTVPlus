@@ -34,12 +34,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,7 +63,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moontvplus.phone.core.model.AcgItem
 import com.moontvplus.phone.core.model.AcgSource
-import com.moontvplus.phone.core.model.SearchResult
 import com.moontvplus.phone.core.ui.PosterImage
 import com.moontvplus.phone.di.appViewModel
 import com.moontvplus.ui.component.CapsuleTabs
@@ -78,7 +75,7 @@ import com.moontvplus.ui.theme.WebColors
 fun SearchScreen(
     initialQuery: String? = null,
     onBack: () -> Unit,
-    onOpenDetail: (source: String, videoId: String, title: String) -> Unit,
+    onPlay: (source: String, videoId: String, title: String) -> Unit,
     siteName: String = "MoonTVPlus",
     onToggleTheme: (() -> Unit)? = null,
     viewModel: SearchViewModel = appViewModel {
@@ -271,7 +268,10 @@ fun SearchScreen(
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 items(state.visibleResults, key = { it.key }) { item ->
-                                    ResultCard(item = item, onClick = { viewModel.openPicker(item.key) })
+                                    ResultCard(item = item, onClick = {
+                                        val best = item.primary
+                                        onPlay(best.source, best.id, item.title.ifBlank { best.title })
+                                    })
                                 }
                             }
                         }
@@ -280,19 +280,6 @@ fun SearchScreen(
             }
 
             SearchTab.ACG -> AcgTabBody(state = state, viewModel = viewModel)
-        }
-    }
-
-    val picker = state.picker
-    if (picker != null) {
-        ModalBottomSheet(onDismissRequest = { viewModel.openPicker(null) }) {
-            SourcePickerSheet(
-                item = picker,
-                onPick = { result ->
-                    viewModel.openPicker(null)
-                    onOpenDetail(result.source, result.id, result.title.ifBlank { picker.title })
-                },
-            )
         }
     }
 }
@@ -602,65 +589,6 @@ private fun ResultCard(item: AggregatedResult, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun SourcePickerSheet(item: AggregatedResult, onPick: (SearchResult) -> Unit) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            text = item.title,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "共 ${item.sourceCount} 个可用来源，选一个开始播放",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        item.sources.forEachIndexed { index, result ->
-            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onPick(result) }
-                    .padding(vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = result.sourceName.ifBlank { result.source },
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val extra = listOfNotNull(
-                        result.vodRemarks?.takeIf { it.isNotBlank() },
-                        if (result.episodes.isNotEmpty()) "${result.episodes.size} 集" else null,
-                        result.year.takeIf { it.isNotBlank() },
-                    ).joinToString(" · ")
-                    if (extra.isNotEmpty()) {
-                        Text(
-                            text = extra,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "播放",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = WebColors.Brand,
-                )
-            }
-        }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
