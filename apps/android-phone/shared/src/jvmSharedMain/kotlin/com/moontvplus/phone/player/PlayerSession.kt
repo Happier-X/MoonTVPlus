@@ -206,7 +206,7 @@ class PlayerSession(
                 updateState {
                     it.copy(
                         loading = false,
-                        error = "没有搜到可播放的片源，可以点「手动选源」重新查找",
+                        error = "没有搜到可播放的片源，可以点「手动换源」重新查找",
                     )
                 }
                 findSources()
