@@ -202,13 +202,20 @@ jobs:
             ASSET="app-arm64-v8a-release.apk"
           fi
           echo "Using $ASSET as site APK for $TAG"
-          gh release download "$TAG" -R Happier-X/MoonTVPlus --pattern "$ASSET" --dir public/downloads --clobber
-          mv "public/downloads/$ASSET" public/downloads/moontvplus-phone-latest.apk
-          SHA=$(sha256sum public/downloads/moontvplus-phone-latest.apk | cut -d' ' -f1)
-          SIZE=$(stat -c%s public/downloads/moontvplus-phone-latest.apk)
+          # Workers 静态资产单文件上限 25 MiB，APK 不能进 bundle；
+          # 同域下载路径改为 302 到 Release 资产，latest.json 语义保持不变。
+          ASSET_JSON=$(gh api "repos/Happier-X/MoonTVPlus/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$ASSET\")")
+          SHA=$(printf '%s' "$ASSET_JSON" | jq -r '.digest // ""' | sed -n 's/^sha256://p')
+          SIZE=$(printf '%s' "$ASSET_JSON" | jq -r '.size // ""')
+          if [ -z "$SHA" ] || [ -z "$SIZE" ]; then
+            echo "::error::missing digest or size for $ASSET in $TAG"
+            exit 1
+          fi
           BODY=$(gh release view "$TAG" -R Happier-X/MoonTVPlus --json body --jq .body)
           jq -n --arg version "$VERSION" --arg notes "$BODY" --arg url "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk" --arg sha "$SHA" --argjson size "$SIZE" '{version:$version,notes:$notes,apk:{name:"moontvplus-phone-latest.apk",url:$url,size:$size,sha256:$sha}}' > public/downloads/latest.json
+          echo "/downloads/moontvplus-phone-latest.apk https://github.com/Happier-X/MoonTVPlus/releases/download/$TAG/$ASSET 302" > public/_redirects
           cat public/downloads/latest.json
+          cat public/_redirects
 
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
