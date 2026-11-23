@@ -41,7 +41,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="client-nsh-${{ inputs.version_name }}"
+          TAG="client-v${{ inputs.version_name }}"
           if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
             echo "::error::release $TAG already exists"; exit 1
           fi
