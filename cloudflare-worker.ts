@@ -20,14 +20,47 @@ export * from './.open-next/worker.js';
 export { WatchRoomHub } from './src/worker/watch-room-hub';
 
 interface Env {
+  ASSETS: { fetch(input: URL | Request, init?: RequestInit): Promise<Response> };
   WATCH_ROOM: DurableObjectNamespace;
   CRON_PASSWORD?: string;
   [key: string]: unknown;
 }
 
+async function serveLatestApk(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
+  }
+
+  const manifestResponse = await env.ASSETS.fetch(new URL('/downloads/latest.json', url));
+  if (!manifestResponse.ok) return new Response('Update manifest unavailable', { status: 503 });
+  const manifest = (await manifestResponse.json()) as { version?: string };
+  if (!manifest.version || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    return new Response('Invalid update manifest', { status: 503 });
+  }
+
+  const headers = new Headers();
+  const range = request.headers.get('Range');
+  if (range) headers.set('Range', range);
+  headers.set('User-Agent', 'MoonTVPlus-Android-Updater');
+
+  const assetUrl =
+    'https://github.com/Happier-X/MoonTVPlus/releases/download/client-v' + manifest.version +
+    '/moontvplus-phone-' + manifest.version + '-release-signed.apk';
+  const upstream = await fetch(assetUrl, { method: request.method, headers, redirect: 'follow' });
+  const responseHeaders = new Headers(upstream.headers);
+  responseHeaders.set('Cache-Control', 'public, max-age=300');
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // 站点 APK 下载：Cloudflare 静态资产单文件上限 25 MiB，这里从 Release 流式转发。
+    // 保持 200/206 直出，避免 302 到 GitHub CDN —— 老版更新器只认站点和 github.com。
+    if (url.pathname === '/downloads/moontvplus-phone-latest.apk') {
+      return serveLatestApk(request, env, url);
+    }
 
     // 观影室的 Socket.IO 连接：整体交给 hub DO。
     // 客户端在 internal 模式下连同源 /socket.io（server-config 默认就是 internal），

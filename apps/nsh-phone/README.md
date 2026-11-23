@@ -180,7 +180,7 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
   不再手抄到 build.gradle.kts。
 - CI 会下载 nsh v0.6.1 的 nsh.aar、构建 TSX、运行 Gradle assembleRelease，
   用 ANDROID_KEYSTORE_* secrets 签名，并用 apksigner/aapt 校验包名和版本后上传 artifact。
-- 发布产物：app-arm64-v8a-release.apk、app-armeabi-v7a-release.apk、SHA256SUMS。
+- 发布产物：moontvplus-phone-1.9.17-release-signed.apk、app-armeabi-v7a-release.apk、SHA256SUMS。
 - 本版 tag：client-v1.9.17；GitHub 正式 Latest Release。
 - 站点自动更新尚未切换：线上 /downloads/latest.json 仍是 1.9.16。人工上传时把
   latest.json 放到部署工作区的 public/downloads/latest.json，把 arm64 APK 命名为

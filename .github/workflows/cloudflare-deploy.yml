@@ -213,9 +213,7 @@ jobs:
           fi
           BODY=$(gh release view "$TAG" -R Happier-X/MoonTVPlus --json body --jq .body)
           jq -n --arg version "$VERSION" --arg notes "$BODY" --arg url "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk" --arg sha "$SHA" --argjson size "$SIZE" '{version:$version,notes:$notes,apk:{name:"moontvplus-phone-latest.apk",url:$url,size:$size,sha256:$sha}}' > public/downloads/latest.json
-          echo "/downloads/moontvplus-phone-latest.apk https://github.com/Happier-X/MoonTVPlus/releases/download/$TAG/$ASSET 302" > public/_redirects
           cat public/downloads/latest.json
-          cat public/_redirects
 
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
