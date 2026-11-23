@@ -188,6 +188,9 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 1.9.17 的 versionCode 是 27，直接装 1.9.16（26）会被系统拒绝。回退需要：
 - 卸载当前应用后安装 client-v1.9.16 的 APK（会清空应用数据）；或
 - 用 adb install -d client-v1.9.16.apk 允许降级。
+- 1.9.16 APK：
+  https://github.com/Happier-X/MoonTVPlus/releases/download/client-v1.9.16/moontvplus-phone-1.9.16-release-signed.apk
+  （SHA-256 fbbcd62ef5a898b9b24cae7cb448fdb212ecbdba2d6a12e5163fb81ce9c8eb62）。
 
 ## 已知限制
 
