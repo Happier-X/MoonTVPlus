@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.material3.Icon
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -112,6 +114,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         openSettingsRequest.value = intent?.action == ACTION_OPEN_SETTINGS
@@ -196,7 +199,7 @@ private fun MoonTvApp(
 
     // 共享外壳里的详情 / 收藏页也要吃掉系统返回键，先退共享页面，再退原生路由
     var shellController by remember { mutableStateOf<MoonTvController?>(null) }
-    var playbackReturn by remember { mutableStateOf(0) }
+    var playbackReturn by remember { mutableIntStateOf(0) }
     var detailParent by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
     val playerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         playbackReturn++

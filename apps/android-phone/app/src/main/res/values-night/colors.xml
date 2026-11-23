@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Selene 深色启动页为纯黑，主界面 scaffold 为 #121212。 -->
-    <color name="page_bg">#000000</color>
     <color name="window_bg">#000000</color>
-    <color name="selene_blue_grey">#FFFFFF</color>
 </resources>

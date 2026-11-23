@@ -1,5 +1,16 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <!-- Android 12+ 原生启动页；低版本由 core-splashscreen 模拟。 -->
+    <style name="AppTheme" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/window_bg</item>
+        <item name="postSplashScreenTheme">@style/AppThemeStarting</item>
+        <item name="android:statusBarColor">@color/window_bg</item>
+        <item name="android:navigationBarColor">@color/window_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="AppThemeStarting" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowBackground">@drawable/selene_splash_background</item>

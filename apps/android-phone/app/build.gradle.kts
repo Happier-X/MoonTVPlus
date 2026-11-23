@@ -87,7 +87,12 @@ android {
             isDebuggable = true
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             val storeFilePath = System.getenv("ANDROID_KEYSTORE_PATH")
             if (!storeFilePath.isNullOrBlank() && file(storeFilePath).exists()) {
                 signingConfig = signingConfigs.getByName("release")
@@ -96,7 +101,7 @@ android {
     }
 
     lint {
-        abortOnError = false
+        abortOnError = true
     }
 
     testOptions {
@@ -125,6 +130,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-splashscreen:1.0.1")
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.webkit:webkit:1.12.1")
