@@ -1,0 +1,185 @@
+name: Build Android NSH
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'versionName（默认 1.9.17）'
+        required: true
+        default: '1.9.17'
+        type: string
+      version_code:
+        description: 'versionCode（默认 27，必须大于 26）'
+        required: true
+        default: '27'
+        type: string
+      base_url:
+        description: '可选默认服务器地址，例如 https://tv.example.com'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: android-nsh-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build NSH release APKs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download NSH embed runtime
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/nsh-embed.zip https://github.com/longbridge/nsh/releases/download/v0.6.1/nsh-embed-android.zip
+          unzip -q /tmp/nsh-embed.zip -d /tmp/nsh-embed
+          mkdir -p apps/nsh-phone/android-host/app/libs
+          find /tmp/nsh-embed -name nsh.aar -exec cp {} apps/nsh-phone/android-host/app/libs/nsh.aar \;
+          ls -lh apps/nsh-phone/android-host/app/libs/nsh.aar
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install NSH CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/nsh" --version
+
+      - name: Validate inputs
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){1,3}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version_name 不合法：$VERSION_NAME"; exit 1
+          fi
+          if [[ ! "$VERSION_CODE" =~ ^[0-9]+$ ]] || (( VERSION_CODE < 27 )); then
+            echo "::error::version_code 必须是 >=27 的整数，当前：$VERSION_CODE"; exit 1
+          fi
+          if [[ -n "$BASE_URL" && ! "$BASE_URL" =~ ^https?:// ]]; then
+            echo "::error::base_url 必须以 http(s):// 开头"; exit 1
+          fi
+          echo "构建 $VERSION_NAME ($VERSION_CODE)"
+
+      - name: Sync version into nsh.json
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const file = 'apps/nsh-phone/embed/nsh.json';
+          const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+          data.version = process.env.VERSION_NAME;
+          data.build = parseInt(process.env.VERSION_CODE, 10);
+          data.id = 'com.moontvplus.phone';
+          fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+          if (process.env.BASE_URL) {
+            const app = 'apps/nsh-phone/embed/App.tsx';
+            const source = fs.readFileSync(app, 'utf8');
+            fs.writeFileSync(app, source.replace(
+              /const DEFAULT_SERVER = "[^"]*";/,
+              'const DEFAULT_SERVER = "' + process.env.BASE_URL.replace(/\/+$/, '') + '";'
+            ));
+          }
+          NODE
+          grep -n '"version"\|"build"' apps/nsh-phone/embed/nsh.json
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then echo "::error::缺少 ANDROID_KEYSTORE_BASE64"; exit 1; fi
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then echo "::error::缺少 ANDROID_KEYSTORE_PASSWORD"; exit 1; fi
+          if [ -z "$ANDROID_KEY_ALIAS" ]; then echo "::error::缺少 ANDROID_KEY_ALIAS"; exit 1; fi
+          if [ -z "$ANDROID_KEY_PASSWORD" ]; then echo "::error::缺少 ANDROID_KEY_PASSWORD"; exit 1; fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/nsh-release.keystore"
+          test -s "$RUNNER_TEMP/nsh-release.keystore"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/nsh-release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build TSX bundle
+        run: |
+          set -euo pipefail
+          nsh build apps/nsh-phone/embed/App.tsx --release \
+            --out apps/nsh-phone/android-host/app/src/main/assets/nsh
+
+      - name: Build release APKs
+        working-directory: apps/nsh-phone/android-host
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Collect and verify APKs
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nsh-apks
+          OUT=apps/nsh-phone/android-host/app/build/outputs/apk/release
+          cp "$OUT/app-arm64-v8a-release.apk" /tmp/nsh-apks/
+          cp "$OUT/app-armeabi-v7a-release.apk" /tmp/nsh-apks/
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          if [ -z "$ANDROID_HOME" ]; then BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/35.0.0"; fi
+          test -x "$BUILD_TOOLS/apksigner"
+          test -x "$BUILD_TOOLS/aapt"
+          for apk in /tmp/nsh-apks/*.apk; do
+            "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$apk" > "$apk.verify.txt"
+            "$BUILD_TOOLS/aapt" dump badging "$apk" > "$apk.badging.txt"
+            grep -Fq "package: name='com.moontvplus.phone' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$apk.badging.txt"
+            if grep -Fq "application-debuggable" "$apk.badging.txt"; then
+              echo "::error::release APK 带有 application-debuggable: $apk"; exit 1
+            fi
+            echo "OK $(basename "$apk")"
+          done
+          (cd /tmp/nsh-apks && sha256sum *.apk > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-nsh-${{ inputs.version_name }}-signed
+          path: /tmp/nsh-apks/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "## Android NSH ${{ inputs.version_name }} (${{ inputs.version_code }})"
+            echo
+            echo 'SHA256SUMS:'
+            cat /tmp/nsh-apks/SHA256SUMS
+          } >> "$GITHUB_STEP_SUMMARY"

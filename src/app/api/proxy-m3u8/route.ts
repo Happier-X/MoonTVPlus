@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
 import { filterAdsFromM3U8 } from '@/lib/hls-ad-filter.client';
+import { resolveM3u8Links } from '@/lib/hls/proxy-rewrite';
 import { validateProxyUrlServerSide } from '@/lib/server/ssrf';
 
 export const runtime = 'nodejs';
@@ -202,108 +203,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * 将 m3u8 中的相对链接转换为绝对链接，并将子 m3u8 链接转为代理链接。
- * 此函数仅在代理模式下由服务端调用。
- * - 子 m3u8 链接 → 指向 /api/proxy-m3u8（递归代理）
- * - ts 分片/密钥 → directplay 或 proxySegments 模式指向 /api/proxy/vod/segment
- */
-function resolveM3u8Links(
-  m3u8Content: string,
-  baseUrl: string,
-  source: string,
-  proxyOrigin: string,
-  token: string,
-  adBlockEnabled: boolean,
-  proxySegments: boolean
-): string {
-  const lines = m3u8Content.split('\n');
-  const resolvedLines = [];
-
-  // 解析基础URL
-  const base = new URL(baseUrl);
-  const baseDir = base.href.substring(0, base.href.lastIndexOf('/') + 1);
-
-  let isNextLineUrl = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i];
-
-    // 处理 EXT-X-KEY 标签中的 URI
-    if (line.startsWith('#EXT-X-KEY:')) {
-      // 提取 URI 部分
-      const uriMatch = line.match(/URI="([^"]+)"/);
-      if (uriMatch && uriMatch[1]) {
-        let keyUri = uriMatch[1];
-
-        // 转换为绝对路径
-        if (!keyUri.startsWith('http://') && !keyUri.startsWith('https://')) {
-          if (keyUri.startsWith('/')) {
-            keyUri = `${base.protocol}//${base.host}${keyUri}`;
-          } else {
-            keyUri = new URL(keyUri, baseDir).href;
-          }
-        }
-
-        // 直链/全量代理模式：通过代理访问密钥，避免 CORS 问题
-        if (source === 'directplay' || proxySegments) {
-          keyUri = `${proxyOrigin}/api/proxy/vod/segment?url=${encodeURIComponent(keyUri)}&source=${encodeURIComponent(source)}`;
-        }
-
-        // 替换原来的 URI
-        line = line.replace(/URI="[^"]+"/, `URI="${keyUri}"`);
-      }
-      resolvedLines.push(line);
-      continue;
-    }
-
-    // 注释行直接保留
-    if (line.startsWith('#')) {
-      resolvedLines.push(line);
-      // 检查是否是 EXT-X-STREAM-INF，下一行将是子 m3u8
-      if (line.startsWith('#EXT-X-STREAM-INF:')) {
-        isNextLineUrl = true;
-      }
-      continue;
-    }
-
-    // 空行直接保留
-    if (line.trim() === '') {
-      resolvedLines.push(line);
-      continue;
-    }
-
-    // 处理 URL 行
-    let url = line.trim();
-
-    // 1. 先转换为绝对 URL
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      if (url.startsWith('/')) {
-        // 以 / 开头，相对于域名根目录
-        url = `${base.protocol}//${base.host}${url}`;
-      } else {
-        // 相对于当前目录
-        url = new URL(url, baseDir).href;
-      }
-    }
-
-    // 2. 检查是否是子 m3u8，如果是，转换为代理链接
-    const isM3u8 = url.includes('.m3u8') || isNextLineUrl;
-    if (isM3u8) {
-      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-      const adBlockParam = adBlockEnabled ? '' : '&adblock=false';
-      const proxySegmentsParam = proxySegments ? '&proxySegments=true' : '';
-      url = `${proxyOrigin}/api/proxy-m3u8?url=${encodeURIComponent(url)}${source ? `&source=${encodeURIComponent(source)}` : ''}${tokenParam}${adBlockParam}${proxySegmentsParam}`;
-    } else if (source === 'directplay' || proxySegments) {
-      // 直链/全量代理模式：通过代理访问媒体分片（ts/jpeg/png 等）
-      url = `${proxyOrigin}/api/proxy/vod/segment?url=${encodeURIComponent(url)}&source=${encodeURIComponent(source)}`;
-    }
-
-    resolvedLines.push(url);
-    isNextLineUrl = false;
-  }
-
-  return resolvedLines.join('\n');
 }

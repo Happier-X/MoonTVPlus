@@ -1,0 +1,15 @@
+[package]
+name = "nsh-app-moontvplusspike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+nsh-core = "0.6.1"
+nsh-base = "0.6.1"
+ureq = "3"
+url = "2"
+log = "0.4"
+

@@ -51,10 +51,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Proxy request to local or invalid network is forbidden' }, { status: 403 });
     }
 
+    const range = request.headers.get('range');
     response = await fetch(decodedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': decodedUrl,
+        ...(range ? { Range: range } : {}),
       },
     });
     if (!response.ok) {
@@ -65,6 +67,10 @@ export async function GET(request: Request) {
       response.headers.get('Content-Type') || 'video/mp2t',
       response.headers.get('content-length')
     );
+    if (response.headers.get('content-range')) {
+      headers['Content-Range'] = response.headers.get('content-range') as string;
+    }
+    headers['Accept-Ranges'] = 'bytes';
 
     // 使用流式传输，避免占用内存
     let isCancelled = false;
@@ -139,7 +145,7 @@ export async function GET(request: Request) {
       }
     });
 
-    return new Response(stream, { headers });
+    return new Response(stream, { status: response.status === 206 ? 206 : 200, headers });
   } catch (error) {
     // 确保在错误情况下也释放资源
     if (reader) {

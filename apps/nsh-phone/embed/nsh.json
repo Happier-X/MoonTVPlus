@@ -1,0 +1,25 @@
+{
+  "name": "MoonTVPlus NSH",
+  "id": "com.moontvplus.phone",
+  "version": "1.9.17",
+  "build": 27,
+  "capabilities": {
+    "network": {
+      "hosts": [
+        "*"
+      ]
+    },
+    "host": [
+      "http",
+      "http.stream",
+      "http.cancel",
+      "auth.token",
+      "auth.clear",
+      "device.brightness",
+      "device.volume"
+    ]
+  },
+  "android": {
+    "usesCleartextTraffic": true
+  }
+}

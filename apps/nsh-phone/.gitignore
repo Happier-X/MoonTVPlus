@@ -1,0 +1,7 @@
+.nsh/
+target/
+android-host/.gradle/
+android-host/build/
+android-host/app/build/
+android-host/local.properties
+android-host/app/libs/*.aar
