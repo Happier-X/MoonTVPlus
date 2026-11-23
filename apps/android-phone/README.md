@@ -42,7 +42,7 @@ Android 与桌面共用同一份。依赖用手写 `AppGraph` 装配（Hilt 只�
 | M4 | 详情 + 选集 + ExoPlayer 播放 + 续播 + 进度上报 + 画中画 | 完成 |
 | M4.5 | 手势/控制栏/倍速清晰度音轨/字幕/弹幕（弹弹play）/DLNA 投屏/片头片尾/锁屏/自动连播 | 完成（KMP 共享实现，真机只做了模拟器验证） |
 | M5 | 收藏 / 历史 / 设置 / 网页版入口 | 完成（收藏与历史、用户菜单；直播 / 网络直播按站点配置走 WebView；个人中心细项仍走网页版） |
-| M6 | R8、lint、单测补齐、图标与启动页 | 部分完成（:app 15 个测试类 / 50 个用例，:shared 12 个测试类 / 92 个用例；R8、lint、自适应图标、Android 12 启动页待做） |
+| M6 | R8、lint、单测补齐、图标与启动页 | 完成（R8 + 资源压缩；lintDebug 0 error；:app 15 个测试类 / 50 个用例，:shared 12 个测试类 / 92 个用例；自适应图标与 Android 12 启动页） |
 
 直播、观影室、AI 与磁链搜索**不在第一期**，统一走「网页版」入口（带登录 Cookie 的 WebView 页），后续再逐块原生化。
 
@@ -72,6 +72,8 @@ GitHub Actions：`Build Android Phone APK`，手动运行，参数：
 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
 才能产出正式签名 release APK（和 TV 版共用同一套 secrets）；只有显式关闭 `require_signed` 才允许 debug。
 当前安卓默认版本是 **1.9.16 / versionCode 26**。
+
+Release 构建默认开启 R8 与资源压缩，本地 assembleRelease 产物约 3.1 MB（未签名）；正式包仍走 CI 签名。
 
 ## 安卓应用内更新
 
