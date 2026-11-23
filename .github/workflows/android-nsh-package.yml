@@ -1,0 +1,61 @@
+name: Package NSH release asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build run id containing moontvplus-nsh-1.9.17-signed'
+        required: true
+        type: string
+      version_name:
+        description: 'versionName'
+        required: true
+        default: '1.9.17'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download "${{ inputs.run_id }}" -R "${{ github.repository }}" \
+            -n "moontvplus-nsh-${{ inputs.version_name }}-signed" -D dist
+          ls -lh dist
+
+      - name: Prepare exact site asset
+        env:
+          VERSION: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          SRC="dist/app-arm64-v8a-release.apk"
+          test -s "$SRC"
+          cp "$SRC" "dist/moontvplus-phone-$VERSION-release-signed.apk"
+          (cd dist && sha256sum "moontvplus-phone-$VERSION-release-signed.apk" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload and remove legacy asset names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          TAG="client-v$VERSION"
+          gh release upload "$TAG" "dist/moontvplus-phone-$VERSION-release-signed.apk" "dist/SHA256SUMS.txt" \
+            -R "${{ github.repository }}" --clobber
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)
+          for name in app-arm64-v8a-release.apk SHA256SUMS; do
+            ASSET_ID=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id")
+            if [ -n "$ASSET_ID" ]; then
+              gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$ASSET_ID"
+            fi
+          done
+          gh release view "$TAG" -R "${{ github.repository }}" --json assets --jq '.assets[] | "\(.name) \(.size)"'
