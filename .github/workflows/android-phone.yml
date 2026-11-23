@@ -102,7 +102,8 @@ jobs:
 
       - name: Prepare app icon from public/logo.png
         run: |
-          cp public/logo.png apps/android-phone/app/src/main/res/drawable/logo.png
+          mkdir -p apps/android-phone/app/src/main/res/drawable-nodpi
+          cp public/logo.png apps/android-phone/app/src/main/res/drawable-nodpi/logo.png
 
       - name: Decode Android signing keystore
         id: signing
@@ -145,7 +146,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: apps/android-phone
-        run: ./gradlew :shared:testDebugUnitTest :shared:desktopTest --stacktrace
+        run: ./gradlew :shared:testDebugUnitTest :shared:desktopTest :app:testDebugUnitTest --stacktrace
 
       - name: Build APK
         working-directory: apps/android-phone
