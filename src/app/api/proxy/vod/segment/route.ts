@@ -68,9 +68,9 @@ export async function GET(request: Request) {
       response.headers.get('content-length')
     );
     if (response.headers.get('content-range')) {
-      headers['Content-Range'] = response.headers.get('content-range') as string;
+      headers.set('Content-Range', response.headers.get('content-range') as string);
     }
-    headers['Accept-Ranges'] = 'bytes';
+    headers.set('Accept-Ranges', 'bytes');
 
     // 使用流式传输，避免占用内存
     let isCancelled = false;
