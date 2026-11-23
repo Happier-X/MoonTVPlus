@@ -1,0 +1,52 @@
+name: Publish Android NSH pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build run id'
+        required: true
+        type: string
+      version_name:
+        description: 'versionName'
+        required: true
+        default: '1.9.17'
+        type: string
+      version_code:
+        description: 'versionCode'
+        required: true
+        default: '27'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download "${{ inputs.run_id }}" -R "${{ github.repository }}" \
+            -n "moontvplus-nsh-${{ inputs.version_name }}-signed" -D dist
+          ls -lh dist
+
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="client-nsh-${{ inputs.version_name }}"
+          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::release $TAG already exists"; exit 1
+          fi
+          gh release create "$TAG" dist/*.apk dist/SHA256SUMS \
+            -R "${{ github.repository }}" \
+            --prerelease \
+            --title "MoonTVPlus Android ${{ inputs.version_name }} (Native Shell)" \
+            --notes "Native Shell 重写版，包名 com.moontvplus.phone，可直接覆盖 1.9.16。回退需卸载后安装 client-v1.9.16，或 adb install -d；站点 /downloads/latest.json 未改动。已知限制见 documents/android/release-notes-1.9.17.md。"
