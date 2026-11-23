@@ -181,16 +181,18 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 - CI 会下载 nsh v0.6.1 的 nsh.aar、构建 TSX、运行 Gradle assembleRelease，
   用 ANDROID_KEYSTORE_* secrets 签名，并用 apksigner/aapt 校验包名和版本后上传 artifact。
 - 发布产物：app-arm64-v8a-release.apk、app-armeabi-v7a-release.apk、SHA256SUMS。
-- 本版 tag：client-nsh-1.9.17；GitHub pre-release，不影响站点 /downloads/latest.json。
+- 本版 tag：client-nsh-1.9.17；GitHub 正式 Latest Release。
+- 站点自动更新尚未切换：线上 /downloads/latest.json 仍是 1.9.16。人工上传时把
+  latest.json 放到部署工作区的 public/downloads/latest.json，把 arm64 APK 命名为
+  public/downloads/moontvplus-phone-latest.apk；Cloudflare 构建后会出现在
+  .open-next/assets/downloads/，线上路径是 /downloads/latest.json 和
+  /downloads/moontvplus-phone-latest.apk。
 
 ### 回退 1.9.16
 
 1.9.17 的 versionCode 是 27，直接装 1.9.16（26）会被系统拒绝。回退需要：
 - 卸载当前应用后安装 client-v1.9.16 的 APK（会清空应用数据）；或
 - 用 adb install -d client-v1.9.16.apk 允许降级。
-- 1.9.16 APK：
-  https://github.com/Happier-X/MoonTVPlus/releases/download/client-v1.9.16/moontvplus-phone-1.9.16-release-signed.apk
-  （SHA-256 fbbcd62ef5a898b9b24cae7cb448fdb212ecbdba2d6a12e5163fb81ce9c8eb62）。
 
 ## 已知限制
 
