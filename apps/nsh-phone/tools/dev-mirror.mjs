@@ -1,9 +1,43 @@
 import http from "node:http";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 
 const UPSTREAM_HOST = "tv.370125.xyz";
 const PORT = 9000;
+const CACHE_DIR = path.join(os.tmpdir(), "moontv-mirror-cache");
+const CACHE_TTL = 30 * 60 * 1000;
+fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+function cachePath(url) {
+  return path.join(CACHE_DIR, crypto.createHash("sha256").update(url).digest("hex") + ".json");
+}
+
+function readCache(url) {
+  try {
+    const file = cachePath(url);
+    if (!fs.existsSync(file)) return null;
+    const entry = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (Date.now() - entry.at > CACHE_TTL) return null;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(url, status, headers, body) {
+  try {
+    fs.writeFileSync(cachePath(url), JSON.stringify({
+      at: Date.now(),
+      status,
+      headers,
+      body: body.toString("base64"),
+    }));
+  } catch {
+    // cache is best-effort
+  }
+}
 const UPDATE_APK = process.env.MOCK_UPDATE_APK || "";
 const UPDATE_APK_NAME = "moontvplus-phone-1.9.20.apk";
 let UPDATE_SIZE = 0;
@@ -149,6 +183,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const cacheable = req.method === "GET" && !req.headers.range &&
+    !req.url.startsWith("/api/proxy-m3u8") && !req.url.startsWith("/api/proxy/");
+  if (cacheable) {
+    const hit = readCache(req.url);
+    if (hit) {
+      res.writeHead(hit.status, hit.headers);
+      res.end(Buffer.from(hit.body, "base64"));
+      return;
+    }
+  }
+
   const options = {
     host: UPSTREAM_HOST,
     port: 80,
@@ -200,6 +245,9 @@ const server = http.createServer((req, res) => {
       }
       const headers = { ...upstreamResponse.headers, "content-length": body.length };
       delete headers["content-encoding"];
+      if (cacheable && upstreamResponse.statusCode === 200 && body.length < 5 * 1024 * 1024) {
+        writeCache(req.url, 200, headers, body);
+      }
       res.writeHead(upstreamResponse.statusCode || 502, headers);
       res.end(body);
     });

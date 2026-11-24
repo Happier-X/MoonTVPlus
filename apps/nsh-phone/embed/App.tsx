@@ -333,7 +333,7 @@ const Player = nativeComponent<
 function imageSrc(url: string): string {
   if (!url) return "";
   if (url.startsWith("data:")) return url;
-  if (url.includes("doubanio.com") || url.includes("bgm.tv")) {
+  if (/^https?:/i.test(url)) {
     return base() + "/api/image-proxy?url=" + encodeURIComponent(url);
   }
   return url;
@@ -1090,73 +1090,124 @@ function orderedHomeModules(): HomeModule[] {
     .sort((a, b) => a.order - b.order);
 }
 
+async function homeLoad<T>(work: () => Promise<T>, fallback: T, label: string): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await withTimeout(work(), 15000);
+    } catch (error) {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        continue;
+      }
+      console.warn(label + " failed", error);
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+async function runPool(jobs: (() => Promise<void>)[], limit: number) {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, jobs.length) }, async () => {
+    while (next < jobs.length) {
+      const job = jobs[next];
+      next += 1;
+      await job();
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function loadHome() {
   homeError.set("");
   busy.set("加载首页…");
   void loadHomeLayout();
-  const movieData = await homeList(
-    "/api/douban/categories?kind=movie&category=" +
-      encodeURIComponent("热门") +
-      "&type=" +
-      encodeURIComponent("全部") +
-      "&limit=24"
-  ).catch((error) => {
-    homeError.set("电影加载失败：" + String(error));
-    return [] as Movie[];
-  });
-  const tvData = await homeList("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24").catch(() => [] as Movie[]);
-  const showData = await homeList("/api/douban/categories?kind=tv&category=show&type=show&limit=24").catch(() => [] as Movie[]);
-  const bangumiData = await api("/api/bangumi/calendar")
-    .then((result) => {
-      const flat: Movie[] = [];
-      if (!Array.isArray(result.json)) return flat;
-      for (const day of result.json) {
-        for (const item of day.items ?? []) {
-          if (!item.images) continue;
-          flat.push({
-            id: String(item.id ?? ""),
-            title: item.name_cn || item.name || "",
-            poster:
-              item.images?.large ||
-              item.images?.common ||
-              item.images?.medium ||
-              item.images?.small ||
-              "",
-            rate: item.rating?.score ? String(item.rating.score) : "",
-            year: (item.air_date || "").slice(0, 4),
-          });
-        }
-      }
-      return flat;
-    })
-    .catch((error) => {
-      console.warn("bangumi failed", error);
-      return [] as Movie[];
-    });
-  const duanjuData = await api("/api/duanju/recommends")
-    .then((result) => (Array.isArray(result.json?.data) ? (result.json.data as DuanjuItem[]) : []))
-    .catch(() => [] as DuanjuItem[]);
-  const upcomingData = await api("/api/tmdb/upcoming")
-    .then((result) => {
-      const list = Array.isArray(result.json?.data) ? result.json.data : [];
-      return list
-        .map((item: any) => ({
-          id: String(item.id ?? ""),
-          title: item.title || item.name || "",
-          poster: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : "",
-          rate: item.vote_average ? Number(item.vote_average).toFixed(1) : "",
-          year: String(item.release_date || "").slice(0, 4),
-          releaseDate: String(item.release_date || ""),
-        }))
-        .sort((a: Movie, b: Movie) => String(a.releaseDate).localeCompare(String(b.releaseDate)));
-    })
-    .catch(() => [] as Movie[]);
-  movies.set(movieData);
-  bangumi.set(bangumiData);
-  tvShows.set(tvData);
-  varietyShows.set(showData);
-  duanjuItems.set(duanjuData);
-  upcomingMovies.set(upcomingData);
+  const jobs: (() => Promise<void>)[] = [
+    async () => {
+      const data = await homeLoad(
+        () => homeList(
+          "/api/douban/categories?kind=movie&category=" +
+            encodeURIComponent("热门") +
+            "&type=" +
+            encodeURIComponent("全部") +
+            "&limit=24"
+        ),
+        null as Movie[] | null,
+        "movies"
+      );
+      if (data) movies.set(data);
+      else homeError.set("电影加载失败，请稍后重试");
+    },
+    async () => {
+      tvShows.set(await homeLoad(() => homeList("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24"), [] as Movie[], "tv"));
+    },
+    async () => {
+      varietyShows.set(await homeLoad(() => homeList("/api/douban/categories?kind=tv&category=show&type=show&limit=24"), [] as Movie[], "variety"));
+    },
+    async () => {
+      const flat = await homeLoad(
+        () =>
+          api("/api/bangumi/calendar").then((result) => {
+            const list: Movie[] = [];
+            if (!Array.isArray(result.json)) return list;
+            for (const day of result.json) {
+              for (const item of day.items ?? []) {
+                if (!item.images) continue;
+                list.push({
+                  id: String(item.id ?? ""),
+                  title: item.name_cn || item.name || "",
+                  poster:
+                    item.images?.large ||
+                    item.images?.common ||
+                    item.images?.medium ||
+                    item.images?.small ||
+                    "",
+                  rate: item.rating?.score ? String(item.rating.score) : "",
+                  year: (item.air_date || "").slice(0, 4),
+                });
+              }
+            }
+            return list;
+          }),
+        [] as Movie[],
+        "bangumi"
+      );
+      bangumi.set(flat);
+    },
+    async () => {
+      const data = await homeLoad(
+        () =>
+          api("/api/duanju/recommends").then((result) =>
+            Array.isArray(result.json?.data) ? (result.json.data as DuanjuItem[]) : []
+          ),
+        [] as DuanjuItem[],
+        "duanju"
+      );
+      duanjuItems.set(data);
+    },
+    async () => {
+      const data = await homeLoad(
+        () =>
+          api("/api/tmdb/upcoming").then((result) => {
+            const list = Array.isArray(result.json?.data) ? result.json.data : [];
+            return list
+              .map((item: any) => ({
+                id: String(item.id ?? ""),
+                title: item.title || item.name || "",
+                poster: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : "",
+                rate: item.vote_average ? Number(item.vote_average).toFixed(1) : "",
+                year: String(item.release_date || "").slice(0, 4),
+                releaseDate: String(item.release_date || ""),
+              }))
+              .sort((a: Movie, b: Movie) => String(a.releaseDate).localeCompare(String(b.releaseDate)));
+          }),
+        [] as Movie[],
+        "upcoming"
+      );
+      upcomingMovies.set(data);
+    },
+  ];
+  await runPool(jobs, 3);
   busy.set("");
 }
 
