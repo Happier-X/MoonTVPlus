@@ -1,6 +1,5 @@
 export const FEATURE_PERMISSION_OPTIONS = [
   { key: 'ai_ask', label: 'AI问片', description: 'AI 问片与影视问答' },
-  { key: 'magnet_search', label: '磁链搜索', description: '动漫/磁链搜索' },
   { key: 'live', label: '电视直播', description: '电视直播频道观看' },
   { key: 'web_live', label: '网络直播', description: '网络直播观看' },
 ] as const;

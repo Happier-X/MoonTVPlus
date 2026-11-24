@@ -28,7 +28,6 @@
 - 🧩 **视频源脚本**：支持通过脚本自定义视频源、搜索、详情与播放解析逻辑（实验性）
 - 🪒**自定义去广告**：你可以自定义你的去广告代码，实现更强力的去广告功能
 - 🚀 **更快更顺滑**：相较原版项目整体速度更快，交互体验更好
-- 🧲 **磁力搜索**：聚合 Mikan、Nyaa、ACG.RIP、动漫花园等站点搜索资源，并可对种子做健康检查。
 - 📺 **WebTV**：专为电视大屏设计的操作界面，电视上扫码即可登录，手机浏览器还能化身虚拟遥控器。
 - 🎞️ **外挂字幕**：支持加载本地字幕文件，ASS/SSA 特效字幕、PGS 图像字幕均可正确渲染显示。
 - 🤖 **AI 问片**：全站 AI 影视助手，聊着天就能让它帮你找片、查片信息，也有 AI 生成的影片评论可看。
@@ -520,7 +519,6 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 | OFFLINE_DOWNLOAD_PROXY                   | 离线下载代理                                                 | http://host:port         | (空)                                                         |
 | NEXT_PUBLIC_ENABLE_SOURCE_SEARCH         | 是否开启源站寻片功能                                         | true/false                  | true                                                         |
 | MAX_PLAY_RECORDS_PER_USER                | 单个用户播放记录清理阈值（超过此数量将自动清理旧记录）       | 正整数                      | 100                                                          |
-| MAGNET_HEALTH_MAX_CONCURRENT             | 动漫磁力测活全站同时进行的最大任务数（进程内）               | 1-100                       | 10                                                           |
 | INIT_CONFIG                              | 初始配置（JSON 格式，包含 api_site、custom_category、lives 等） | JSON 字符串                 | (空)                                                         |
 | CONFIG_SUBSCRIPTION_URL                  | 配置订阅 URL（Base58 编码的配置文件地址，优先级高于 INIT_CONFIG） | URL                         | (空)                                                         |
 | CONFIG_SUBSCRIPTION_PROXY                | 拉取配置代理（拉取配置订阅时使用的 HTTP 代理）               | URL                         | (空)                                                         |

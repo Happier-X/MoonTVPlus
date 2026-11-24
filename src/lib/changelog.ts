@@ -332,7 +332,6 @@ export const changelog: ChangelogEntry[] = [
     added: [
     "EdgeOne部署支持",
     "Web TV增加局域网遥控",
-    "动漫磁力搜索增加Nyaa源",
     "下载增加IndexedDB模式",
     "增加下载内容导出功能",
     "增加自定义X-Emby-Authorization"
@@ -842,8 +841,6 @@ export const changelog: ChangelogEntry[] = [
     date: "2026-01-25",
     added: [
     "新增网络直播功能",
-    "动漫磁力搜索增加蜜柑",
-    "动漫磁力搜索增加动漫花园",
     "pansou增加关键词过滤",
     "cloudflare workers部署支持"
     ],
@@ -1071,7 +1068,6 @@ export const changelog: ChangelogEntry[] = [
     "播放页增加更多推荐",
     "新增首页轮播图",
     "播放页面增加背景图",
-    "增加动漫磁力搜索",
     "视频源增加代理开关",
     "新增预缓冲和缓冲策略",
     "新增ai问片功能",

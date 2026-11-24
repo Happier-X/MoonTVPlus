@@ -3,11 +3,9 @@
 
 import {
   ChevronUp,
-  Film,
   Grid2x2,
   List,
   ListVideo,
-  Magnet,
   RefreshCw,
   Search,
   X,
@@ -40,7 +38,6 @@ import {
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
-import AcgSearch from '@/components/AcgSearch';
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ContinueWatching from '@/components/ContinueWatching';
 import ImageViewer from '@/components/ImageViewer';
@@ -67,23 +64,17 @@ type SearchCachePayload = {
 };
 
 export function SearchPageClient({ searchBase = '/search' }: { searchBase?: string }) {
-  // 特殊源入口（/under）只提供影视搜索，不挂磁力 tab
+  // 特殊源入口（/under）只提供影视搜索
   const isSpecialEntry = searchBase === SPECIAL_SOURCE_PATH;
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   // 返回顶部按钮显示状态
   const [showBackToTop, setShowBackToTop] = useState(false);
-  // 选项卡状态: 'video' 或 'acg'
-  const [activeTab, setActiveTab] = useState<'video' | 'acg'>(
-    'video'
-  );
-  // ACG 搜索触发标志
-  const [triggerAcgSearch, setTriggerAcgSearch] = useState(false);
+  const activeTab = 'video' as const;
   // 用户权限
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'user' | null>(
     null
   );
-  const [magnetSearchEnabled, setMagnetSearchEnabled] = useState(false);
   // 源站寻片开关（/under 需要它的特殊源版本入口）
   const [sourceSearchEnabled, setSourceSearchEnabled] = useState(false);
   const [featureFlagsReady, setFeatureFlagsReady] = useState(false);
@@ -1010,20 +1001,11 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     );
   };
 
-  // 监听选项卡切换，自动执行搜索
-  useEffect(() => {
-    // 如果切换到 ACG 磁力搜索选项卡，且有搜索关键词，且已显示结果，则触发搜索
-    if (activeTab === 'acg' && searchQuery.trim() && showResults) {
-      setTriggerAcgSearch((prev) => !prev);
-    }
-  }, [activeTab]);
-
   useEffect(() => {
     // 获取用户权限
     const authInfo = getAuthInfoFromBrowserCookie();
     setUserRole(authInfo?.role || null);
     const runtimeConfig = (window as any).RUNTIME_CONFIG || {};
-    setMagnetSearchEnabled(!!runtimeConfig.MAGNET_SEARCH_ENABLED);
     // 与首页口径一致：未显式关闭即为启用
     setSourceSearchEnabled(runtimeConfig.ENABLE_SOURCE_SEARCH !== false);
     setFeatureFlagsReady(true);
@@ -1114,30 +1096,12 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
   useEffect(() => {
     if (!featureFlagsReady) return;
 
-    const typeParam = searchParams.get('type');
     const query = searchParams.get('q');
-
-    if (isSpecialEntry) {
-      // /under 特殊源入口只有影视搜索；忽略 URL 里的 type
-      setActiveTab('video');
-    } else if (typeParam === 'acg') {
-      if (magnetSearchEnabled) {
-        setActiveTab('acg');
-      } else {
-        setActiveTab('video');
-      }
-    } else {
-      setActiveTab('video');
-    }
 
     if (!query) {
       document.getElementById('searchInput')?.focus();
     }
-  }, [
-    searchParams,
-    magnetSearchEnabled,
-    featureFlagsReady,
-  ]);
+  }, [searchParams, featureFlagsReady]);
 
   useEffect(() => {
     // 等待转换器和搜索设置初始化完成
@@ -1166,7 +1130,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
             router.replace(
               `${searchBase}?q=${encodeURIComponent(trimmedConverted)}${
                 searchParams.get('type')
-                  ? `&type=${searchParams.get('type')}`
+                  ? `&type=video${searchParams.get('type')}`
                   : ''
               }`
             );
@@ -1446,26 +1410,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     searchOptionsReady,
   ]);
 
-  useEffect(() => {
-    if (!featureFlagsReady) return;
-
-    const typeParam = searchParams.get('type');
-    const query = searchParams.get('q');
-    if (!query || !query.trim()) return;
-
-    if (typeParam === 'acg' && magnetSearchEnabled) {
-      setSearchQuery(query);
-      setShowResults(true);
-      setTimeout(() => {
-        setTriggerAcgSearch((prev) => !prev);
-      }, 100);
-    }
-  }, [
-    searchParams,
-    magnetSearchEnabled,
-    featureFlagsReady,
-  ]);
-
   // 组件卸载时，关闭可能存在的连接
   useEffect(() => {
     return () => {
@@ -1529,16 +1473,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     // 立即设置加载状态，避免显示"未找到相关结果"
     setIsLoading(true);
 
-    // 根据当前选项卡执行不同的搜索
-    if (activeTab === 'video') {
-      // 影视搜索
-      router.push(`${searchBase}?q=${encodeURIComponent(trimmed)}&type=video`);
-      // 其余由 searchParams 变化的 effect 处理
-    } else if (activeTab === 'acg') {
-      // ACG 磁力搜索 - 触发搜索
-      router.push(`${searchBase}?q=${encodeURIComponent(trimmed)}&type=acg`);
-      setTriggerAcgSearch((prev) => !prev);
-    }
+    router.push(`${searchBase}?q=${encodeURIComponent(trimmed)}&type=video`);
   };
 
   const handleSuggestionSelect = (suggestion: string) => {
@@ -1566,20 +1501,9 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     // 立即设置加载状态，避免显示"未找到相关结果"
     setIsLoading(true);
 
-    // 根据当前选项卡执行不同的搜索
-    if (activeTab === 'video') {
-      // 影视搜索
-      router.push(
-        `${searchBase}?q=${encodeURIComponent(processedSuggestion)}&type=video`
-      );
-      // 其余由 searchParams 变化的 effect 处理
-    } else if (activeTab === 'acg') {
-      // ACG 磁力搜索 - 触发搜索
-      router.push(
-        `${searchBase}?q=${encodeURIComponent(processedSuggestion)}&type=acg`
-      );
-      setTriggerAcgSearch((prev) => !prev);
-    }
+    router.push(
+      `${searchBase}?q=${encodeURIComponent(processedSuggestion)}&type=video`
+    );
   };
 
   // 返回顶部功能
@@ -1593,19 +1517,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
     } catch (error) {
       // 如果平滑滚动完全失败，使用立即滚动
       document.body.scrollTop = 0;
-    }
-  };
-
-  // 处理标签切换
-  const handleTabChange = (newTab: 'video' | 'acg') => {
-    setActiveTab(newTab);
-
-    // 如果有搜索关键词，更新 URL
-    const currentQuery = searchParams.get('q');
-    if (currentQuery) {
-      router.push(
-        `${searchBase}?q=${encodeURIComponent(currentQuery)}&type=${newTab}`
-      );
     }
   };
 
@@ -1660,45 +1571,14 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                   setShowResults(true);
                   setShowSuggestions(false);
                   router.push(
-                    `${searchBase}?q=${encodeURIComponent(trimmed)}&type=${activeTab}`
+                    `${searchBase}?q=${encodeURIComponent(trimmed)}&type=video${activeTab}`
                   );
-                  if (activeTab === 'acg') {
-                    setTriggerAcgSearch((prev) => !prev);
-                  }
                 }}
               />
             </div>
           </form>
 
-          {/* 选项卡：特殊源入口（/under）只有影视搜索，整块隐藏 */}
-          {!isSpecialEntry && (
-            <div className='flex justify-center mt-6'>
-              <CapsuleSwitch
-                options={[
-                  {
-                    label: '影视搜索',
-                    value: 'video',
-                    icon: <Film size={16} />,
-                  },
-                  ...(magnetSearchEnabled
-                    ? [
-                        {
-                          label: '动漫磁力',
-                          value: 'acg' as const,
-                          icon: <Magnet size={16} />,
-                        },
-                      ]
-                    : []),
-                ]}
-                active={activeTab}
-                onChange={(value) =>
-                  handleTabChange(value as 'video' | 'acg')
-                }
-              />
-            </div>
-          )}
-
-          {/* 特殊源入口（/under）：不挂磁力 tab，改为提供一个「源站寻片」
+          {/* 特殊源入口（/under）：改为提供一个「源站寻片」
               特殊源版本的入口；进入后只浏览/搜索特殊源。
               href 直接写死 special=1：本块只在 /under 渲染，用
               appendSpecialSourceParam 会在 SSR（无 window）与客户端首帧不一致 */}
@@ -1716,12 +1596,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
           )}
 
           
-
-          {activeTab === 'acg' && magnetSearchEnabled && (
-            <div className='mt-4'>
-              <AcgSearch keyword={searchQuery} controlsOnly />
-            </div>
-          )}
 
           {activeTab === 'video' && !showResults && (
             <div className='mx-auto mt-4 flex max-w-2xl justify-end'>
@@ -1824,7 +1698,7 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
         >
           {showResults ? (
             <section className='mb-12'>
-              {activeTab === 'video' ? (
+              {activeTab === 'video' && (
                 <>
                   {/* 影视搜索结果 */}
                   {/* 标题 */}
@@ -2161,21 +2035,6 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                     })()
                   )}
                 </>
-              ) :
-(
-                <>
-                  {/* ACG 磁力搜索结果 */}
-                  <div className='mb-4'>
-                    <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-                      动漫磁力搜索结果
-                    </h2>
-                  </div>
-                  <AcgSearch
-                    keyword={searchQuery}
-                    triggerSearch={triggerAcgSearch}
-                    showSourceSwitch={false}
-                  />
-                </>
               )}
             </section>
           ) : (
@@ -2210,23 +2069,9 @@ export function SearchPageClient({ searchBase = '/search' }: { searchBase?: stri
                         // 立即设置加载状态，避免显示"未找到相关结果"
                         setIsLoading(true);
 
-                        // 根据当前选项卡执行不同的搜索
-                        if (activeTab === 'video') {
-                          // 影视搜索
-                          router.push(
-                            `${searchBase}?q=${encodeURIComponent(
-                              item.trim()
-                            )}&type=video`
-                          );
-                        } else if (activeTab === 'acg') {
-                          // ACG 磁力搜索
-                          router.push(
-                            `${searchBase}?q=${encodeURIComponent(
-                              item.trim()
-                            )}&type=acg`
-                          );
-                          setTriggerAcgSearch((prev) => !prev);
-                        }
+                        router.push(
+                          `${searchBase}?q=${encodeURIComponent(item.trim())}&type=video`
+                        );
                       }}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
                     >

@@ -307,7 +307,6 @@ export default async function RootLayout({
     WEB_LIVE_ENABLED: webLiveEnabled && userFeatureAccess.web_live,
     ADVANCED_RECOMMENDATION_ENABLED: advancedRecommendationEnabled,
     CUSTOM_AD_FILTER_VERSION: customAdFilterVersion,
-    MAGNET_SEARCH_ENABLED: userFeatureAccess.magnet_search,
     FESTIVE_EFFECT_ENABLED: process.env.FESTIVE_EFFECT_ENABLED === 'true',
     SPECIAL_SOURCE_APIS: specialSourceApis,
     RATE_BADGE_STYLE: rateBadgeStyle,
