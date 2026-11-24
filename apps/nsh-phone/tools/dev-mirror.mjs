@@ -176,6 +176,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url.startsWith("/api/server-config")) {
+    const options = {
+      host: UPSTREAM_HOST,
+      port: 80,
+      path: req.url,
+      method: "GET",
+      headers: {
+        "User-Agent": "MoonTVPlus App/1.9.16 (Android) moontvplus app",
+        Accept: "*/*",
+        "Accept-Encoding": "identity",
+      },
+    };
+    const upstream = http.request(options, (upstreamResponse) => {
+      const headers = { ...upstreamResponse.headers };
+      delete headers["content-encoding"];
+      res.writeHead(upstreamResponse.statusCode || 502, headers);
+      upstreamResponse.pipe(res);
+    });
+    upstream.on("error", (error) => {
+      res.writeHead(502, { "content-type": "text/plain" });
+      res.end(String(error));
+    });
+    upstream.end();
+    return;
+  }
+
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
     res.writeHead(401, { "content-type": "text/plain" });

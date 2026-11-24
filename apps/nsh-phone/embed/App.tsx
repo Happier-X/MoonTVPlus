@@ -602,7 +602,10 @@ async function rawRequest(
   return { status: result.status ?? 0, body: result.body ?? "", json: parseBody(result.body ?? "") };
 }
 
+let refreshAuthFailed = false;
+
 async function refreshSession(): Promise<boolean> {
+  refreshAuthFailed = false;
   if (!token()) return false;
   try {
     const result = await rawRequest(base() + "/api/auth/refresh", "POST", undefined, true);
@@ -612,6 +615,7 @@ async function refreshSession(): Promise<boolean> {
       void syncAuth(server(), result.json.token);
       return true;
     }
+    if (result.status === 401) refreshAuthFailed = true;
   } catch (error) {
     console.warn("refresh failed", error);
   }
@@ -628,11 +632,14 @@ async function api(
   if (result.status === 401 && auth) {
     const refreshed = await refreshSession();
     if (refreshed) result = await rawRequest(base() + path, method, body, true);
-  }
-  if (result.status === 401) {
-    await clearSession();
-    route.set({ name: "login" });
-    throw new Error("登录已过期，请重新登录");
+    if (result.status === 401) {
+      if (refreshed || refreshAuthFailed) {
+        await clearSession();
+        route.set({ name: "login" });
+        throw new Error("登录已过期，请重新登录");
+      }
+      throw new Error("网络异常，请稍后重试");
+    }
   }
   return result;
 }
@@ -2229,18 +2236,6 @@ function WebTopBar(props: { title?: string; onBack?: () => void; showSearch?: bo
         </Text>
         <View style={{ flexDirection: "row", gap: 4 }}>
           <View
-            onPress={() => sheet.set("direct")}
-            style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
-          >
-            <Icon name="link" color={c.text} size={20} />
-          </View>
-          <View
-            onPress={() => route.set({ name: "search" })}
-            style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
-          >
-            <Icon name="list" color={c.text} size={20} />
-          </View>
-          <View
             onPress={toggleTheme}
             style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
           >
@@ -2459,14 +2454,15 @@ function HomeScreen() {
               }}
               style={{ width: 96, gap: 8 }}
             >
-              <RemoteImage
-                url={imageSrc(item.poster)}
-                aspectRatio={2 / 3}
-                radius={8}
-                placeholderColor={c.border}
-                errorColor={c.border}
-                style={{ width: 96 }}
-              />
+              <View style={{ width: 96, aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+                <RemoteImage
+                  url={imageSrc(item.poster)}
+                  radius={8}
+                  placeholderColor={c.border}
+                  errorColor={c.border}
+                  style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+                />
+              </View>
               <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 1 }}>{item.title}</Text>
             </View>
           ))}
@@ -2515,6 +2511,20 @@ function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
       <WebTopBar showSearch />
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
+        <View
+          onPress={() => sheet.set("direct")}
+          style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18 }}
+        >
+          <Icon name="link" color="#3B82F6" size={20} />
+        </View>
+        <View
+          onPress={() => route.set({ name: "search" })}
+          style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18 }}
+        >
+          <Icon name="list" color="#3B82F6" size={20} />
+        </View>
+      </View>
       <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
         <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 32 }}>
           {homeError() ? (
