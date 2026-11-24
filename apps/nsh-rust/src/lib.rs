@@ -1,132 +1,85 @@
-//! MoonTVPlus pure-Rust spike: login, local HLS proxy, Video playback.
+//! MoonTVPlus pure-Rust spike: `moontv.video` JNI + MediaPlayer playback.
 
-mod proxy;
+#[cfg(target_os = "android")]
+mod video;
 
 use nsh_base::theme;
-use nsh_core::element::input;
+use nsh_core::JsonValue;
 use nsh_core::prelude::*;
 use nsh_core::storage::Storage;
+use serde_json::json;
 
-const DEFAULT_SERVER: &str = "https://tv.370125.xyz";
-const TEST_STREAM: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
+const REDBULL: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
+const UA: &str = "MoonTVPlus Rust/0.1 (Android)";
 
 #[native_module("moontvplus-rust/native")]
-fn native(registry: &mut Registry) {
+fn exports(registry: &mut Registry) {
     registry.register::<App>();
 }
 
-fn login_request(server: &str, user: &str, password: &str) -> HttpRequest {
-    let body = format!(
-        "{{\"username\":{},\"password\":{}}}",
-        serde_json::to_string(user).unwrap_or_default(),
-        serde_json::to_string(password).unwrap_or_default()
-    );
-    HttpRequest::post(format!("{}/api/login", server.trim_end_matches('/')), body)
-        .header("Content-Type", "application/json")
-        .header("Accept", "*/*")
+#[cfg(target_os = "android")]
+#[native_components(android)]
+fn components(components: &nsh::Components) {
+    video::register(components);
+}
+
+fn direct_cache() -> Option<String> {
+    Storage::get_item("token")
 }
 
 #[component]
 pub fn App() -> impl IntoElement {
-    let server = signal(Storage::get_item("server").unwrap_or_else(|| DEFAULT_SERVER.to_owned()));
-    let user = signal(Storage::get_item("username").unwrap_or_default());
-    let password = signal(String::new());
-    let token = signal(Storage::get_item("token").unwrap_or_default());
-    let page = signal(if Storage::get_item("token").is_some() { "play" } else { "login" });
-    let status = signal(String::new());
-    let busy = signal(false);
-    let url = signal(String::new());
-    let position = signal(0.0_f32);
-    let duration = signal(0.0_f32);
-    let buffering = signal(false);
+    let status = signal("选择一种源开始".to_owned());
+    let position = signal(0.0_f64);
+    let duration = signal(0.0_f64);
+    let src = signal(String::new());
+    let headers = signal(json!({}) as JsonValue);
+    let video_ref = element_ref();
 
-    let do_login = {
-        let server = server.clone();
-        let user = user.clone();
-        let password = password.clone();
-        let token = token.clone();
-        let page = page.clone();
+    let play_direct = {
+        let src = src.clone();
+        let headers = headers.clone();
         let status = status.clone();
-        let busy = busy.clone();
         move || {
-            if busy.get() {
+            src.set(REDBULL.to_owned());
+            headers.set(json!({
+                "User-Agent": UA,
+                "Referer": "https://hn.bfvvs.com/",
+            }));
+            status.set("直连 RedBull 加载中…".to_owned());
+        }
+    };
+
+    let play_site = {
+        let src = src.clone();
+        let headers = headers.clone();
+        let status = status.clone();
+        move || {
+            let token = direct_cache().unwrap_or_default();
+            if token.is_empty() {
+                status.set("没有 token：先往 Storage 写入 token".to_owned());
                 return;
             }
-            busy.set(true);
-            status.set("登录中…".to_owned());
-            let request = login_request(&server.get(), &user.get(), &password.get());
-            let token = token.clone();
-            let page = page.clone();
-            let status = status.clone();
-            let busy = busy.clone();
-            let server_value = server.get();
-            spawn(async move {
-                match fetch(request).await {
-                    Ok(response) if response.ok() => {
-                        match serde_json::from_str::<serde_json::Value>(&response.text()) {
-                            Ok(json) => {
-                                if let Some(value) = json["token"].as_str() {
-                                    token.set(value.to_owned());
-                                    let _ = Storage::set_item("token", value);
-                                    let _ = Storage::set_item("server", &server_value);
-                                    page.set("play");
-                                    status.set("已登录".to_owned());
-                                } else {
-                                    status.set(json["message"].as_str().unwrap_or("登录失败").to_owned());
-                                }
-                            }
-                            Err(error) => status.set(format!("解析失败: {error}")),
-                        }
-                    }
-                    Ok(response) => status.set(format!("HTTP {}", response.status())),
-                    Err(error) => status.set(format!("网络错误: {error}")),
-                }
-                busy.set(false);
-            });
+            let url = format!(
+                "http://10.0.2.2:9000/api/proxy-m3u8?url={}&source=directplay",
+                urlencoding::encode(REDBULL)
+            );
+            src.set(url);
+            headers.set(json!({
+                "User-Agent": UA,
+                "Referer": "https://hn.bfvvs.com/",
+                "Authorization": format!("Bearer {token}"),
+            }));
+            status.set("站点代理（带 Bearer）加载中…".to_owned());
         }
     };
 
-    let start_play = {
-        let server = server.clone();
-        let token = token.clone();
-        let url = url.clone();
-        let status = status.clone();
-        move || {
-            match proxy::start(server.get(), token.get()) {
-                Ok(port) => {
-                    url.set(format!(
-                        "http://127.0.0.1:{}/hls?url={}",
-                        port,
-                        urlencoding::encode(TEST_STREAM)
-                    ));
-                    status.set(format!("代理端口 {port}"));
-                }
-                Err(error) => status.set(format!("代理启动失败: {error}")),
-            }
+    let seek = {
+        let video_ref = video_ref.clone();
+        move |seconds: f64| {
+            video_ref.command("seek", json!(seconds));
         }
     };
-
-    let login_page = {
-        let page = page.clone();
-        move || page.get() == "login"
-    };
-    let play_page = {
-        let page = page.clone();
-        move || page.get() == "play"
-    };
-
-    let server_input = server.clone();
-    let user_input = user.clone();
-    let password_input = password.clone();
-    let login_action = do_login.clone();
-    let busy_text = busy.clone();
-
-    let play_action = start_play.clone();
-    let play_status = status.clone();
-    let play_position = position.clone();
-    let play_duration = duration.clone();
-    let play_url = url.clone();
-    let play_buffering = buffering.clone();
 
     view()
         .flex_1()
@@ -138,179 +91,119 @@ pub fn App() -> impl IntoElement {
                 .flex_1()
                 .p_4()
                 .gap_3()
-                .child(text("MoonTVPlus Rust").text_size(px(24.0)))
-                .child(when(login_page, move || {
+                .child(text("Moontv.video spike").text_size(px(22.0)))
+                .child(
                     view()
+                        .flex_row()
                         .gap_2()
                         .child(
-                            input()
-                                .value({
-                                    let signal = server_input.clone();
-                                    move || signal.get()
-                                })
-                                .on_change({
-                                    let signal = server_input.clone();
-                                    move |value: &str| signal.set(value.to_owned())
-                                })
-                                .placeholder("服务器地址"),
-                        )
-                        .child(
-                            input()
-                                .value({
-                                    let signal = user_input.clone();
-                                    move || signal.get()
-                                })
-                                .on_change({
-                                    let signal = user_input.clone();
-                                    move |value: &str| signal.set(value.to_owned())
-                                })
-                                .placeholder("用户名"),
-                        )
-                        .child(
-                            input()
-                                .value({
-                                    let signal = password_input.clone();
-                                    move || signal.get()
-                                })
-                                .masked(true)
-                                .on_change({
-                                    let signal = password_input.clone();
-                                    move |value: &str| signal.set(value.to_owned())
-                                })
-                                .placeholder("密码"),
-                        )
-                        .child(
                             view()
-                                .px_4()
-                                .py_3()
+                                .px_3()
+                                .py_2()
                                 .rounded(px(8.0))
                                 .bg(move || theme().primary)
-                                .active(|style| style.opacity(0.7))
-                                .on_press(login_action.clone())
+                                .on_press(play_direct.clone())
                                 .child(
-                                    text({
-                                        let signal = busy_text.clone();
-                                        move || {
-                                            if signal.get() {
-                                                "登录中…".to_owned()
-                                            } else {
-                                                "登录".to_owned()
-                                            }
-                                        }
-                                    })
-                                    .text_color(move || theme().primary_foreground),
+                                    text("直连 RedBull").text_color(move || theme().primary_foreground),
                                 ),
                         )
-                }))
-                .child(when(play_page, move || {
+                        .child(
+                            view()
+                                .px_3()
+                                .py_2()
+                                .rounded(px(8.0))
+                                .bg(move || theme().primary)
+                                .on_press(play_site.clone())
+                                .child(
+                                    text("站点代理").text_color(move || theme().primary_foreground),
+                                ),
+                        ),
+                )
+                .child(
                     view()
                         .flex_1()
+                        .rounded(px(8.0))
+                        .overflow_hidden()
+                        .bg(rgb(0x000000))
+                        .child(
+                            native("moontv.video")
+                                .element_ref(&video_ref)
+                                .flex_1()
+                                .prop("src", {
+                                    let src = src.clone();
+                                    move || src.get()
+                                })
+                                .prop("headers", {
+                                    let headers = headers.clone();
+                                    move || headers.get()
+                                })
+                                .on_native_event({
+                                    let status = status.clone();
+                                    let position = position.clone();
+                                    let duration = duration.clone();
+                                    move |event: &NativeEvent| match &*event.name {
+                                        "prepared" => {
+                                            let seconds = event.data["duration"].as_f64().unwrap_or(0.0);
+                                            duration.set(seconds);
+                                            status.set(format!("已准备，时长 {seconds:.0}s"));
+                                        }
+                                        "progress" => {
+                                            position.set(event.data["currentTime"].as_f64().unwrap_or(0.0));
+                                            duration.set(event.data["duration"].as_f64().unwrap_or(0.0));
+                                        }
+                                        "error" => {
+                                            status.set(event.data["message"].as_str().unwrap_or("播放失败").to_owned());
+                                        }
+                                        _ => {}
+                                    }
+                                }),
+                        ),
+                )
+                .child(
+                    text({
+                        let position = position.clone();
+                        let duration = duration.clone();
+                        let status = status.clone();
+                        move || {
+                            format!(
+                                "{:.0}/{:.0}s · {}",
+                                position.get(),
+                                duration.get(),
+                                status.get()
+                            )
+                        }
+                    })
+                    .text_color(move || theme().muted_foreground)
+                    .text_size(px(13.0)),
+                )
+                .child(
+                    view()
+                        .flex_row()
                         .gap_2()
                         .child(
                             view()
-                                .flex_row()
-                                .gap_2()
-                                .child(
-                                    view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().primary)
-                                        .on_press(play_action.clone())
-                                        .child(
-                                            text("开始播放")
-                                                .text_color(move || theme().primary_foreground),
-                                        ),
-                                )
-                                .child(
-                                    text({
-                                        let position = play_position.clone();
-                                        let duration = play_duration.clone();
-                                        move || {
-                                            if duration.get() > 0.0 {
-                                                format!("{:.0}/{:.0}s", position.get(), duration.get())
-                                            } else {
-                                                "未加载".to_owned()
-                                            }
-                                        }
-                                    })
-                                    .text_color(move || theme().muted_foreground),
-                                ),
-                        )
-                        .child(when({
-                            let url = play_url.clone();
-                            move || url.get().is_empty()
-                        }, || {
-                            text("登录后点“开始播放”，经本地代理加载真实 HLS。")
-                                .text_color(move || theme().muted_foreground)
-                        }))
-                        .child(when({
-                            let url = play_url.clone();
-                            move || !url.get().is_empty()
-                        }, move || {
-                            view()
-                                .flex_1()
+                                .px_3()
+                                .py_2()
                                 .rounded(px(8.0))
-                                .overflow_hidden()
-                                .bg(rgb(0x000000))
-                                .child(
-                                    video({
-                                        let url = play_url.clone();
-                                        move || url.get()
-                                    })
-                                    .flex_1()
-                                    .controls(true)
-                                    .on_load({
-                                        let duration = play_duration.clone();
-                                        move |info: &VideoInfo| duration.set(info.duration)
-                                    })
-                                    .on_progress({
-                                        let position = play_position.clone();
-                                        let duration = play_duration.clone();
-                                        move |progress: &VideoProgress| {
-                                            position.set(progress.current_time);
-                                            duration.set(progress.duration);
-                                            let _ = Storage::set_item(
-                                                "resume",
-                                                format!(
-                                                    "{{\"url\":\"{}\",\"position\":{:.1}}}",
-                                                    TEST_STREAM, progress.current_time
-                                                ),
-                                            );
-                                        }
-                                    })
-                                    .on_buffer({
-                                        let buffering = play_buffering.clone();
-                                        move |value: &bool| buffering.set(*value)
-                                    }),
-                                )
-                        }))
-                        .child(
-                            text({
-                                let buffering = play_buffering.clone();
-                                let status = play_status.clone();
-                                move || {
-                                    let mut parts = Vec::new();
-                                    if buffering.get() {
-                                        parts.push("缓冲中".to_owned());
-                                    }
-                                    if !status.get().is_empty() {
-                                        parts.push(status.get());
-                                    }
-                                    parts.join(" · ")
-                                }
-                            })
-                            .text_color(move || theme().muted_foreground)
-                            .text_size(px(13.0)),
+                                .bg(move || theme().muted)
+                                .on_press({
+                                    let seek = seek.clone();
+                                    move || seek(5.0)
+                                })
+                                .child(text("+5s")),
                         )
-                }))
-                .child(
-                    text({
-                        let status = status.clone();
-                        move || status.get()
-                    })
-                    .text_color(move || theme().muted_foreground)
-                    .text_size(px(12.0)),
+                        .child(
+                            view()
+                                .px_3()
+                                .py_2()
+                                .rounded(px(8.0))
+                                .bg(move || theme().muted)
+                                .on_press({
+                                    let seek = seek.clone();
+                                    move || seek(30.0)
+                                })
+                                .child(text("+30s")),
+                        ),
                 ),
         )
 }
