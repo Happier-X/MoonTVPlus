@@ -162,6 +162,18 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 - 设置：服务器地址、退出登录、倍速记忆、默认清晰度、自动连播、弹幕开关、
   关于与版本、检查更新（只显示，不自动下载）。
 
+## 电视直播（原生）
+
+- 入口：底栏「电视直播」，是否显示由 /api/server-config 的 LiveEnabled 决定。
+- 数据：/api/live/sources -> /api/live/channels?source=...；频道按 group 分组，卡片显示台标与当前节目（/api/live/epg）。
+- 播放：复用 ExoPlayer 组件；站点源走 /api/proxy/m3u8 并带 Bearer，direct 源直连；切台通过组件 load 命令复用同一播放器实例。
+- 生产站当前 LiveEnabled=false 且没有直播源。本地验证用开发镜像：
+
+      $env:MOCK_LIVE='1'; node apps/nsh-phone/tools/dev-mirror.mjs
+
+  模拟器里把服务器改成 http://10.0.2.2:9000。
+- 模拟器实测：4 个频道；CCTV-1 首帧约 4.6s，CCTV-2 切台约 3.6s，湖南卫视约 4.2s；故障源会显示错误和重试/换台。
+
 ## Release 构建
 
     cd apps/nsh-phone/android-host
@@ -216,6 +228,3 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 
 版本号单点来源是 embed/nsh.json 的 version/build；Gradle 直接读取，不单独维护。
 Gradle 的 debug 构建使用 Android debug key。
-
-
-

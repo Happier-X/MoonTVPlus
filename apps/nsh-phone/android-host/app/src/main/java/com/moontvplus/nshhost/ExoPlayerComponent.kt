@@ -65,6 +65,7 @@ class ExoPlayerComponent(
     private var headers: Map<String, String> = emptyMap()
     private var pendingSeekMs: Long = 0L
     private var paused = false
+    private var liveMode = false
     private var rate = 1.0
     private var subtitleUrl: String? = null
     private var subtitleSize = 18f
@@ -182,6 +183,9 @@ class ExoPlayerComponent(
                     headers = stringMap(value)
                     if (url != null) load()
                 }
+                "live" -> {
+                    liveMode = value as? Boolean ?: false
+                }
                 "paused" -> {
                     paused = value as? Boolean ?: false
                     player.playWhenReady = !paused
@@ -232,12 +236,14 @@ class ExoPlayerComponent(
         } else {
             DefaultMediaSourceFactory(dataSource).createMediaSource(item)
         }
-        val position = player.currentPosition.takeIf { player.mediaItemCount > 0 } ?: 0L
+        val position = if (liveMode) 0L else player.currentPosition.takeIf { player.mediaItemCount > 0 } ?: 0L
         player.setMediaSource(source)
         player.prepare()
         if (pendingSeekMs > 0) {
             player.seekTo(pendingSeekMs)
             pendingSeekMs = 0
+        } else if (liveMode) {
+            player.seekToDefaultPosition()
         } else if (position > 0) {
             player.seekTo(position)
         }
@@ -252,6 +258,14 @@ class ExoPlayerComponent(
     override fun command(name: String, args: Any?) {
         root.post {
             when (name) {
+                "load" -> {
+                    val map = args as? Map<*, *> ?: return@post
+                    val nextUrl = map["url"] as? String ?: return@post
+                    url = nextUrl
+                    headers = stringMap(map["headers"])
+                    liveMode = map["live"] as? Boolean ?: liveMode
+                    load()
+                }
                 "play" -> player.play()
                 "pause" -> player.pause()
                 "stop" -> player.stop()

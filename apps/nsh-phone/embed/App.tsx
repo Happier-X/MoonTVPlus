@@ -91,6 +91,7 @@ const ICON_PATHS: Record<string, string> = {
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  radio: '<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
 };
 
@@ -135,7 +136,25 @@ type SourceItem = {
   year?: string;
   typeName?: string;
 };
-type Route = { name: "login" } | { name: "home" } | { name: "search" } | { name: "browse"; kind: BrowseKind } | { name: "detail" } | { name: "play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
+type LiveSource = {
+  key: string;
+  name: string;
+  ua?: string;
+  proxyMode?: "full" | "m3u8-only" | "direct";
+  disabled?: boolean;
+};
+type LiveChannel = {
+  id: string;
+  tvgId: string;
+  name: string;
+  logo: string;
+  group: string;
+  url: string;
+};
+type EpgProgram = { start: string; end: string; title: string };
+type LiveProgram = { now: string; next: string };
+
+type Route = { name: "login" } | { name: "home" } | { name: "search" } | { name: "browse"; kind: BrowseKind } | { name: "detail" } | { name: "play" } | { name: "live" } | { name: "live-play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
 type BrowseKind = "movie" | "tv" | "anime" | "show";
 type BrowseOption = { label: string; value: string };
 const BROWSE_OPTIONS: Record<BrowseKind, { title: string; categories: BrowseOption[]; types: BrowseOption[] }> = {
@@ -265,6 +284,7 @@ const Player = nativeComponent<
     rate?: number;
     title?: string;
     subtitle?: string;
+    live?: boolean;
   },
   {
     progress: { position: number; duration: number; rate: number };
@@ -276,7 +296,7 @@ const Player = nativeComponent<
     unsupported: { command: string };
   }
 >("moontvplus.player", {
-  props: ["url", "headers", "paused", "startPosition", "rate", "title", "subtitle"],
+  props: ["url", "headers", "paused", "startPosition", "rate", "title", "subtitle", "live"],
   events: ["progress", "ready", "state", "error", "tracks", "authExpired", "unsupported"],
 });
 
@@ -353,6 +373,22 @@ const loginPassword = signal("");
 const loginError = signal("");
 const rememberLogin = signal(true);
 const searchQuery = signal("可能的爱");
+const liveEnabled = signal(false);
+const liveSources = signal<LiveSource[]>([]);
+const liveSourceKey = signal("");
+const liveChannels = signal<LiveChannel[]>([]);
+const liveGroup = signal("全部");
+const liveLoading = signal(false);
+const liveError = signal("");
+const liveChannel = signal<LiveChannel | null>(null);
+const liveEpg = signal<Record<string, LiveProgram>>({});
+const livePlayError = signal("");
+const livePlayState = signal("");
+const livePaused = signal(false);
+const navVersion = signal(0);
+const liveEpgCache: Record<string, { at: number; value: LiveProgram }> = {};
+let liveBootStarted = false;
+let liveOpenedAt = 0;
 const searchResults = signal<SearchHit[]>([]);
 const searchBusy = signal(false);
 const searchError = signal("");
@@ -536,6 +572,191 @@ async function clearSession() {
   void host.call("auth.clear", {});
 }
 
+function parseLiveTime(value: string): number {
+  if (!value) return 0;
+  if (value.includes("T") || value.includes("-")) return new Date(value).getTime();
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s*([+-]\d{4})$/);
+  if (!match) return new Date(value).getTime();
+  return new Date(match[1] + "-" + match[2] + "-" + match[3] + "T" + match[4] + ":" + match[5] + ":" + match[6] + match[7]).getTime();
+}
+
+async function loadServerConfig() {
+  try {
+    const result = await api("/api/server-config", "GET", undefined, false);
+    console.log("nshspike: server-config " + result.status + " live=" + String(result.json?.LiveEnabled));
+    if (result.status === 200) {
+      liveEnabled.set(result.json?.LiveEnabled === true);
+      navVersion.update((value) => value + 1);
+    }
+  } catch {
+    // 直播开关拿不到时不显示入口，避免点进去空页
+  }
+}
+
+function liveSource(): LiveSource | undefined {
+  return liveSources().find((item) => item.key === liveSourceKey());
+}
+
+function liveShownChannels(): LiveChannel[] {
+  const group = liveGroup();
+  if (!group || group === "全部") return liveChannels();
+  return liveChannels().filter((item) => (item.group || "其他") === group);
+}
+
+function liveGroupNames(): string[] {
+  const names: string[] = ["全部"];
+  for (const item of liveChannels()) {
+    const group = item.group || "其他";
+    if (!names.includes(group)) names.push(group);
+  }
+  return names;
+}
+
+function liveLogo(channel: LiveChannel): string {
+  if (!channel.logo) return "";
+  return base() + "/api/proxy/logo?url=" + encodeURIComponent(channel.logo) + "&source=" + encodeURIComponent(liveSourceKey());
+}
+
+function liveProgramFor(channel: LiveChannel): string {
+  return liveEpg()[channel.tvgId]?.now || "";
+}
+
+async function loadLivePrograms(channels: LiveChannel[]) {
+  const sourceKey = liveSourceKey();
+  const now = Date.now();
+  const nextMap = { ...liveEpg() };
+  let changed = false;
+  await Promise.all(channels.slice(0, 16).map(async (channel) => {
+    if (!channel.tvgId) return;
+    const cached = liveEpgCache[channel.tvgId];
+    if (cached && now - cached.at < 300000) {
+      nextMap[channel.tvgId] = cached.value;
+      changed = true;
+      return;
+    }
+    try {
+      const result = await api("/api/live/epg?source=" + encodeURIComponent(sourceKey) + "&tvgId=" + encodeURIComponent(channel.tvgId));
+      if (result.status !== 200 || !result.json?.success) return;
+      const programs: EpgProgram[] = result.json.data?.programs ?? [];
+      const current = programs.find((item) => parseLiveTime(item.start) <= now && parseLiveTime(item.end) > now);
+      const following = programs.filter((item) => parseLiveTime(item.start) > now).sort((a, b) => parseLiveTime(a.start) - parseLiveTime(b.start))[0];
+      const value = { now: current?.title ?? "", next: following?.title ?? "" };
+      liveEpgCache[channel.tvgId] = { at: now, value };
+      nextMap[channel.tvgId] = value;
+      changed = true;
+    } catch {
+      // 单个频道节目单失败不影响列表
+    }
+  }));
+  if (changed) liveEpg.set(nextMap);
+}
+
+async function loadLiveChannels(key: string) {
+  liveLoading.set(true);
+  liveError.set("");
+  try {
+    const result = await withTimeout(api("/api/live/channels?source=" + encodeURIComponent(key)), 30000);
+    if (liveSourceKey() !== key) return;
+    if (result.status !== 200 || !result.json?.success) {
+      liveError.set(result.json?.error || "频道加载失败");
+      liveChannels.set([]);
+      return;
+    }
+    const list: LiveChannel[] = (result.json.data ?? []).map((item: any) => ({
+      id: String(item.id ?? ""),
+      tvgId: String(item.tvgId || item.name || ""),
+      name: String(item.name ?? ""),
+      logo: String(item.logo ?? ""),
+      group: String(item.group || "其他"),
+      url: String(item.url ?? ""),
+    }));
+    console.log("nshspike: live channels " + result.status + " n=" + list.length);
+    liveChannels.set(list);
+    liveGroup.set("全部");
+    if (list.length === 0) liveError.set("该直播源暂无频道");
+    void loadLivePrograms(list);
+  } catch (error) {
+    if (liveSourceKey() === key) liveError.set("频道加载失败：" + String(error));
+  } finally {
+    if (liveSourceKey() === key) liveLoading.set(false);
+  }
+}
+
+async function loadLiveSources() {
+  liveLoading.set(true);
+  liveError.set("");
+  try {
+    const result = await withTimeout(api("/api/live/sources"), 30000);
+    if (result.status !== 200 || !result.json?.success) {
+      liveError.set(result.json?.error || "直播源加载失败");
+      return;
+    }
+    const sources: LiveSource[] = result.json.data ?? [];
+    console.log("nshspike: live sources " + result.status + " n=" + sources.length);
+    liveSources.set(sources);
+    const key = liveSourceKey() || sources[0]?.key || "";
+    if (!key) {
+      liveError.set("站点未配置直播源");
+      return;
+    }
+    if (liveSourceKey() !== key) liveSourceKey.set(key);
+    await loadLiveChannels(key);
+  } catch (error) {
+    console.log("nshspike: live sources failed " + String(error));
+    liveError.set("直播源加载失败：" + String(error));
+  } finally {
+    liveLoading.set(false);
+  }
+}
+
+function selectLiveSource(key: string) {
+  if (liveSourceKey() === key) return;
+  liveSourceKey.set(key);
+  liveChannels.set([]);
+  liveEpg.set({});
+  void loadLiveChannels(key);
+}
+
+function selectLiveGroup(group: string) {
+  liveGroup.set(group);
+  const filtered = group === "全部" ? liveChannels() : liveChannels().filter((item) => (item.group || "其他") === group);
+  void loadLivePrograms(filtered);
+}
+
+function livePlayUrl(channel = liveChannel()): string {
+  if (!channel) return "";
+  const source = liveSource();
+  const mode = source?.proxyMode || "full";
+  if (mode === "direct") return channel.url;
+  if (/\.mp4(\?|$)/i.test(channel.url)) return channel.url;
+  return base() + "/api/proxy/m3u8?url=" + encodeURIComponent(channel.url) + "&moontv-source=" + encodeURIComponent(source?.key || liveSourceKey());
+}
+
+function playLiveChannel(channel: LiveChannel) {
+  liveOpenedAt = Date.now();
+  console.log("nshspike: live open " + channel.name + " " + channel.url);
+  liveChannel.set(channel);
+  livePlayError.set("");
+  livePlayState.set("loading");
+  livePaused.set(false);
+  if (route().name === "live-play") {
+    const nextUrl = livePlayUrl(channel);
+    playerRef?.command("load", {
+      url: nextUrl,
+      headers: headersFor(nextUrl, nextUrl.startsWith(base())),
+      live: true,
+    });
+  } else {
+    route.set({ name: "live-play" });
+  }
+}
+
+function retryLive() {
+  livePlayError.set("");
+  livePlayState.set("loading");
+  playerRef?.command("retry");
+}
+
 async function boot() {
   const savedServer = await Storage.getItem("server");
   const savedTheme = await Storage.getItem("theme");
@@ -549,6 +770,7 @@ async function boot() {
     server.set(savedServer);
     loginServer.set(savedServer);
   }
+  void loadServerConfig();
   if (savedUser) {
     username.set(savedUser);
     loginUser.set(savedUser);
@@ -615,6 +837,7 @@ async function doLogin() {
     await Storage.setItem("server", serverValue);
     await Storage.setItem("token", result.json.token);
     void syncAuth(serverValue, result.json.token);
+    void loadServerConfig();
     if (rememberLogin()) await Storage.setItem("username", user);
     else await Storage.removeItem("username");
     loginPassword.set("");
@@ -1690,14 +1913,17 @@ function WebTopBar(props: { title?: string; onBack?: () => void; showSearch?: bo
   );
 }
 
-function BottomNav(props: { active: "home" | "search" | BrowseKind }) {
+function BottomNav(props: { active: "home" | "search" | "live" | BrowseKind }) {
+  themeVersion();
   const c = C();
-  const items = [
+  navVersion();
+  const items: { key: string; label: string; icon: string; kind: BrowseKind | null }[] = [
     { key: "home", label: "首页", icon: "home", kind: null },
     { key: "movie", label: "电影", icon: "film", kind: "movie" },
     { key: "tv", label: "剧集", icon: "tv", kind: "tv" },
     { key: "anime", label: "动漫", icon: "cat", kind: "anime" },
     { key: "show", label: "综艺", icon: "clover", kind: "show" },
+    { key: "live", label: "电视直播", icon: "radio", kind: null },
   ];
   return (
     <View
@@ -1713,16 +1939,19 @@ function BottomNav(props: { active: "home" | "search" | BrowseKind }) {
       {items.map((item) => {
         const active = item.key === props.active;
         return (
-          <View
-            onPress={() => {
-              if (item.kind) void openBrowse(item.kind as BrowseKind);
-              else route.set({ name: "home" });
-            }}
-            style={{ flex: 1, height: 56, alignItems: "center", justifyContent: "center", gap: 2 }}
-          >
-            <Icon name={item.icon} color={active ? c.selected : c.secondary} size={24} />
-            <Text style={{ fontSize: 12, color: active ? c.selected : c.secondary }}>{item.label}</Text>
-          </View>
+          <If when={item.key !== "live" || liveEnabled()}>
+            <View
+              onPress={() => {
+                if (item.key === "live") route.set({ name: "live" });
+                else if (item.kind) void openBrowse(item.kind as BrowseKind);
+                else route.set({ name: "home" });
+              }}
+              style={{ flex: 1, height: 56, alignItems: "center", justifyContent: "center", gap: 2 }}
+            >
+              <Icon name={item.icon} color={active ? c.selected : c.secondary} size={24} />
+              <Text style={{ fontSize: 12, color: active ? c.selected : c.secondary }}>{item.label}</Text>
+            </View>
+          </If>
         );
       })}
     </View>
@@ -2935,6 +3164,253 @@ function loadExternalSubtitle() {
   showHint("加载外挂字幕");
 }
 
+function LiveScreen() {
+  effect(() => {
+    if (!liveBootStarted) {
+      liveBootStarted = true;
+      void loadLiveSources();
+    }
+  });
+  return (
+    <View style={{ flex: 1, backgroundColor: C().bg }}>
+      <WebTopBar title="电视直播" onBack={() => route.set({ name: "home" })} />
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 12 }}>
+          {liveSources().length > 1 ? (
+            <Scroll horizontal>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {liveSources().map((source) => {
+                  const active = source.key === liveSourceKey();
+                  return (
+                    <View
+                      onPress={() => selectLiveSource(source.key)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 7,
+                        borderRadius: 16,
+                        backgroundColor: active ? C().brand : C().card,
+                        borderWidth: 1,
+                        borderColor: active ? C().brand : C().border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, color: active ? "#FFFFFF" : C().secondary }}>{source.name}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Scroll>
+          ) : null}
+          {liveGroupNames().length > 1 ? (
+            <Scroll horizontal>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {liveGroupNames().map((group) => {
+                  const active = group === liveGroup();
+                  return (
+                    <View
+                      onPress={() => selectLiveGroup(group)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 7,
+                        borderRadius: 16,
+                        backgroundColor: active ? C().brand : C().card,
+                        borderWidth: 1,
+                        borderColor: active ? C().brand : C().border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, color: active ? "#FFFFFF" : C().secondary }}>{group}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Scroll>
+          ) : null}
+          {liveLoading() && liveChannels().length === 0 ? (
+            <Text style={{ fontSize: 13, color: C().secondary, paddingVertical: 24, textAlign: "center" }}>正在加载直播频道…</Text>
+          ) : null}
+          {liveError() ? (
+            <View style={{ gap: 10, paddingVertical: 12 }}>
+              <Text style={{ fontSize: 13, color: "#C0392B" }}>{liveError()}</Text>
+              <View onPress={() => void loadLiveSources()} style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: C().card, borderWidth: 1, borderColor: C().border }}>
+                <Icon name="rotate" color={C().secondary} size={16} />
+                <Text style={{ fontSize: 12, color: C().secondary }}>重试</Text>
+              </View>
+            </View>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {liveShownChannels().map((channel) => (
+              <View
+                key={channel.id}
+                onPress={() => playLiveChannel(channel)}
+                style={{
+                  width: "31.5%",
+                  padding: 10,
+                  gap: 6,
+                  borderRadius: 10,
+                  backgroundColor: C().card,
+                  borderWidth: 1,
+                  borderColor: liveChannel()?.id === channel.id ? C().brand : C().border,
+                }}
+              >
+                <View style={{ height: 44, alignItems: "center", justifyContent: "center" }}>
+                  {channel.logo ? (
+                    <Image src={liveLogo(channel)} style={{ width: 40, height: 40, borderRadius: 6 }} />
+                  ) : (
+                    <View style={{ width: 40, height: 40, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: C().border }}>
+                      <Icon name="tv" color={C().secondary} size={22} />
+                    </View>
+                  )}
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: C().text, numberOfLines: 1 }}>{channel.name}</Text>
+                <Text style={{ fontSize: 10, color: liveProgramFor(channel) ? C().secondary : C().placeholder, numberOfLines: 2 }}>
+                  {liveProgramFor(channel) || "暂无节目单"}
+                </Text>
+              </View>
+            ))}
+          </View>
+          {!liveLoading() && liveShownChannels().length === 0 ? (
+            <Text style={{ fontSize: 13, color: C().secondary, paddingVertical: 24, textAlign: "center" }}>暂无频道</Text>
+          ) : null}
+        </View>
+      </Scroll>
+      <BottomNav active="live" />
+    </View>
+  );
+}
+
+function LivePlayScreen() {
+  themeVersion();
+  const c = C();
+  const channel = liveChannel();
+  const program = channel ? liveEpg()[channel.tvgId] : undefined;
+  const url = livePlayUrl();
+  const back = () => {
+    if (fullscreen()) setFullscreenMode(false);
+    livePaused.set(true);
+    route.set({ name: "live" });
+  };
+  return (
+    <View style={{ flex: 1, backgroundColor: "#08080b" }}>
+      {!fullscreen() ? <Header title={channel?.name ?? "电视直播"} onBack={back} /> : null}
+      <View
+        style={{
+          height: fullscreen() ? undefined : 240,
+          flex: fullscreen() ? 1 : undefined,
+          position: fullscreen() ? "absolute" : "relative",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 20,
+          backgroundColor: "#000",
+        }}
+      >
+        <Player
+          ref={(node) => {
+            playerRef = node;
+          }}
+          url={url}
+          headers={headersFor(url, url.startsWith(base()))}
+          live={true}
+          paused={livePaused()}
+          rate={1}
+          title={channel?.name ?? "电视直播"}
+          subtitle={liveSource()?.name ?? ""}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+          onReady={() => {
+            console.log("nshspike: live ready " + (Date.now() - liveOpenedAt) + "ms");
+            livePlayState.set("ready");
+            playerRef?.command("setMediaInfo", { title: channel?.name ?? "电视直播", subtitle: liveSource()?.name ?? "" });
+          }}
+          onState={(event) => {
+            const state = event.state ?? "";
+            console.log("nshspike: live state " + state + " +" + (Date.now() - liveOpenedAt) + "ms");
+            livePlayState.set(state);
+            if (state === "playing") livePaused.set(false);
+            if (state === "paused") livePaused.set(true);
+          }}
+          onError={(event) => {
+            console.log("nshspike: live error " + (event.message ?? ""));
+            livePlayError.set(event.message ?? "直播播放失败");
+            livePlayState.set("error");
+          }}
+          onAuthExpired={(event) => {
+            void clearSession();
+            loginError.set(event.message ?? "播放鉴权失败，请重新登录");
+            route.set({ name: "login" });
+          }}
+        />
+        <View style={{ position: "absolute", left: 12, top: 12, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: "rgba(229,57,53,0.9)" }}>
+          <Text style={{ fontSize: 10, fontWeight: "700", color: "#FFFFFF" }}>直播</Text>
+        </View>
+        {livePlayState() === "loading" || livePlayState() === "buffering" ? (
+          <Text style={{ position: "absolute", right: 12, top: 12, fontSize: 11, color: "#FFFFFF" }}>缓冲中…</Text>
+        ) : null}
+        <View style={{ position: "absolute", left: 12, right: 12, bottom: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View onPress={() => { if (livePaused()) { livePaused.set(false); playerRef?.command("play"); } else { livePaused.set(true); playerRef?.command("pause"); } }} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" }}>
+            <Icon name={livePaused() ? "play" : "pause"} color="#FFFFFF" size={20} />
+          </View>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <View onPress={retryLive} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" }}>
+              <Icon name="rotate" color="#FFFFFF" size={18} />
+            </View>
+            <View onPress={() => setFullscreenMode(!fullscreen())} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" }}>
+              <Icon name={fullscreen() ? "minimize" : "maximize"} color="#FFFFFF" size={20} />
+            </View>
+          </View>
+        </View>
+        {livePlayError() ? (
+          <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(0,0,0,0.72)" }}>
+            <Text style={{ fontSize: 13, color: "#FFFFFF", textAlign: "center", paddingHorizontal: 24 }}>{livePlayError()}</Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View onPress={retryLive} style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: C().brand }}>
+                <Text style={{ fontSize: 12, color: "#FFFFFF" }}>重试</Text>
+              </View>
+              <View onPress={back} style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.5)" }}>
+                <Text style={{ fontSize: 12, color: "#FFFFFF" }}>换台</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+      </View>
+      {!fullscreen() ? (
+        <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+          <View style={{ padding: 16, gap: 14 }}>
+            <View style={{ gap: 4 }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: "#F2F2F5" }}>{channel?.name ?? "电视直播"}</Text>
+              <Text style={{ fontSize: 12, color: "#9AA5B1" }}>{liveSource()?.name ?? ""} · {channel?.group ?? ""}</Text>
+              <Text style={{ fontSize: 12, color: "#C7CDD4" }}>正在播出：{program?.now || "暂无节目单"}</Text>
+              {program?.next ? <Text style={{ fontSize: 11, color: "#8B95A1" }}>下一档：{program.next}</Text> : null}
+            </View>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: "#F2F2F5" }}>快速换台</Text>
+            <Scroll horizontal>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {liveChannels().map((item) => (
+                  <View
+                    key={item.id}
+                    onPress={() => playLiveChannel(item)}
+                    style={{
+                      width: 104,
+                      padding: 8,
+                      gap: 4,
+                      borderRadius: 8,
+                      backgroundColor: item.id === channel?.id ? "rgba(31,143,79,0.35)" : "#1E1E1E",
+                      borderWidth: 1,
+                      borderColor: item.id === channel?.id ? "#45C07C" : "#3D4F5D",
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#FFFFFF", numberOfLines: 1 }}>{item.name}</Text>
+                    <Text style={{ fontSize: 10, color: "#9AA5B1", numberOfLines: 1 }}>{liveProgramFor(item) || item.group}</Text>
+                  </View>
+                ))}
+              </View>
+            </Scroll>
+          </View>
+        </Scroll>
+      ) : null}
+    </View>
+  );
+}
+
 function PlayScreen() {
   const shown = () => (seekPreview() >= 0 ? seekPreview() : playPosition());
   const percent = () =>
@@ -3469,6 +3945,7 @@ function PlayScreen() {
 }
 
 function App() {
+  navVersion();
   effect(() => {
     void boot();
   });
@@ -3512,6 +3989,12 @@ function App() {
       <If when={booted() && route().name === "play"}>
         <PlayScreen />
       </If>
+      <If when={booted() && route().name === "live"}>
+        <LiveScreen />
+      </If>
+      <If when={booted() && route().name === "live-play"}>
+        <LivePlayScreen />
+      </If>
       <If when={booted() && route().name === "favorites"}>
         <FavoritesScreen />
       </If>
@@ -3552,5 +4035,3 @@ function App() {
 }
 
 mount(App);
-
-

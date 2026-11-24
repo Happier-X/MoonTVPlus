@@ -41,6 +41,50 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  if (process.env.MOCK_LIVE === "1" && req.url.startsWith("/api/server-config")) {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ LiveEnabled: true, WebLiveEnabled: false, Version: "mock-live", SiteName: "MoonTVPlus Mock" }));
+    return;
+  }
+
+  if (process.env.MOCK_LIVE === "1" && req.url.startsWith("/api/live/")) {
+    const now = Date.now();
+    const pad = (value) => String(value).padStart(2, "0");
+    const xmltv = (ms) => {
+      const d = new Date(ms);
+      return String(d.getFullYear()) + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + " +0800";
+    };
+    const channels = [
+      { id: "cctv1", tvgId: "cctv1", name: "CCTV-1 综合", logo: "https://www.douban.com/favicon.ico", group: "央视", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+      { id: "cctv2", tvgId: "cctv2", name: "CCTV-2 财经", logo: "https://www.douban.com/favicon.ico", group: "央视", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8" },
+      { id: "hunan", tvgId: "hunan", name: "湖南卫视", logo: "https://www.douban.com/favicon.ico", group: "卫视", url: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8" },
+      { id: "dragon", tvgId: "dragon", name: "东方卫视", logo: "https://www.douban.com/favicon.ico", group: "卫视", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" }
+    ];
+    const json = (value) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(value));
+    };
+    if (req.url.startsWith("/api/live/sources")) {
+      json({ success: true, data: [{ key: "mock", name: "测试直播源", url: "", ua: "AptvPlayer/1.4.10", from: "config", channelNumber: channels.length, proxyMode: "direct" }] });
+      return;
+    }
+    if (req.url.startsWith("/api/live/channels")) {
+      json({ success: true, data: channels });
+      return;
+    }
+    if (req.url.startsWith("/api/live/epg")) {
+      const tvgId = new URL("http://mirror" + req.url).searchParams.get("tvgId") || "";
+      json({ success: true, data: { tvgId, source: "mock", epgUrl: "", programs: [
+        { start: xmltv(now - 3600000), end: xmltv(now - 600000), title: "整点新闻" },
+        { start: xmltv(now - 600000), end: xmltv(now + 3000000), title: "测试节目 · " + tvgId },
+        { start: xmltv(now + 3000000), end: xmltv(now + 6600000), title: "下一档节目" }
+      ] } });
+      return;
+    }
+    json({ success: false, error: "mock live endpoint not found" });
+    return;
+  }
+
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
     res.writeHead(401, { "content-type": "text/plain" });
