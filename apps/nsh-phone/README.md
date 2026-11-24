@@ -193,7 +193,7 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 - 卸载当前应用后安装对应旧版 APK（会清空应用数据）；或
 - 用 adb install -d old.apk 允许降级。
 
-旧版 Release：client-v1.9.18、client-v1.9.17、client-v1.9.16。
+旧版 Release：client-v1.9.17、client-v1.9.16；client-v1.9.18 已标记 pre-release，不建议使用。
 
 ## 已知限制
 
@@ -216,5 +216,6 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 
 版本号单点来源是 embed/nsh.json 的 version/build；Gradle 直接读取，不单独维护。
 Gradle 的 debug 构建使用 Android debug key。
+
 
 
