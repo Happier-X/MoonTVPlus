@@ -60,6 +60,7 @@ const theme = signal<"light" | "dark">("light");
 const themeVersion = signal(0);
 
 function C(): Palette {
+  themeVersion();
   return theme() === "light" ? lightPalette : darkPalette;
 }
 
@@ -1065,66 +1066,64 @@ function orderedHomeModules(): HomeModule[] {
 async function loadHome() {
   homeError.set("");
   busy.set("加载首页…");
-  await loadHomeLayout();
-  const [movieData, tvData, showData, bangumiData, duanjuData, upcomingData] = await Promise.all([
-    homeList(
-      "/api/douban/categories?kind=movie&category=" +
-        encodeURIComponent("热门") +
-        "&type=" +
-        encodeURIComponent("全部") +
-        "&limit=24"
-    ).catch((error) => {
-      homeError.set("电影加载失败：" + String(error));
-      return [] as Movie[];
-    }),
-    homeList("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24").catch(() => [] as Movie[]),
-    homeList("/api/douban/categories?kind=tv&category=show&type=show&limit=24").catch(() => [] as Movie[]),
-    api("/api/bangumi/calendar")
-      .then((result) => {
-        const flat: Movie[] = [];
-        if (!Array.isArray(result.json)) return flat;
-        for (const day of result.json) {
-          for (const item of day.items ?? []) {
-            if (!item.images) continue;
-            flat.push({
-              id: String(item.id ?? ""),
-              title: item.name_cn || item.name || "",
-              poster:
-                item.images?.large ||
-                item.images?.common ||
-                item.images?.medium ||
-                item.images?.small ||
-                "",
-              rate: item.rating?.score ? String(item.rating.score) : "",
-              year: (item.air_date || "").slice(0, 4),
-            });
-          }
-        }
-        return flat;
-      })
-      .catch((error) => {
-        console.warn("bangumi failed", error);
-        return [] as Movie[];
-      }),
-    api("/api/duanju/recommends")
-      .then((result) => (Array.isArray(result.json?.data) ? (result.json.data as DuanjuItem[]) : []))
-      .catch(() => [] as DuanjuItem[]),
-    api("/api/tmdb/upcoming")
-      .then((result) => {
-        const list = Array.isArray(result.json?.data) ? result.json.data : [];
-        return list
-          .map((item: any) => ({
+  void loadHomeLayout();
+  const movieData = await homeList(
+    "/api/douban/categories?kind=movie&category=" +
+      encodeURIComponent("热门") +
+      "&type=" +
+      encodeURIComponent("全部") +
+      "&limit=24"
+  ).catch((error) => {
+    homeError.set("电影加载失败：" + String(error));
+    return [] as Movie[];
+  });
+  const tvData = await homeList("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24").catch(() => [] as Movie[]);
+  const showData = await homeList("/api/douban/categories?kind=tv&category=show&type=show&limit=24").catch(() => [] as Movie[]);
+  const bangumiData = await api("/api/bangumi/calendar")
+    .then((result) => {
+      const flat: Movie[] = [];
+      if (!Array.isArray(result.json)) return flat;
+      for (const day of result.json) {
+        for (const item of day.items ?? []) {
+          if (!item.images) continue;
+          flat.push({
             id: String(item.id ?? ""),
-            title: item.title || item.name || "",
-            poster: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : "",
-            rate: item.vote_average ? Number(item.vote_average).toFixed(1) : "",
-            year: String(item.release_date || "").slice(0, 4),
-            releaseDate: String(item.release_date || ""),
-          }))
-          .sort((a: Movie, b: Movie) => String(a.releaseDate).localeCompare(String(b.releaseDate)));
-      })
-      .catch(() => [] as Movie[]),
-  ]);
+            title: item.name_cn || item.name || "",
+            poster:
+              item.images?.large ||
+              item.images?.common ||
+              item.images?.medium ||
+              item.images?.small ||
+              "",
+            rate: item.rating?.score ? String(item.rating.score) : "",
+            year: (item.air_date || "").slice(0, 4),
+          });
+        }
+      }
+      return flat;
+    })
+    .catch((error) => {
+      console.warn("bangumi failed", error);
+      return [] as Movie[];
+    });
+  const duanjuData = await api("/api/duanju/recommends")
+    .then((result) => (Array.isArray(result.json?.data) ? (result.json.data as DuanjuItem[]) : []))
+    .catch(() => [] as DuanjuItem[]);
+  const upcomingData = await api("/api/tmdb/upcoming")
+    .then((result) => {
+      const list = Array.isArray(result.json?.data) ? result.json.data : [];
+      return list
+        .map((item: any) => ({
+          id: String(item.id ?? ""),
+          title: item.title || item.name || "",
+          poster: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : "",
+          rate: item.vote_average ? Number(item.vote_average).toFixed(1) : "",
+          year: String(item.release_date || "").slice(0, 4),
+          releaseDate: String(item.release_date || ""),
+        }))
+        .sort((a: Movie, b: Movie) => String(a.releaseDate).localeCompare(String(b.releaseDate)));
+    })
+    .catch(() => [] as Movie[]);
   movies.set(movieData);
   bangumi.set(bangumiData);
   tvShows.set(tvData);
@@ -2106,11 +2105,12 @@ function cleanSource(name: string): string {
 }
 
 function WebTopBar(props: { title?: string; onBack?: () => void; showSearch?: boolean }) {
+  themeVersion();
   const c = C();
   return (
     <View
       style={{
-        paddingTop: "env(safe-area-inset-top)",
+        paddingTop: 24,
         backgroundColor: c.header,
         backdropFilter: "blur(24px)",
         borderBottomWidth: 1,
@@ -2218,6 +2218,7 @@ function BottomNav(props: { active: "home" | "search" | "live" | BrowseKind }) {
 }
 
 function SectionTitle(props: { title: string; onMore?: () => void }) {
+  themeVersion();
   const c = C();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -2231,6 +2232,7 @@ function SectionTitle(props: { title: string; onMore?: () => void }) {
 }
 
 function PosterCard(props: { movie: Movie; width?: number | string }) {
+  themeVersion();
   const c = C();
   return (
     <View onPress={() => void openDetail(props.movie)} style={{ width: props.width ?? 96, gap: 6 }}>
@@ -2268,6 +2270,7 @@ function HomeRow(props: { title: string; onMore: () => void; children: any }) {
 }
 
 function DuanjuCard(props: { item: DuanjuItem }) {
+  themeVersion();
   const c = C();
   return (
     <View
@@ -2306,6 +2309,7 @@ function DuanjuCard(props: { item: DuanjuItem }) {
 }
 
 function HomeScreen() {
+  themeVersion();
   const c = C();
   const historyItem = latestHistory();
   const resumeItem = resume();
