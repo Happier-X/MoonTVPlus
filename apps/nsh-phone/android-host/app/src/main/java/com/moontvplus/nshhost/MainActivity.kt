@@ -50,6 +50,7 @@ class MainActivity : Activity() {
             "versionCode" to PackageInfoCompat.getLongVersionCode(packageInfo)
         ))
         nsh.registerComponent("moontvplus.player") { context -> ExoPlayerComponent(context) }
+        nsh.registerComponent("moontvplus.image") { context -> ImageComponent(context) }
         nsh.handle("http") { data, reply -> handleHttp(data, reply) }
         nsh.handle("http.stream") { data, reply -> handleStream(data, reply) }
         nsh.handle("http.cancel") { data, reply ->

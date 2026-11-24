@@ -328,6 +328,29 @@ const Player = nativeComponent<
   events: ["progress", "ready", "state", "error", "tracks", "authExpired", "unsupported"],
 });
 
+function imageSrc(url: string): string {
+  if (!url) return "";
+  if (url.startsWith("data:")) return url;
+  if (url.includes("doubanio.com") || url.includes("bgm.tv")) {
+    return base() + "/api/image-proxy?url=" + encodeURIComponent(url);
+  }
+  return url;
+}
+
+const RemoteImage = nativeComponent<
+  {
+    url: string;
+    radius?: number;
+    aspectRatio?: number;
+    placeholderColor?: string;
+    errorColor?: string;
+  },
+  {}
+>("moontvplus.image", {
+  props: ["url", "radius", "aspectRatio", "placeholderColor", "errorColor"],
+  events: [],
+});
+
 const server = signal(DEFAULT_SERVER);
 const token = signal("");
 const username = signal("");
@@ -361,6 +384,7 @@ const detailSearchDone = signal(0);
 const detailSearchTotal = signal(0);
 const detailSearchErrors = signal<{ sourceName: string; error: string }[]>([]);
 const detailEpisodesLoading = signal(false);
+const detailTab = signal<"episodes" | "sources" | "danmaku">("episodes");
 const searchFirstMs = signal(-1);
 const searchAllMs = signal(-1);
 const searchCacheHit = signal(false);
@@ -1624,6 +1648,7 @@ async function openDetail(movie: Movie) {
   detailEpisodeTitles.set([]);
   detailError.set("");
   detailEpisodesLoading.set(false);
+  detailTab.set("episodes");
   detailSearchDone.set(0);
   detailSearchTotal.set(0);
   detailSearchErrors.set([]);
@@ -1940,9 +1965,13 @@ function Card(props: { movie: Movie }) {
   return (
     <View onPress={() => void openDetail(props.movie)} style={{ width: "47.8%", gap: 4 }}>
       {props.movie.poster ? (
-        <Image
-          src={props.movie.poster}
-          style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: "#1c1c22" }}
+        <RemoteImage
+          url={imageSrc(props.movie.poster)}
+          aspectRatio={2 / 3}
+          radius={8}
+          placeholderColor="#1C1C22"
+          errorColor="#1C1C22"
+          style={{ width: "100%" }}
         />
       ) : (
         <View
@@ -2192,7 +2221,6 @@ function BottomNav(props: { active: "home" | "search" | "live" | BrowseKind }) {
         backdropFilter: "blur(24px)",
         borderTopWidth: 1,
         borderTopColor: c.border,
-        paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
       {items.map((item) => {
@@ -2222,7 +2250,7 @@ function SectionTitle(props: { title: string; onMore?: () => void }) {
   const c = C();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-      <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>{props.title}</Text>
+      <Text style={{ fontSize: 20, fontWeight: "700", color: c.text, lineHeight: 28 }}>{props.title}</Text>
       <View onPress={props.onMore} style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
         <Text style={{ fontSize: 14, color: c.secondary }}>查看更多</Text>
         <Icon name="chevronRight" color={c.secondary} size={16} />
@@ -2236,10 +2264,15 @@ function PosterCard(props: { movie: Movie; width?: number | string }) {
   const c = C();
   return (
     <View onPress={() => void openDetail(props.movie)} style={{ width: props.width ?? 96, gap: 6 }}>
-      <Image
-        src={props.movie.poster}
-        style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
-      />
+<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+        <RemoteImage
+          url={imageSrc(props.movie.poster)}
+          radius={8}
+          placeholderColor={c.border}
+          errorColor={c.border}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+        />
+      </View>
       <Text
         style={{
           fontSize: 14,
@@ -2260,7 +2293,7 @@ function PosterCard(props: { movie: Movie; width?: number | string }) {
 
 function HomeRow(props: { title: string; onMore: () => void; children: any }) {
   return (
-    <View style={{ gap: 12 }}>
+    <View style={{ gap: 16 }}>
       <SectionTitle title={props.title} onMore={props.onMore} />
       <Scroll horizontal>
         <View style={{ flexDirection: "row", gap: 8 }}>{props.children}</View>
@@ -2294,10 +2327,15 @@ function DuanjuCard(props: { item: DuanjuItem }) {
       }}
       style={{ width: "31%", gap: 6 }}
     >
-      <Image
-        src={props.item.poster}
-        style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
-      />
+<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+        <RemoteImage
+          url={imageSrc(props.item.poster)}
+          radius={8}
+          placeholderColor={c.border}
+          errorColor={c.border}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+        />
+      </View>
       <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
         {props.item.title}
       </Text>
@@ -2354,9 +2392,13 @@ function HomeScreen() {
               }}
               style={{ width: 96, gap: 6 }}
             >
-              <Image
-                src={item.poster}
-                style={{ width: 96, aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+              <RemoteImage
+                url={imageSrc(item.poster)}
+                aspectRatio={2 / 3}
+                radius={8}
+                placeholderColor={c.border}
+                errorColor={c.border}
+                style={{ width: 96 }}
               />
               <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>{item.title}</Text>
               <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>{item.year || ""}</Text>
@@ -2408,7 +2450,7 @@ function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
       <WebTopBar showSearch />
       <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
-        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 32 }}>
           {homeError() ? (
             <Text style={{ color: "#C0392B", fontSize: 12 }}>{homeError()}</Text>
           ) : null}
@@ -2429,8 +2471,11 @@ function HomeScreen() {
                 }}
               >
                 {resumeCover ? (
-                  <Image
-                    src={resumeCover}
+                  <RemoteImage
+                    url={imageSrc(resumeCover)}
+                    radius={8}
+                    placeholderColor={c.card}
+                    errorColor={c.card}
                     style={{ position: "absolute", width: "100%", height: "100%" }}
                   />
                 ) : null}
@@ -2584,9 +2629,12 @@ function SearchScreen() {
                   }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
                 >
-                  <Image
-                    src={item.poster}
-                    style={{ width: 48, height: 72, borderRadius: 6, backgroundColor: c.border }}
+                  <RemoteImage
+                    url={imageSrc(item.poster)}
+                    radius={6}
+                    placeholderColor={c.border}
+                    errorColor={c.border}
+                    style={{ width: 48, height: 72 }}
                   />
                   <View style={{ flex: 1, gap: 4 }}>
                     <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 1 }}>{item.title}</Text>
@@ -2605,10 +2653,15 @@ function SearchScreen() {
                   onPress={() => openPickerFor(group.title, group.items)}
                   style={{ width: "31.5%", gap: 6 }}
                 >
-                  <Image
-                    src={group.poster}
-                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
-                  />
+<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+        <RemoteImage
+          url={imageSrc(group.poster)}
+          radius={8}
+          placeholderColor={c.border}
+          errorColor={c.border}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+        />
+      </View>
                   <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 2 }}>{group.title}</Text>
                   <Text style={{ fontSize: 11, color: c.secondary }}>{group.items.length} 个源</Text>
                 </View>
@@ -2632,10 +2685,15 @@ function SearchScreen() {
                   }}
                   style={{ width: "31.5%", gap: 6 }}
                 >
-                  <Image
-                    src={item.poster}
-                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
-                  />
+<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+        <RemoteImage
+          url={imageSrc(item.poster)}
+          radius={8}
+          placeholderColor={c.border}
+          errorColor={c.border}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+        />
+      </View>
                   <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 2 }}>{item.title}</Text>
                   <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
                     {cleanSource(item.sourceName || item.source)}
@@ -2922,10 +2980,15 @@ function FavoritesSheet() {
                   }}
                   style={{ width: "31.5%", gap: 6 }}
                 >
-                  <Image
-                    src={item.cover}
-                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
-                  />
+<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+        <RemoteImage
+          url={imageSrc(item.cover)}
+          radius={8}
+          placeholderColor={c.border}
+          errorColor={c.border}
+          style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+        />
+      </View>
                   <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
                     {item.title}
                   </Text>
@@ -2963,9 +3026,13 @@ function HistorySheet() {
                   }}
                   style={{ width: "31.5%", gap: 6 }}
                 >
-                  <Image
-                    src={item.cover}
-                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+                  <RemoteImage
+                    url={imageSrc(item.cover)}
+                    aspectRatio={2 / 3}
+                    radius={8}
+                    placeholderColor={c.border}
+                    errorColor={c.border}
+                    style={{ width: "100%" }}
                   />
                   <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
                     {item.title}
@@ -3357,9 +3424,12 @@ function DetailScreen() {
         <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 16 }}>
           <View style={{ flexDirection: "row", gap: 12 }}>
             {detailPoster() ? (
-              <Image
-                src={detailPoster()}
-                style={{ width: 96, height: 144, borderRadius: 8, backgroundColor: c.border }}
+              <RemoteImage
+                url={imageSrc(detailPoster())}
+                radius={8}
+                placeholderColor={c.border}
+                errorColor={c.border}
+                style={{ width: 96, height: 144 }}
               />
             ) : null}
             <View style={{ flex: 1, gap: 6 }}>
@@ -3396,93 +3466,137 @@ function DetailScreen() {
             </View>
           </View>
 
-          {detailSources().length > 0 ? (
+          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: c.border }}>
+            {([
+              { key: "episodes", label: "选集" },
+              { key: "sources", label: "换源" },
+              { key: "danmaku", label: "弹幕" },
+            ] as const).map((tab) => {
+              const active = detailTab() === tab.key;
+              return (
+                <View
+                  key={tab.key}
+                  onPress={() => detailTab.set(tab.key)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    alignItems: "center",
+                    borderBottomWidth: 2,
+                    borderBottomColor: active ? c.selected : "transparent",
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: active ? "600" : "400", color: active ? c.selected : c.secondary }}>
+                    {tab.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {detailTab() === "sources" ? (
             <View style={{ gap: 8 }}>
-              <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>选源</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {detailSources().map((source) => {
-                  const active = source.source === detailSource();
-                  return (
+              {detailSources().length > 0 ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {detailSources().map((source) => {
+                    const active = source.source === detailSource();
+                    return (
+                      <View
+                        onPress={() => void selectSource(source)}
+                        style={{
+                          height: 32,
+                          paddingHorizontal: 12,
+                          justifyContent: "center",
+                          borderRadius: 16,
+                          backgroundColor: active ? c.selected : "transparent",
+                          borderWidth: 1,
+                          borderColor: active ? c.selected : c.border,
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: active ? "#fff" : c.text }}>
+                          {cleanSource(source.sourceName)}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={{ fontSize: 13, color: c.secondary }}>还没有可用源</Text>
+              )}
+            </View>
+          ) : null}
+
+          {detailTab() === "episodes" ? (
+            <View style={{ gap: 10 }}>
+              {detailEpisodesLoading() ? (
+                <Text style={{ fontSize: 12, color: c.secondary }}>正在获取集数…</Text>
+              ) : null}
+              {detailEpisodes().length > 0 ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 8, columnGap: 8 }}>
+                  {detailEpisodes().map((episode, index) => (
                     <View
-                      onPress={() => void selectSource(source)}
+                      onPress={() => playDetailEpisode(index)}
                       style={{
-                        height: 32,
-                        paddingHorizontal: 12,
+                        width: "31.5%",
+                        height: 44,
+                        alignItems: "center",
                         justifyContent: "center",
-                        borderRadius: 16,
-                        backgroundColor: active ? c.selected : "transparent",
+                        borderRadius: 8,
+                        backgroundColor: c.card,
                         borderWidth: 1,
-                        borderColor: active ? c.selected : c.border,
+                        borderColor: c.border,
                       }}
                     >
-                      <Text style={{ fontSize: 14, color: active ? "#fff" : c.text }}>
-                        {cleanSource(source.sourceName)}
+                      <Text style={{ fontSize: 14, color: c.text, numberOfLines: 1 }}>
+                        {detailEpisodeTitles()[index]?.replace(/<[^>]+>/g, "") || String(index + 1)}
                       </Text>
                     </View>
-                  );
-                })}
-              </View>
-            </View>
-          ) : null}
-
-          {detailEpisodesLoading() ? (
-            <Text style={{ fontSize: 12, color: c.secondary }}>正在获取集数…</Text>
-          ) : null}
-
-          {detailEpisodes().length > 0 ? (
-            <View style={{ gap: 8 }}>
-              <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>选集</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 8, columnGap: 8 }}>
-                {detailEpisodes().map((episode, index) => (
-                  <View
-                    onPress={() => playDetailEpisode(index)}
-                    style={{
-                      width: "31.5%",
-                      height: 44,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 8,
-                      backgroundColor: c.card,
-                      borderWidth: 1,
-                      borderColor: c.border,
+                  ))}
+                </View>
+              ) : null}
+              {detailEpisodes().length > 0 ? (
+                <View
+                  onPress={() => playDetailEpisode(0)}
+                  style={{
+                    height: 48,
+                    borderRadius: 8,
+                    backgroundColor: c.brand,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: "#fff" }}>播放第 1 集</Text>
+                </View>
+              ) : null}
+              {detailSources().length > 0 && detailEpisodes().length === 0 && !detailEpisodesLoading() ? (
+                <View style={{ flexDirection: "row", gap: 16 }}>
+                  <Text
+                    onPress={() => {
+                      const item =
+                        detailSources().find((source) => source.source === detailSource()) ??
+                        detailSources()[0];
+                      if (item) void selectSource(item);
                     }}
+                    style={{ fontSize: 14, color: c.brand }}
                   >
-                    <Text style={{ fontSize: 14, color: c.text, numberOfLines: 1 }}>
-                      {detailEpisodeTitles()[index]?.replace(/<[^>]+>/g, "") || String(index + 1)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              <View
-                onPress={() => playDetailEpisode(0)}
-                style={{
-                  height: 48,
-                  marginTop: 4,
-                  borderRadius: 8,
-                  backgroundColor: c.brand,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ fontSize: 16, fontWeight: "600", color: "#fff" }}>播放第 1 集</Text>
-              </View>
+                    重试集数
+                  </Text>
+                  <Text onPress={() => detailTab.set("sources")} style={{ fontSize: 14, color: c.secondary }}>
+                    去换源
+                  </Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
-          {detailSources().length > 0 && detailEpisodes().length === 0 && !detailEpisodesLoading() ? (
-            <View style={{ flexDirection: "row", gap: 16 }}>
-              <Text
-                onPress={() => {
-                  const item =
-                    detailSources().find((source) => source.source === detailSource()) ??
-                    detailSources()[0];
-                  if (item) void selectSource(item);
-                }}
-                style={{ fontSize: 14, color: c.brand }}
-              >
-                重试集数
+          {detailTab() === "danmaku" ? (
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <SettingChip label="弹幕开" active={danmakuEnabled()} onPress={() => { danmakuEnabled.set(true); void Storage.setItem("danmakuEnabled", "true"); pushDanmaku(); }} />
+                <SettingChip label="弹幕关" active={!danmakuEnabled()} onPress={() => { danmakuEnabled.set(false); void Storage.setItem("danmakuEnabled", "false"); pushDanmaku(); }} />
+              </View>
+              <Text style={{ fontSize: 12, color: c.secondary }}>
+                透明度和字号可在播放页的弹幕面板调整。
               </Text>
-              <Text style={{ fontSize: 14, color: c.secondary }}>或在上方换源</Text>
             </View>
           ) : null}
         </View>
