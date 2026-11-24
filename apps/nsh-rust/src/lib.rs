@@ -1,85 +1,29 @@
-//! MoonTVPlus pure-Rust spike: `moontv.video` JNI + MediaPlayer playback.
+//! Video capability probe for Android: built-in `video()` with network grants.
 
-#[cfg(target_os = "android")]
-mod video;
+mod proxy;
 
 use nsh_base::theme;
-use nsh_core::JsonValue;
 use nsh_core::prelude::*;
 use nsh_core::storage::Storage;
-use serde_json::json;
 
+const MUX: &str = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+const MP4: &str = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 const REDBULL: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
-const UA: &str = "MoonTVPlus Rust/0.1 (Android)";
+const SITE_PROXY: &str = "https://tv.370125.xyz/api/proxy-m3u8?url=https%3A%2F%2Fhn.bfvvs.com%2Fplay%2FdJ6PoBvd%2Findex.m3u8&source=directplay";
 
 #[native_module("moontvplus-rust/native")]
 fn exports(registry: &mut Registry) {
     registry.register::<App>();
 }
 
-#[cfg(target_os = "android")]
-#[native_components(android)]
-fn components(components: &nsh::Components) {
-    video::register(components);
-}
-
-fn direct_cache() -> Option<String> {
-    Storage::get_item("token")
-}
-
 #[component]
 pub fn App() -> impl IntoElement {
-    let status = signal("选择一种源开始".to_owned());
-    let position = signal(0.0_f64);
-    let duration = signal(0.0_f64);
     let src = signal(String::new());
-    let headers = signal(json!({}) as JsonValue);
-    let video_ref = element_ref();
-
-    let play_direct = {
-        let src = src.clone();
-        let headers = headers.clone();
-        let status = status.clone();
-        move || {
-            src.set(REDBULL.to_owned());
-            headers.set(json!({
-                "User-Agent": UA,
-                "Referer": "https://hn.bfvvs.com/",
-            }));
-            status.set("直连 RedBull 加载中…".to_owned());
-        }
-    };
-
-    let play_site = {
-        let src = src.clone();
-        let headers = headers.clone();
-        let status = status.clone();
-        move || {
-            let token = direct_cache().unwrap_or_default();
-            if token.is_empty() {
-                status.set("没有 token：先往 Storage 写入 token".to_owned());
-                return;
-            }
-            let url = format!(
-                "http://10.0.2.2:9000/api/proxy-m3u8?url={}&source=directplay",
-                urlencoding::encode(REDBULL)
-            );
-            src.set(url);
-            headers.set(json!({
-                "User-Agent": UA,
-                "Referer": "https://hn.bfvvs.com/",
-                "Authorization": format!("Bearer {token}"),
-            }));
-            status.set("站点代理（带 Bearer）加载中…".to_owned());
-        }
-    };
-
-    let seek = {
-        let video_ref = video_ref.clone();
-        move |seconds: f64| {
-            video_ref.command("seek", json!(seconds));
-        }
-    };
+    let status = signal("选一组".to_owned());
+    let error = signal(String::new());
+    let position = signal(0.0_f32);
+    let duration = signal(0.0_f32);
+    let proxy_port = signal(0_u16);
 
     view()
         .flex_1()
@@ -90,34 +34,68 @@ pub fn App() -> impl IntoElement {
             view()
                 .flex_1()
                 .p_4()
-                .gap_3()
-                .child(text("Moontv.video spike").text_size(px(22.0)))
+                .gap_2()
+                .child(text("Video probe").text_size(px(20.0)))
                 .child(
                     view()
                         .flex_row()
+                        .flex_wrap()
                         .gap_2()
-                        .child(
-                            view()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.0))
-                                .bg(move || theme().primary)
-                                .on_press(play_direct.clone())
-                                .child(
-                                    text("直连 RedBull").text_color(move || theme().primary_foreground),
-                                ),
-                        )
-                        .child(
-                            view()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.0))
-                                .bg(move || theme().primary)
-                                .on_press(play_site.clone())
-                                .child(
-                                    text("站点代理").text_color(move || theme().primary_foreground),
-                                ),
-                        ),
+                        .child(button("mux HLS", {
+                            let src = src.clone();
+                            let status = status.clone();
+                            let error = error.clone();
+                            move || {
+                                src.set(MUX.to_owned());
+                                status.set("mux HLS".to_owned());
+                                error.set(String::new());
+                            }
+                        }))
+                        .child(button("mp4", {
+                            let src = src.clone();
+                            let status = status.clone();
+                            let error = error.clone();
+                            move || {
+                                src.set(MP4.to_owned());
+                                status.set("mp4".to_owned());
+                                error.set(String::new());
+                            }
+                        }))
+                        .child(button("site proxy", {
+                            let src = src.clone();
+                            let status = status.clone();
+                            let error = error.clone();
+                            move || {
+                                src.set(SITE_PROXY.to_owned());
+                                status.set("site proxy (no auth header)".to_owned());
+                                error.set(String::new());
+                            }
+                        }))
+                        .child(button("local proxy", {
+                            let src = src.clone();
+                            let status = status.clone();
+                            let error = error.clone();
+                            move || {
+                                let token = Storage::get_item("token").unwrap_or_default();
+                                if token.is_empty() {
+                                    status.set("no token".to_owned());
+                                    return;
+                                }
+                                match proxy::start("http://10.0.2.2:9000".to_owned(), token) {
+                                    Ok(port) => {
+                                        proxy_port.set(port);
+                                        src.set(format!(
+                                            "http://127.0.0.1:{}/a.m3u8?u={}",
+                                            port,
+                                            urlencoding::encode(REDBULL)
+                                        ));
+                                        status.set(format!("local proxy {port}"));
+                                        error.set(String::new());
+                                    }
+                                    Err(value) => status.set(format!("proxy error: {value}")),
+                                }
+                            }
+                        })),
                 )
                 .child(
                     view()
@@ -126,84 +104,77 @@ pub fn App() -> impl IntoElement {
                         .overflow_hidden()
                         .bg(rgb(0x000000))
                         .child(
-                            native("moontv.video")
-                                .element_ref(&video_ref)
-                                .flex_1()
-                                .prop("src", {
-                                    let src = src.clone();
-                                    move || src.get()
-                                })
-                                .prop("headers", {
-                                    let headers = headers.clone();
-                                    move || headers.get()
-                                })
-                                .on_native_event({
-                                    let status = status.clone();
-                                    let position = position.clone();
-                                    let duration = duration.clone();
-                                    move |event: &NativeEvent| match &*event.name {
-                                        "prepared" => {
-                                            let seconds = event.data["duration"].as_f64().unwrap_or(0.0);
-                                            duration.set(seconds);
-                                            status.set(format!("已准备，时长 {seconds:.0}s"));
-                                        }
-                                        "progress" => {
-                                            position.set(event.data["currentTime"].as_f64().unwrap_or(0.0));
-                                            duration.set(event.data["duration"].as_f64().unwrap_or(0.0));
-                                        }
-                                        "error" => {
-                                            status.set(event.data["message"].as_str().unwrap_or("播放失败").to_owned());
-                                        }
-                                        _ => {}
-                                    }
-                                }),
+                            video({
+                                let src = src.clone();
+                                move || src.get()
+                            })
+                            .flex_1()
+                            .controls(true)
+                            .on_load({
+                                let duration = duration.clone();
+                                let status = status.clone();
+                                move |info: &VideoInfo| {
+                                    duration.set(info.duration);
+                                    status.set(format!("loaded {:.0}s", info.duration));
+                                }
+                            })
+                            .on_progress({
+                                let position = position.clone();
+                                let duration = duration.clone();
+                                move |progress: &VideoProgress| {
+                                    position.set(progress.current_time);
+                                    duration.set(progress.duration);
+                                }
+                            })
+                            .on_error({
+                                let error = error.clone();
+                                let status = status.clone();
+                                move |message: &str| {
+                                    error.set(message.to_owned());
+                                    status.set("error".to_owned());
+                                }
+                            }),
                         ),
                 )
                 .child(
                     text({
                         let position = position.clone();
                         let duration = duration.clone();
-                        let status = status.clone();
-                        move || {
-                            format!(
-                                "{:.0}/{:.0}s · {}",
-                                position.get(),
-                                duration.get(),
-                                status.get()
-                            )
-                        }
+                        move || format!("{:.1}/{:.1}s", position.get(), duration.get())
                     })
-                    .text_color(move || theme().muted_foreground)
                     .text_size(px(13.0)),
                 )
                 .child(
-                    view()
-                        .flex_row()
-                        .gap_2()
-                        .child(
-                            view()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.0))
-                                .bg(move || theme().muted)
-                                .on_press({
-                                    let seek = seek.clone();
-                                    move || seek(5.0)
-                                })
-                                .child(text("+5s")),
-                        )
-                        .child(
-                            view()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.0))
-                                .bg(move || theme().muted)
-                                .on_press({
-                                    let seek = seek.clone();
-                                    move || seek(30.0)
-                                })
-                                .child(text("+30s")),
-                        ),
+                    text({
+                        let port = proxy_port.clone();
+                        move || if port.get() > 0 { format!("proxy port {}", port.get()) } else { String::new() }
+                    })
+                    .text_size(px(13.0)),
+                )
+                .child(
+                    text({
+                        let status = status.clone();
+                        move || status.get()
+                    })
+                    .text_size(px(13.0)),
+                )
+                .child(
+                    text({
+                        let error = error.clone();
+                        move || error.get()
+                    })
+                    .text_color(rgb(0xcc2222))
+                    .text_size(px(12.0)),
                 ),
         )
+}
+
+fn button(label: &'static str, action: impl Fn() + 'static) -> impl IntoElement {
+    view()
+        .px_3()
+        .py_2()
+        .rounded(px(8.0))
+        .bg(move || theme().primary)
+        .on_press(action)
+        .child(text(label).text_color(move || theme().primary_foreground))
 }

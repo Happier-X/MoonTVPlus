@@ -7,20 +7,19 @@ publish = false
 [workspace]
 
 [dependencies]
-nsh-core = { path = "C:\\Users\\zhf52\\.cargo\\git\\checkouts\\nsh-9218b667fc8c8325\\3cabdea\\crates\\nsh-core" }
-nsh-base = { path = "C:\\Users\\zhf52\\.cargo\\git\\checkouts\\nsh-9218b667fc8c8325\\3cabdea\\crates\\nsh-base" }
+nsh-core = "0.6.1"
+nsh-base = "0.6.1"
 env_logger = "0.11"
+ureq = { version = "2.12", features = ["tls"] }
 serde_json = "1"
+url = "2"
 urlencoding = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { path = "C:\\Users\\zhf52\\.cargo\\git\\checkouts\\nsh-9218b667fc8c8325\\3cabdea\\crates\\nsh-platform-linux", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg", "net", "sound"] }
+nsh-platform-linux = { version = "0.6.1", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg", "net", "sound"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { path = "C:\\Users\\zhf52\\.cargo\\git\\checkouts\\nsh-9218b667fc8c8325\\3cabdea\\crates\\nsh-platform-macos", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg"] }
+nsh-platform-macos = { version = "0.6.1", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { path = "C:\\Users\\zhf52\\.cargo\\git\\checkouts\\nsh-9218b667fc8c8325\\3cabdea\\crates\\nsh-platform-windows", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg", "net"] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-nsh = { package = "nsh-platform-android", path = "C:/Users/zhf52/.cargo/git/checkouts/nsh-9218b667fc8c8325/3cabdea/crates/nsh-platform-android", default-features = false }
+nsh-platform-windows = { version = "0.6.1", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term", "websocket", "updater", "svg", "net"] }

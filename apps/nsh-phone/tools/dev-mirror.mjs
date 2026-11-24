@@ -230,6 +230,7 @@ const server = http.createServer((req, res) => {
       "User-Agent": "MoonTVPlus App/1.9.16 (Android) moontvplus app",
       Accept: "*/*",
       "Accept-Encoding": "identity",
+      ...(req.headers.range ? { Range: req.headers.range } : {}),
     },
   };
 
