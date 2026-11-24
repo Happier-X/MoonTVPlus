@@ -8,6 +8,7 @@ import {
   Scroll,
   signal,
   Storage,
+  Clipboard,
   Text,
   View,
   type NativeComponentRef,
@@ -17,7 +18,113 @@ import { Input } from "nsh/base";
 const DEFAULT_SERVER = "http://tv.370125.xyz";
 const UA = "MoonTVPlus App/1.9.16 (Android) moontvplus app";
 
+type Palette = {
+  bg: string;
+  card: string;
+  text: string;
+  secondary: string;
+  brand: string;
+  selected: string;
+  accent: string;
+  border: string;
+  header: string;
+  placeholder: string;
+};
+
+const lightPalette: Palette = {
+  bg: "#F8F9FA",
+  card: "#FFFFFF",
+  text: "#2C3E50",
+  secondary: "#7F8C8D",
+  brand: "#1F8F4F",
+  selected: "#1A7340",
+  accent: "#27AE60",
+  border: "#E4E9EE",
+  header: "rgba(255,255,255,0.72)",
+  placeholder: "#9AA5A8",
+};
+
+const darkPalette: Palette = {
+  bg: "#121212",
+  card: "#1E1E1E",
+  text: "#E4E9EE",
+  secondary: "#95A5A6",
+  brand: "#1F8F4F",
+  selected: "#45C07C",
+  accent: "#27AE60",
+  border: "#3D4F5D",
+  header: "rgba(30,30,30,0.72)",
+  placeholder: "#7F8C8D",
+};
+
+const theme = signal<"light" | "dark">("light");
+const themeVersion = signal(0);
+
+function C(): Palette {
+  return theme() === "light" ? lightPalette : darkPalette;
+}
+
+function toggleTheme() {
+  theme.update((value) => (value === "light" ? "dark" : "light"));
+  themeVersion.update((value) => value + 1);
+  void Storage.setItem("theme", theme());
+}
+
+const ICON_PATHS: Record<string, string> = {
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h4M3 12h4M3 16.5h4M17 7.5h4M17 12h4M17 16.5h4"/>',
+  tv: '<rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/>',
+  cat: '<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5M16 14v.5M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  clover: '<path d="M16.17 7.83 2 22"/><path d="M4.02 12a2.827 2.827 0 1 1 1.81-4.99A2.827 2.827 0 1 1 12 4.02a2.827 2.827 0 1 1 4.99 1.81A2.827 2.827 0 1 1 19.98 12a2.827 2.827 0 1 1-1.81 4.99A2.827 2.827 0 1 1 12 19.98a2.827 2.827 0 1 1-4.99-1.81A2.827 2.827 0 1 1 4.02 12Z"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  arrowLeft: '<path d="m12 19-7-7 7-7M19 12H5"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>',
+  pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
+  rotate: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+};
+
+function Icon(props: { name: string; color: string; size?: number }) {
+  const body = ICON_PATHS[props.name] ?? ICON_PATHS.search;
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="' +
+    props.color +
+    '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    body +
+    '</svg>';
+  const size = props.size ?? 24;
+  return (
+    <Image
+      src={"data:image/svg+xml;utf8," + encodeURIComponent(svg)}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 type Movie = { id: string; title: string; poster: string; rate?: string; year?: string };
+type SearchHit = {
+  id: string;
+  title: string;
+  poster: string;
+  source: string;
+  sourceName: string;
+  year: string;
+  rate: string;
+  typeName: string;
+  episodes: string[];
+  episodeTitles: string[];
+};
 type SourceItem = {
   source: string;
   sourceName: string;
@@ -26,8 +133,72 @@ type SourceItem = {
   poster: string;
   episodes: string[];
   episodeTitles: string[];
+  year?: string;
+  typeName?: string;
 };
-type Route = { name: "login" } | { name: "home" } | { name: "detail" } | { name: "play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
+type Route = { name: "login" } | { name: "home" } | { name: "search" } | { name: "browse"; kind: BrowseKind } | { name: "detail" } | { name: "play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
+type BrowseKind = "movie" | "tv" | "anime" | "show";
+type BrowseOption = { label: string; value: string };
+const BROWSE_OPTIONS: Record<BrowseKind, { title: string; categories: BrowseOption[]; types: BrowseOption[] }> = {
+  movie: {
+    title: "电影",
+    categories: [
+      { label: "全部", value: "全部" },
+      { label: "热门", value: "热门" },
+      { label: "最新", value: "最新" },
+      { label: "豆瓣高分", value: "豆瓣高分" },
+      { label: "冷门佳片", value: "冷门佳片" },
+    ],
+    types: [
+      { label: "全部", value: "全部" },
+      { label: "华语", value: "华语" },
+      { label: "欧美", value: "欧美" },
+      { label: "韩国", value: "韩国" },
+      { label: "日本", value: "日本" },
+    ],
+  },
+  tv: {
+    title: "剧集",
+    categories: [
+      { label: "全部", value: "全部" },
+      { label: "最近热门", value: "最近热门" },
+    ],
+    types: [
+      { label: "全部", value: "tv" },
+      { label: "国产", value: "tv_domestic" },
+      { label: "欧美", value: "tv_american" },
+      { label: "日本", value: "tv_japanese" },
+      { label: "韩国", value: "tv_korean" },
+      { label: "动漫", value: "tv_animation" },
+      { label: "纪录片", value: "tv_documentary" },
+    ],
+  },
+  anime: {
+    title: "动漫",
+    categories: [
+      { label: "全部", value: "全部" },
+      { label: "番剧", value: "番剧" },
+      { label: "剧场版", value: "剧场版" },
+    ],
+    types: [
+      { label: "全部", value: "全部" },
+      { label: "日本", value: "日本" },
+      { label: "国产", value: "国产" },
+    ],
+  },
+  show: {
+    title: "综艺",
+    categories: [
+      { label: "全部", value: "全部" },
+      { label: "最近热门", value: "最近热门" },
+    ],
+    types: [
+      { label: "全部", value: "show" },
+      { label: "国内", value: "show_domestic" },
+      { label: "国外", value: "show_foreign" },
+    ],
+  },
+};
 type HistoryRecord = {
   key: string;
   title: string;
@@ -181,7 +352,27 @@ const loginServer = signal(DEFAULT_SERVER);
 const loginUser = signal("");
 const loginPassword = signal("");
 const loginError = signal("");
+const rememberLogin = signal(true);
 const searchQuery = signal("可能的爱");
+const searchResults = signal<SearchHit[]>([]);
+const searchBusy = signal(false);
+const searchError = signal("");
+const searchMode = signal<"aggregate" | "card" | "list">("card");
+const searchType = signal("all");
+const searchYear = signal("all");
+const searchAdvanced = signal(false);
+const magnetItems = signal<any[]>([]);
+const magnetBusy = signal(false);
+const magnetError = signal("");
+const magnetNotice = signal("");
+const sheet = signal<"" | "user" | "favorites" | "history" | "settings" | "sources" | "magnet">("");
+const sourcePicker = signal<{ title: string; items: SearchHit[] } | null>(null);
+const browseKind = signal<BrowseKind>("movie");
+const browseCategory = signal("全部");
+const browseType = signal("全部");
+const browseItems = signal<Movie[]>([]);
+const browseLoading = signal(false);
+const browseError = signal("");
 const historyRecords = signal<HistoryRecord[]>([]);
 const favorites = signal<FavoriteItem[]>([]);
 const defaultQuality = signal("auto");
@@ -205,6 +396,7 @@ let tapTimer = 0;
 let seekStartRatio = 0;
 let orientationLandscape = false;
 let playOpenedAt = 0;
+let pickerGuardUntil = 0;
 
 function base(): string {
   return server().replace(/\/+$/, "");
@@ -293,7 +485,10 @@ async function rawRequest(
     {
       url,
       method,
-      headers: headersFor(url, auth),
+      headers: {
+        ...headersFor(url, auth),
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     },
     { timeout: 90000 }
@@ -348,6 +543,10 @@ async function clearSession() {
 
 async function boot() {
   const savedServer = await Storage.getItem("server");
+  const savedTheme = await Storage.getItem("theme");
+  const savedRemember = await Storage.getItem("rememberLogin");
+  if (savedRemember === "false") rememberLogin.set(false);
+  if (savedTheme === "dark" || savedTheme === "light") theme.set(savedTheme);
   const savedToken = await Storage.getItem("token");
   const savedUser = await Storage.getItem("username");
   const savedResume = await Storage.getItem("resume");
@@ -421,7 +620,8 @@ async function doLogin() {
     await Storage.setItem("server", serverValue);
     await Storage.setItem("token", result.json.token);
     void syncAuth(serverValue, result.json.token);
-    await Storage.setItem("username", user);
+    if (rememberLogin()) await Storage.setItem("username", user);
+    else await Storage.removeItem("username");
     loginPassword.set("");
     route.set({ name: "home" });
     await loadHome();
@@ -828,6 +1028,150 @@ function searchKey(title: string): string {
   return title.trim().toLowerCase();
 }
 
+async function openBrowse(kind: BrowseKind) {
+  browseKind.set(kind);
+  browseCategory.set(kind === "movie" ? "热门" : kind === "anime" ? "番剧" : "最近热门");
+  browseType.set(kind === "tv" ? "tv" : kind === "show" ? "show" : "全部");
+  route.set({ name: "browse", kind });
+  await loadBrowse();
+}
+
+async function loadBrowse() {
+  const kind = browseKind();
+  browseLoading.set(true);
+  browseError.set("");
+  browseItems.set([]);
+  try {
+    const category =
+      browseCategory() === "全部"
+        ? kind === "movie"
+          ? "热门"
+          : kind === "anime"
+            ? "番剧"
+            : "最近热门"
+        : browseCategory();
+    const response = await api(
+      "/api/douban/categories?kind=" +
+        encodeURIComponent(kind) +
+        "&category=" +
+        encodeURIComponent(category) +
+        "&type=" +
+        encodeURIComponent(browseType()) +
+        "&limit=30"
+    );
+    const data = response.json ?? {};
+    browseItems.set(Array.isArray(data.list) ? data.list : []);
+  } catch (error) {
+    browseError.set(String(error));
+  } finally {
+    browseLoading.set(false);
+  }
+}
+
+function toSearchHit(item: SourceItem): SearchHit {
+  return {
+    id: item.id,
+    title: item.title,
+    poster: item.poster,
+    source: item.source,
+    sourceName: item.sourceName,
+    year: item.year ?? "",
+    rate: "",
+    typeName: item.typeName ?? "",
+    episodes: item.episodes,
+    episodeTitles: item.episodeTitles,
+  };
+}
+
+function searchTypeOf(item: SearchHit): string {
+  const name = (item.typeName || "").toLowerCase();
+  if (name.includes("电影") || name.endsWith("片")) return "movie";
+  if (name.includes("剧") || name.includes("电视")) return "tv";
+  if (name.includes("动漫") || name.includes("动画")) return "anime";
+  if (name.includes("综艺") || name.includes("真人秀")) return "show";
+  return "";
+}
+
+function filteredSearchHits(): SearchHit[] {
+  return searchResults().filter((item) => {
+    if (searchType() !== "all" && searchTypeOf(item) !== searchType()) return false;
+    if (searchYear() !== "all" && item.year !== searchYear()) return false;
+    return true;
+  });
+}
+
+function aggregateSearchHits(): { key: string; title: string; poster: string; year: string; items: SearchHit[] }[] {
+  const map = new Map<string, { key: string; title: string; poster: string; year: string; items: SearchHit[] }>();
+  for (const item of filteredSearchHits()) {
+    const key = item.title + "|" + item.year;
+    const group = map.get(key);
+    if (group) group.items.push(item);
+    else map.set(key, { key, title: item.title, poster: item.poster, year: item.year, items: [item] });
+  }
+  return [...map.values()];
+}
+
+function openPickerFor(title: string, items: SearchHit[]) {
+  pickerGuardUntil = Date.now() + 400;
+  sourcePicker.set({ title, items });
+  sheet.set("sources");
+}
+
+function asMagnetText(value: any): string {
+  if (Array.isArray(value)) return asMagnetText(value[0]);
+  if (value && typeof value === "object") {
+    return String(value._ ?? value.text ?? value.url ?? value.href ?? "");
+  }
+  return String(value ?? "");
+}
+
+async function runMagnetSearch() {
+  const query = searchQuery().trim();
+  if (!query) return;
+  magnetBusy.set(true);
+  magnetError.set("");
+  magnetNotice.set("");
+  magnetItems.set([]);
+  try {
+    const response = await api("/api/acg/mikan", "POST", { keyword: query, page: 1 });
+    if (response.status === 403) {
+      magnetError.set("当前账号没有磁力搜索权限（magnet_search）");
+      return;
+    }
+    if (response.status !== 200) {
+      magnetError.set("磁力搜索失败：HTTP " + response.status);
+      return;
+    }
+    const data = response.json ?? {};
+    magnetItems.set(Array.isArray(data.items) ? data.items : []);
+  } catch (error) {
+    magnetError.set(String(error));
+  } finally {
+    magnetBusy.set(false);
+  }
+}
+
+async function runSearch() {
+  const query = searchQuery().trim();
+  if (!query) return;
+  const key = searchKey(query);
+  searchError.set("");
+  searchBusy.set(true);
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_TTL) {
+    searchResults.set(cached.sources.map(toSearchHit));
+    searchCacheHit.set(true);
+    searchBusy.set(false);
+    return;
+  }
+  searchCacheHit.set(false);
+  searchResults.set([]);
+  await runStreamSearch(
+    { id: "search", title: query, poster: "", rate: "", year: "" },
+    true
+  );
+}
+
 async function openDetail(movie: Movie) {
   detailMovie.set(movie);
   detailTitle.set(movie.title);
@@ -866,7 +1210,7 @@ async function openDetail(movie: Movie) {
   await runStreamSearch(movie);
 }
 
-async function runStreamSearch(movie: Movie) {
+async function runStreamSearch(movie: Movie, forSearch = false) {
   const started = Date.now();
   const key = searchKey(movie.title);
   const bySource = new Map<string, SourceItem>();
@@ -897,17 +1241,25 @@ async function runStreamSearch(movie: Movie) {
     searchUnsubscribe = null;
     if (activeSearchId === id) activeSearchId = "";
     const allMs = Date.now() - started;
-    detailLoading.set(false);
     searchAllMs.set(allMs);
     detailSearchDone.set(done);
     detailSearchTotal.set(total);
     detailSearchErrors.set(errors);
-    detailSources.set([...bySource.values()]);
-    if (bySource.size === 0) {
-      detailError.set(
-        (error ? "搜索失败：" + error : "没有找到可播放的真实源") +
-          "，可重试或手动试用演示源"
-      );
+    if (forSearch) {
+      searchBusy.set(false);
+      searchResults.set([...bySource.values()].map(toSearchHit));
+      if (bySource.size === 0) {
+        searchError.set(error ? "搜索失败：" + error : "没有找到结果");
+      }
+    } else {
+      detailLoading.set(false);
+      detailSources.set([...bySource.values()]);
+      if (bySource.size === 0) {
+        detailError.set(
+          (error ? "搜索失败：" + error : "没有找到可播放的真实源") +
+            "，可重试或手动试用演示源"
+        );
+      }
     }
     if (bySource.size > 0) {
       searchCache.set(key, {
@@ -974,15 +1326,21 @@ async function runStreamSearch(movie: Movie) {
             episodeTitles: Array.isArray(usable.episodes_titles)
               ? usable.episodes_titles
               : [],
+            year: usable.year ? String(usable.year) : "",
+            typeName: usable.typeName ? String(usable.typeName) : usable.type_name ? String(usable.type_name) : "",
           };
           bySource.set(item.source, item);
-          detailSources.set([...bySource.values()]);
+          if (forSearch) {
+            searchResults.set([...bySource.values()].map(toSearchHit));
+          } else {
+            detailSources.set([...bySource.values()]);
+          }
           if (firstMs < 0) {
             firstMs = Date.now() - started;
             searchFirstMs.set(firstMs);
             console.log("nshspike: search first result " + firstMs + "ms " + item.sourceName);
           }
-          if (!selected) {
+          if (!forSearch && !selected) {
             selected = true;
             void selectSource(item);
           }
@@ -1167,158 +1525,614 @@ function Card(props: { movie: Movie }) {
 }
 
 function LoginScreen() {
+  const c = C();
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b0b0f" }}>
-      <Header title="登录 MoonTVPlus" />
-      <Scroll style={{ flex: 1 }}>
-        <View style={{ padding: 16, gap: 12 }}>
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>服务器</Text>
-          <Input
-            value={loginServer()}
-            onChange={(event) => loginServer.set(event.value)}
-            autoCapitalize="none"
-            style={{ color: "#fff", backgroundColor: "#17171d", borderRadius: 8, padding: 10 }}
-          />
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>用户名</Text>
-          <Input
-            value={loginUser()}
-            onChange={(event) => loginUser.set(event.value)}
-            autoCapitalize="none"
-            style={{ color: "#fff", backgroundColor: "#17171d", borderRadius: 8, padding: 10 }}
-          />
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>密码</Text>
-          <Input
-            value={loginPassword()}
-            onChange={(event) => loginPassword.set(event.value)}
-            masked
-            autoCapitalize="none"
-            style={{ color: "#fff", backgroundColor: "#17171d", borderRadius: 8, padding: 10 }}
-          />
-          {loginError() ? <Text style={{ color: "#ff8b8b", fontSize: 12 }}>{loginError()}</Text> : null}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <View
+        style={{
+          width: "100%",
+          maxWidth: 360,
+          backgroundColor: c.card,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: c.border,
+          padding: 24,
+          gap: 12,
+        }}
+      >
+        <Text style={{ fontSize: 24, fontWeight: "700", color: c.brand, textAlign: "center" }}>
+          MoonTVPlus
+        </Text>
+        <Text style={{ fontSize: 13, color: c.secondary, textAlign: "center", marginBottom: 8 }}>
+          登录后继续观看
+        </Text>
+
+        <Input
+          value={loginServer()}
+          onChange={(event) => loginServer.set(event.value)}
+          autoCapitalize="none"
+          placeholder="服务器地址"
+          placeholderColor={c.placeholder}
+          style={{
+            height: 48,
+            color: c.text,
+            backgroundColor: c.card,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: c.border,
+            paddingHorizontal: 12,
+            fontSize: 14,
+          }}
+        />
+        <Input
+          value={loginUser()}
+          onChange={(event) => loginUser.set(event.value)}
+          autoCapitalize="none"
+          placeholder="用户名"
+          placeholderColor={c.placeholder}
+          style={{
+            height: 48,
+            color: c.text,
+            backgroundColor: c.card,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: c.border,
+            paddingHorizontal: 12,
+            fontSize: 14,
+          }}
+        />
+        <Input
+          value={loginPassword()}
+          onChange={(event) => loginPassword.set(event.value)}
+          masked
+          autoCapitalize="none"
+          placeholder="密码"
+          placeholderColor={c.placeholder}
+          style={{
+            height: 48,
+            color: c.text,
+            backgroundColor: c.card,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: c.border,
+            paddingHorizontal: 12,
+            fontSize: 14,
+          }}
+        />
+
+        <View
+          onPress={() => {
+            rememberLogin.update((value) => !value);
+            void Storage.setItem("rememberLogin", rememberLogin() ? "true" : "false");
+          }}
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 }}
+        >
           <View
-            onPress={() => void doLogin()}
-            style={{ backgroundColor: "#2c5bd6", borderRadius: 8, paddingVertical: 12, alignItems: "center" }}
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: 4,
+              borderWidth: 1,
+              borderColor: rememberLogin() ? c.selected : c.border,
+              backgroundColor: rememberLogin() ? c.selected : "transparent",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            <Text style={{ color: "#fff", fontSize: 14 }}>{busy() || "登录"}</Text>
+            {rememberLogin() ? <Text style={{ color: "#fff", fontSize: 11 }}>✓</Text> : null}
           </View>
-          <Text style={{ color: "#7f7f8c", fontSize: 11 }}>
-            密码不落盘；会话 token 保存在应用私有目录，重启后自动恢复。token 过期会走
-            /api/auth/refresh。
-          </Text>
+          <Text style={{ fontSize: 13, color: c.text }}>记住密码</Text>
         </View>
-      </Scroll>
+
+        {loginError() ? <Text style={{ color: "#C0392B", fontSize: 12 }}>{loginError()}</Text> : null}
+
+        <View
+          onPress={() => void doLogin()}
+          style={{
+            height: 48,
+            borderRadius: 8,
+            backgroundColor: c.brand,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>{busy() || "登录"}</Text>
+        </View>
+
+        <Text
+          onPress={() => loginError.set("注册请前往网页版完成")}
+          style={{ fontSize: 13, color: c.brand, textAlign: "center", paddingTop: 4 }}
+        >
+          还没有账号？立即注册
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function cleanSource(name: string): string {
+  return name.replace(/^[^A-Za-z0-9\u4e00-\u9fa5]+/, "").trim() || name;
+}
+
+function WebTopBar(props: { title?: string; onBack?: () => void; showSearch?: boolean }) {
+  const c = C();
+  return (
+    <View
+      style={{
+        paddingTop: "env(safe-area-inset-top)",
+        backgroundColor: c.header,
+        backdropFilter: "blur(24px)",
+        borderBottomWidth: 1,
+        borderBottomColor: c.border,
+      }}
+    >
+      <View
+        style={{
+          height: 48,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 16,
+          gap: 4,
+        }}
+      >
+        <View
+          onPress={props.onBack ?? (() => route.set({ name: "search" }))}
+          style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
+        >
+          <Icon name={props.onBack ? "arrowLeft" : "search"} color={c.text} />
+        </View>
+        <Text
+          style={{
+            flex: 1,
+            textAlign: "center",
+            fontSize: 24,
+            fontWeight: "700",
+            color: c.brand,
+            numberOfLines: 1,
+          }}
+        >
+          {props.title ?? "MoonTVPlus"}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 4 }}>
+          <View
+            onPress={toggleTheme}
+            style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
+          >
+            <Icon name={theme() === "light" ? "moon" : "sun"} color={c.text} />
+          </View>
+          <View
+            onPress={() => sheet.set("user")}
+            style={{
+              width: 40,
+              height: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 20,
+              backgroundColor: c.border,
+            }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: "600", color: c.text }}>
+              {(username() || "M").slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function BottomNav(props: { active: "home" | "search" | BrowseKind }) {
+  const c = C();
+  const items = [
+    { key: "home", label: "首页", icon: "home", kind: null },
+    { key: "movie", label: "电影", icon: "film", kind: "movie" },
+    { key: "tv", label: "剧集", icon: "tv", kind: "tv" },
+    { key: "anime", label: "动漫", icon: "cat", kind: "anime" },
+    { key: "show", label: "综艺", icon: "clover", kind: "show" },
+  ];
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        backgroundColor: theme() === "light" ? "rgba(255,255,255,0.9)" : "rgba(30,30,30,0.8)",
+        backdropFilter: "blur(24px)",
+        borderTopWidth: 1,
+        borderTopColor: c.border,
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+    >
+      {items.map((item) => {
+        const active = item.key === props.active;
+        return (
+          <View
+            onPress={() => {
+              if (item.kind) void openBrowse(item.kind as BrowseKind);
+              else route.set({ name: "home" });
+            }}
+            style={{ flex: 1, height: 56, alignItems: "center", justifyContent: "center", gap: 2 }}
+          >
+            <Icon name={item.icon} color={active ? c.selected : c.secondary} size={24} />
+            <Text style={{ fontSize: 12, color: active ? c.selected : c.secondary }}>{item.label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function SectionTitle(props: { title: string; onMore?: () => void }) {
+  const c = C();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>{props.title}</Text>
+      <View onPress={props.onMore} style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+        <Text style={{ fontSize: 14, color: c.secondary }}>查看更多</Text>
+        <Icon name="chevronRight" color={c.secondary} size={16} />
+      </View>
+    </View>
+  );
+}
+
+function PosterCard(props: { movie: Movie; width?: number | string }) {
+  const c = C();
+  return (
+    <View onPress={() => void openDetail(props.movie)} style={{ width: props.width ?? 96, gap: 6 }}>
+      <Image
+        src={props.movie.poster}
+        style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+      />
+      <Text
+        style={{
+          fontSize: 14,
+          fontWeight: "600",
+          color: c.text,
+          lineHeight: 20,
+          numberOfLines: 2,
+        }}
+      >
+        {props.movie.title}
+      </Text>
+      <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
+        {(props.movie.rate ? "★ " + props.movie.rate + "  " : "") + (props.movie.year ?? "")}
+      </Text>
     </View>
   );
 }
 
 function HomeScreen() {
+  const c = C();
   const historyItem = latestHistory();
   const resumeItem = resume();
   const resumeTitle = historyItem?.title ?? resumeItem?.title ?? "";
   const resumeEpisode = historyItem ? historyItem.index - 1 : resumeItem?.episodeIndex ?? 0;
   const resumePosition = historyItem?.play_time ?? resumeItem?.position ?? 0;
+  const resumeCover = historyItem?.cover ?? resumeItem?.poster ?? "";
   return (
-    <View style={{ flex: 1 }}>
-      <Header
-        title="MoonTVPlus · Native Shell"
-        right={
-          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-            <Text onPress={() => route.set({ name: "favorites" })} style={{ color: "#8b8b98", fontSize: 11 }}>收藏</Text>
-            <Text onPress={() => route.set({ name: "history" })} style={{ color: "#8b8b98", fontSize: 11 }}>历史</Text>
-            <Text onPress={() => route.set({ name: "settings" })} style={{ color: "#8b8b98", fontSize: 11 }}>设置</Text>
-            <Text style={{ color: "#8b8b98", fontSize: 12 }}>{username()}</Text>
-            <Text
-              onPress={() => {
-                void clearSession();
-                route.set({ name: "login" });
-              }}
-              style={{ color: "#8ab4ff", fontSize: 13 }}
-            >
-              退出
-            </Text>
-          </View>
-        }
-      />
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <WebTopBar showSearch />
       <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
-        <View style={{ padding: 12, gap: 12 }}>
-          {busy() ? <Text style={{ color: "#8b8b98" }}>{busy()}</Text> : null}
-          {homeError() ? <Text style={{ color: "#ff8b8b", fontSize: 12 }}>{homeError()}</Text> : null}
-
-          {historyItem || resumeItem ? (
-            <View
-              onPress={() => {
-                if (latestHistory()) void openHistoryRecord(latestHistory()!);
-                else resumePlayback();
-              }}
-              style={{ backgroundColor: "#151a24", borderRadius: 10, padding: 12, gap: 6 }}
-            >
-              <Text style={{ color: "#8ab4ff", fontSize: 12 }}>继续观看</Text>
-              <Text style={{ color: "#f2f2f5", fontSize: 15, numberOfLines: 1 }}>
-                {resumeTitle}
-              </Text>
-              <Text style={{ color: "#8b8b98", fontSize: 12 }}>
-                第 {resumeEpisode + 1} 集 · {formatTime(resumePosition)}
-              </Text>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 24 }}>
+          {homeError() ? (
+            <Text style={{ color: "#C0392B", fontSize: 12 }}>{homeError()}</Text>
+          ) : null}
+          {resumeTitle ? (
+            <View style={{ gap: 12 }}>
+              <SectionTitle title="继续观看" onMore={() => { sheet.set("history"); void loadHistory(); }} />
+              <View
+                onPress={() => {
+                  if (latestHistory()) void openHistoryRecord(latestHistory()!);
+                  else resumePlayback();
+                }}
+                style={{
+                  width: 180,
+                  height: 120,
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  backgroundColor: c.card,
+                }}
+              >
+                {resumeCover ? (
+                  <Image
+                    src={resumeCover}
+                    style={{ position: "absolute", width: "100%", height: "100%" }}
+                  />
+                ) : null}
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: 8,
+                    gap: 2,
+                    backgroundColor: "rgba(0,0,0,0.55)",
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: "#fff", numberOfLines: 1 }}>
+                    {resumeTitle}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: "#fff", numberOfLines: 1 }}>
+                    第 {resumeEpisode + 1} 集 · {formatTime(resumePosition)}
+                  </Text>
+                </View>
+              </View>
             </View>
           ) : null}
-
-          <View
-            onPress={openDemo}
-            style={{ backgroundColor: "#20180f", borderRadius: 10, padding: 12, gap: 4 }}
-          >
-            <Text style={{ color: "#e2b07e", fontSize: 13 }}>试用演示源：真实 TS + 站点代理 + Bearer</Text>
-            <Text style={{ color: "#8b8b98", fontSize: 11 }}>
-              用 ExoPlayer 带 Bearer 访问 /api/proxy-m3u8
-            </Text>
+          <View style={{ gap: 12 }}>
+            <SectionTitle title="热门电影" onMore={() => void openBrowse("movie")} />
+            <Scroll horizontal>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {movies().map((movie) => (
+                  <PosterCard movie={movie} />
+                ))}
+              </View>
+            </Scroll>
           </View>
-
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            <Input
-              value={searchQuery()}
-              onChange={(event) => searchQuery.set(event.value)}
-              autoCapitalize="none"
-              style={{
-                flex: 1,
-                color: "#fff",
-                backgroundColor: "#17171d",
-                borderRadius: 8,
-                padding: 9,
-              }}
-            />
-            <View
-              onPress={() => {
-                const query = searchQuery().trim();
-                if (!query) return;
-                void openDetail({ id: "search", title: query, poster: "", rate: "", year: "" });
-              }}
-              style={{ backgroundColor: "#2c5bd6", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9 }}
-            >
-              <Text style={{ color: "#fff", fontSize: 13 }}>搜索</Text>
-            </View>
+          <View style={{ gap: 12 }}>
+            <SectionTitle title="番剧" onMore={() => void openBrowse("anime")} />
+            <Scroll horizontal>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {bangumi().map((movie) => (
+                  <PosterCard movie={movie} />
+                ))}
+              </View>
+            </Scroll>
           </View>
-
-          <Text style={{ color: "#f2f2f5", fontSize: 16, fontWeight: "600" }}>热门电影</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {movies().map((movie) => (
-              <Card movie={movie} />
-            ))}
-          </View>
-
-          <Text style={{ color: "#f2f2f5", fontSize: 16, fontWeight: "600" }}>番剧</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {bangumi().map((movie) => (
-              <Card movie={movie} />
-            ))}
-          </View>
-
-          <Text
-            onPress={() => void loadHome()}
-            style={{ color: "#8ab4ff", fontSize: 13, paddingVertical: 12 }}
-          >
+          <Text onPress={() => void loadHome()} style={{ fontSize: 13, color: c.secondary, paddingVertical: 8 }}>
             刷新
           </Text>
         </View>
       </Scroll>
+      <BottomNav active="home" />
+    </View>
+  );
+}
+
+function SearchScreen() {
+  const c = C();
+  return (
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <WebTopBar title="搜索" onBack={() => route.set({ name: "home" })} />
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 16 }}>
+          <View
+            style={{
+              height: 48,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              paddingHorizontal: 12,
+              backgroundColor: c.card,
+              borderWidth: 1,
+              borderColor: c.border,
+              borderRadius: 8,
+            }}
+          >
+            <Icon name="search" color={c.secondary} size={20} />
+            <Input
+              value={searchQuery()}
+              onChange={(event) => searchQuery.set(event.value)}
+              autoCapitalize="none"
+              placeholder="搜索电影、电视剧..."
+              placeholderColor={c.placeholder}
+              style={{ flex: 1, color: c.text, fontSize: 14 }}
+            />
+            <Text onPress={() => void runSearch()} style={{ fontSize: 13, color: c.brand }}>
+              搜索
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: c.border }}>
+              <Text style={{ fontSize: 14, color: c.text }}>影视搜索</Text>
+            </View>
+            <View
+              onPress={() => {
+                sheet.set("magnet");
+                void runMagnetSearch();
+              }}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: c.border }}
+            >
+              <Text style={{ fontSize: 14, color: c.secondary }}>动漫磁力</Text>
+            </View>
+          </View>
+          {searchBusy() ? <Text style={{ fontSize: 13, color: c.secondary }}>搜索中…</Text> : null}
+          {searchError() ? <Text style={{ fontSize: 13, color: "#C0392B" }}>{searchError()}</Text> : null}
+
+          <View
+            onPress={() => searchAdvanced.update((value) => !value)}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 }}
+          >
+            <Text style={{ fontSize: 13, color: c.brand }}>高级</Text>
+            <Icon name={searchAdvanced() ? "chevronDown" : "chevronRight"} color={c.secondary} size={16} />
+          </View>
+
+          {searchAdvanced() ? (
+            <View style={{ gap: 8 }}>
+              <Scroll horizontal>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {([["aggregate", "聚合"], ["card", "卡片"], ["list", "列表"]] as const).map(([value, label]) => (
+                    <SettingChip label={label} active={searchMode() === value} onPress={() => searchMode.set(value)} />
+                  ))}
+                </View>
+              </Scroll>
+              <Scroll horizontal>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {([["all", "全部"], ["movie", "电影"], ["tv", "剧集"], ["anime", "动漫"], ["show", "综艺"]] as const).map(([value, label]) => (
+                    <SettingChip label={label} active={searchType() === value} onPress={() => searchType.set(value)} />
+                  ))}
+                </View>
+              </Scroll>
+              <Scroll horizontal>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {([["all", "全部"], ["2026", "2026"], ["2025", "2025"], ["2024", "2024"]] as const).map(([value, label]) => (
+                    <SettingChip label={label} active={searchYear() === value} onPress={() => searchYear.set(value)} />
+                  ))}
+                </View>
+              </Scroll>
+            </View>
+          ) : null}
+
+          {searchMode() === "list" ? (
+            <View style={{ gap: 12 }}>
+              {filteredSearchHits().map((item) => (
+                <View
+                  onPress={() => {
+                    const same = searchResults().filter((entry) => entry.title === item.title);
+                    openPickerFor(item.title, same.length > 0 ? same : [item]);
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+                >
+                  <Image
+                    src={item.poster}
+                    style={{ width: 48, height: 72, borderRadius: 6, backgroundColor: c.border }}
+                  />
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 1 }}>{item.title}</Text>
+                    <Text style={{ fontSize: 12, color: c.secondary }}>
+                      {cleanSource(item.sourceName || item.source)} · {item.year || "年份未知"}
+                    </Text>
+                  </View>
+                  <Icon name="chevronRight" color={c.secondary} size={18} />
+                </View>
+              ))}
+            </View>
+          ) : searchMode() === "aggregate" ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 24, columnGap: 8 }}>
+              {aggregateSearchHits().map((group) => (
+                <View
+                  onPress={() => openPickerFor(group.title, group.items)}
+                  style={{ width: "31.5%", gap: 6 }}
+                >
+                  <Image
+                    src={group.poster}
+                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+                  />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 2 }}>{group.title}</Text>
+                  <Text style={{ fontSize: 11, color: c.secondary }}>{group.items.length} 个源</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                rowGap: 24,
+                columnGap: 8,
+                opacity: searchType() === "__never__" || searchYear() === "__never__" ? 0.99 : 1,
+              }}
+            >
+              {filteredSearchHits().map((item) => (
+                <View
+                  onPress={() => {
+                    const same = searchResults().filter((entry) => entry.title === item.title);
+                    openPickerFor(item.title, same.length > 0 ? same : [item]);
+                  }}
+                  style={{ width: "31.5%", gap: 6 }}
+                >
+                  <Image
+                    src={item.poster}
+                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+                  />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 2 }}>{item.title}</Text>
+                  <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
+                    {cleanSource(item.sourceName || item.source)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {!searchBusy() && filteredSearchHits().length === 0 ? (
+            <Text style={{ fontSize: 13, color: c.secondary }}>没有匹配结果</Text>
+          ) : null}
+        </View>
+      </Scroll>
+      <BottomNav active="search" />
+    </View>
+  );
+}
+
+function BrowseScreen() {
+  const c = C();
+  return (
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <WebTopBar title={BROWSE_OPTIONS[browseKind()].title} onBack={() => route.set({ name: "home" })} />
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 12 }}>
+          <Scroll horizontal>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {BROWSE_OPTIONS[browseKind()].categories.map((item) => {
+                const active = browseCategory() === item.value;
+                return (
+                  <View
+                    onPress={() => {
+                      browseCategory.set(item.value);
+                      void loadBrowse();
+                    }}
+                    style={{
+                      height: 32,
+                      paddingHorizontal: 12,
+                      justifyContent: "center",
+                      borderRadius: 16,
+                      backgroundColor: active ? c.selected : "transparent",
+                      borderWidth: 1,
+                      borderColor: active ? c.selected : c.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, color: active ? "#fff" : c.text }}>{item.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </Scroll>
+          <Scroll horizontal>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {BROWSE_OPTIONS[browseKind()].types.map((item) => {
+                const active = browseType() === item.value;
+                return (
+                  <View
+                    onPress={() => {
+                      browseType.set(item.value);
+                      void loadBrowse();
+                    }}
+                    style={{
+                      height: 32,
+                      paddingHorizontal: 12,
+                      justifyContent: "center",
+                      borderRadius: 16,
+                      backgroundColor: active ? c.selected : "transparent",
+                      borderWidth: 1,
+                      borderColor: active ? c.selected : c.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, color: active ? "#fff" : c.text }}>{item.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </Scroll>
+          {browseLoading() ? (
+            <Text style={{ fontSize: 13, color: c.secondary }}>正在加载…</Text>
+          ) : null}
+          {browseError() ? (
+            <Text style={{ fontSize: 13, color: "#C0392B" }}>{browseError()}</Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 24, columnGap: 8 }}>
+            {browseItems().map((movie) => (
+              <PosterCard movie={movie} width="31.5%" />
+            ))}
+          </View>
+        </View>
+      </Scroll>
+      <BottomNav active={browseKind()} />
     </View>
   );
 }
@@ -1414,38 +2228,395 @@ function HistoryScreen() {
   );
 }
 
-function SettingsScreen() {
+function SheetShell(props: { title: string; onClose: () => void; children?: any }) {
+  const c = C();
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b0b0f" }}>
-      <Header title="设置" onBack={() => route.set({ name: "home" })} />
-      <Scroll style={{ flex: 1 }}>
-        <View style={{ padding: 14, gap: 12 }}>
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>服务器地址</Text>
+    <View style={{ flex: 1, paddingTop: 16, paddingHorizontal: 16, gap: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>{props.title}</Text>
+        <View
+          onPress={props.onClose}
+          style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
+        >
+          <Icon name="x" color={c.text} size={22} />
+        </View>
+      </View>
+      {props.children}
+    </View>
+  );
+}
+
+function SheetRow(props: { icon: string; label: string; onPress: () => void }) {
+  const c = C();
+  return (
+    <View
+      onPress={props.onPress}
+      style={{
+        height: 48,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: c.border,
+      }}
+    >
+      <Icon name={props.icon} color={c.text} size={22} />
+      <Text style={{ flex: 1, fontSize: 15, color: c.text }}>{props.label}</Text>
+      <Icon name="chevronRight" color={c.secondary} size={18} />
+    </View>
+  );
+}
+
+function UserSheet() {
+  return (
+    <SheetShell title={username() || "我的"} onClose={() => sheet.set("")}>
+      <SheetRow
+        icon="heart"
+        label="收藏"
+        onPress={() => {
+          sheet.set("favorites");
+          void loadFavorites();
+        }}
+      />
+      <SheetRow
+        icon="clock"
+        label="播放历史"
+        onPress={() => {
+          sheet.set("history");
+          void loadHistory();
+        }}
+      />
+      <SheetRow
+        icon="settings"
+        label="设置"
+        onPress={() => {
+          sheet.set("settings");
+        }}
+      />
+      <SheetRow
+        icon="arrowLeft"
+        label="退出登录"
+        onPress={() => {
+          sheet.set("");
+          void clearSession();
+          route.set({ name: "login" });
+        }}
+      />
+    </SheetShell>
+  );
+}
+
+function FavoritesSheet() {
+  const c = C();
+  effect(() => {
+    void loadFavorites();
+  });
+  return (
+    <SheetShell title="收藏" onClose={() => sheet.set("user")}>
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        {favorites().length === 0 ? (
+          <Text style={{ fontSize: 13, color: c.secondary, paddingTop: 8 }}>还没有收藏</Text>
+        ) : (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 24, columnGap: 8, paddingTop: 8 }}>
+            {favorites().map((item) => {
+              const id = item.key.split("+").slice(1).join("+");
+              return (
+                <View
+                  onPress={() => {
+                    sheet.set("");
+                    void openDetail({ id, title: item.title, poster: item.cover, year: item.year });
+                  }}
+                  style={{ width: "31.5%", gap: 6 }}
+                >
+                  <Image
+                    src={item.cover}
+                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+                  />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
+                    {item.title}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>{item.source_name}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </Scroll>
+    </SheetShell>
+  );
+}
+
+function HistorySheet() {
+  const c = C();
+  effect(() => {
+    void loadHistory();
+  });
+  return (
+    <SheetShell title="播放历史" onClose={() => sheet.set("user")}>
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        {historyRecords().length === 0 ? (
+          <Text style={{ fontSize: 13, color: c.secondary, paddingTop: 8 }}>暂无播放记录</Text>
+        ) : (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 24, columnGap: 8, paddingTop: 8 }}>
+            {historyRecords().map((item) => {
+              const percent =
+                item.total_time > 0 ? Math.min(100, Math.round((item.play_time / item.total_time) * 100)) : 0;
+              return (
+                <View
+                  onPress={() => {
+                    sheet.set("");
+                    void openHistoryRecord(item);
+                  }}
+                  style={{ width: "31.5%", gap: 6 }}
+                >
+                  <Image
+                    src={item.cover}
+                    style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+                  />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
+                    {item.title}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
+                    第 {item.index} 集 · {formatTime(item.play_time)}
+                  </Text>
+                  <View style={{ height: 3, borderRadius: 2, backgroundColor: c.border }}>
+                    <View
+                      style={{
+                        width: String(percent) + "%",
+                        height: 3,
+                        borderRadius: 2,
+                        backgroundColor: c.selected,
+                      }}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </Scroll>
+    </SheetShell>
+  );
+}
+
+function SettingChip(props: { label: string; active: boolean; onPress: () => void }) {
+  const c = C();
+  return (
+    <View
+      onPress={props.onPress}
+      style={{
+        height: 32,
+        paddingHorizontal: 12,
+        justifyContent: "center",
+        borderRadius: 16,
+        backgroundColor: props.active ? c.selected : "transparent",
+        borderWidth: 1,
+        borderColor: props.active ? c.selected : c.border,
+      }}
+    >
+      <Text style={{ fontSize: 13, color: props.active ? "#fff" : c.text }}>{props.label}</Text>
+    </View>
+  );
+}
+
+function openSourceHit(hit: SearchHit) {
+  detailMovie.set({ id: hit.id, title: hit.title, poster: hit.poster, year: hit.year, rate: hit.rate });
+  detailTitle.set(hit.title);
+  detailPoster.set(hit.poster);
+  detailSources.set([
+    {
+      source: hit.source,
+      sourceName: hit.sourceName,
+      id: hit.id,
+      title: hit.title,
+      poster: hit.poster,
+      episodes: hit.episodes,
+      episodeTitles: hit.episodeTitles,
+      year: hit.year,
+      typeName: hit.typeName,
+    },
+  ]);
+  detailSource.set(hit.source);
+  detailEpisodes.set(hit.episodes);
+  detailEpisodeTitles.set(hit.episodeTitles);
+  detailLoading.set(false);
+  detailError.set(hit.episodes.length > 0 ? "" : "该源没有返回可播放剧集");
+  route.set({ name: "detail" });
+}
+
+function directPlayHit(hit: SearchHit) {
+  if (hit.episodes.length === 0) {
+    openSourceHit(hit);
+    return;
+  }
+  openPlay(
+    hit.title,
+    hit.poster,
+    hit.source,
+    hit.sourceName,
+    hit.id,
+    hit.episodes,
+    hit.episodeTitles,
+    0,
+    0
+  );
+}
+
+function MagnetSheet() {
+  const c = C();
+  return (
+    <SheetShell title="动漫磁力" onClose={() => sheet.set("")}>
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <Input
+          value={searchQuery()}
+          onChange={(event) => searchQuery.set(event.value)}
+          autoCapitalize="none"
+          placeholder="输入番剧关键词"
+          placeholderColor={c.placeholder}
+          style={{ flex: 1, height: 44, color: c.text, backgroundColor: c.card, borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, fontSize: 13 }}
+        />
+        <View
+          onPress={() => void runMagnetSearch()}
+          style={{ height: 44, paddingHorizontal: 14, borderRadius: 8, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13 }}>搜索</Text>
+        </View>
+      </View>
+      {magnetBusy() ? <Text style={{ fontSize: 12, color: c.secondary }}>搜索中…</Text> : null}
+      {magnetError() ? <Text style={{ fontSize: 12, color: "#C0392B" }}>{magnetError()}</Text> : null}
+      {magnetNotice() ? <Text style={{ fontSize: 12, color: c.brand }}>{magnetNotice()}</Text> : null}
+      <Text style={{ fontSize: 12, color: c.secondary }}>
+        当前 NSH 播放器不支持磁链直放；可复制磁链到外部 BT 客户端。
+      </Text>
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ gap: 8, paddingTop: 8 }}>
+          {magnetItems().map((item, index) => {
+            const title = asMagnetText(item.title);
+            const url = asMagnetText(item.torrentUrl || item.link);
+            return (
+              <View key={String(index)} style={{ gap: 4, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border }}>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>{title}</Text>
+                <Text style={{ fontSize: 11, color: c.secondary }}>{asMagnetText(item.pubDate)}</Text>
+                {url ? (
+                  <View style={{ flexDirection: "row", gap: 12, paddingTop: 2 }}>
+                    <Text
+                      onPress={() => {
+                        void Clipboard.write({ text: url });
+                        magnetNotice.set("已复制磁链");
+                      }}
+                      style={{ fontSize: 12, color: c.brand }}
+                    >
+                      复制磁链
+                    </Text>
+                    <Text style={{ fontSize: 12, color: c.secondary }}>
+                      {url.startsWith("magnet:") ? "BT 播放需引擎" : "链接可用"}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </Scroll>
+    </SheetShell>
+  );
+}
+
+function SourcePickerSheet() {
+  const c = C();
+  const picker = sourcePicker();
+  if (!picker) return null;
+  const first = picker.items[0];
+  return (
+    <SheetShell title="选择播放源" onClose={() => sheet.set("")}>
+      <Text style={{ fontSize: 14, color: c.secondary }}>{picker.title}</Text>
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ gap: 8, paddingTop: 8 }}>
+          {picker.items.map((hit) => (
+            <View
+              onPress={() => {
+                if (Date.now() < pickerGuardUntil) return;
+                sheet.set("");
+                openSourceHit(hit);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: c.border,
+              }}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ fontSize: 15, color: c.text }}>{cleanSource(hit.sourceName || hit.source)}</Text>
+                <Text style={{ fontSize: 12, color: c.secondary }}>
+                  {hit.year || "年份未知"} · {hit.episodes.length} 集
+                </Text>
+              </View>
+              <Icon name="chevronRight" color={c.secondary} size={18} />
+            </View>
+          ))}
+        </View>
+      </Scroll>
+      {first ? (
+        <View
+          onPress={() => {
+            if (Date.now() < pickerGuardUntil) return;
+            sheet.set("");
+            directPlayHit(first);
+          }}
+          style={{ height: 48, borderRadius: 8, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" }}
+        >
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>直接播放第一源</Text>
+        </View>
+      ) : null}
+    </SheetShell>
+  );
+}
+
+function SettingsSheet() {
+  const c = C();
+  return (
+    <SheetShell title="设置" onClose={() => sheet.set("user")}>
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ gap: 12, paddingBottom: 24 }}>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: c.secondary }}>账号</Text>
           <Input
             value={loginServer()}
             onChange={(event) => loginServer.set(event.value)}
             autoCapitalize="none"
-            style={{ color: "#fff", backgroundColor: "#17171d", borderRadius: 8, padding: 10 }}
+            style={{ height: 44, color: c.text, backgroundColor: c.card, borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, fontSize: 13 }}
           />
-          <View
-            onPress={() => {
-              const value = loginServer().trim().replace(/\/+$/, "");
-              if (!value) return;
-              server.set(value);
-              void Storage.setItem("server", value);
-              settingsMessage.set("服务器已保存，重新登录后生效");
-            }}
-            style={{ backgroundColor: "#2c5bd6", borderRadius: 8, paddingVertical: 10, alignItems: "center" }}
-          >
-            <Text style={{ color: "#fff", fontSize: 13 }}>保存服务器</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SettingChip
+              label="保存服务器"
+              active={false}
+              onPress={() => {
+                const value = loginServer().trim().replace(/\/+$/, "");
+                if (!value) return;
+                server.set(value);
+                void Storage.setItem("server", value);
+                settingsMessage.set("服务器已保存，重新登录后生效");
+              }}
+            />
+            <SettingChip
+              label="退出登录"
+              active={false}
+              onPress={() => {
+                sheet.set("");
+                void clearSession();
+                route.set({ name: "login" });
+              }}
+            />
           </View>
-          {settingsMessage() ? <Text style={{ color: "#8ab4ff", fontSize: 12 }}>{settingsMessage()}</Text> : null}
+          {settingsMessage() ? <Text style={{ fontSize: 12, color: c.secondary }}>{settingsMessage()}</Text> : null}
 
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>播放偏好</Text>
-          <Text style={{ color: "#8b8b98", fontSize: 12 }}>倍速记忆：{rate()}×</Text>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: c.secondary }}>播放</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>倍速记忆：{rate()}×</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {["auto", "720p", "1080p"].map((value) => (
-              <Option
+              <SettingChip
                 label={value === "auto" ? "清晰度自动" : value}
                 active={defaultQuality() === value}
                 onPress={() => {
@@ -1456,46 +2627,108 @@ function SettingsScreen() {
             ))}
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Option label="自动连播开" active={autoPlay()} onPress={() => {
-              autoPlay.set(true);
-              void Storage.setItem("autoPlay", "true");
-            }} />
-            <Option label="自动连播关" active={!autoPlay()} onPress={() => {
-              autoPlay.set(false);
-              void Storage.setItem("autoPlay", "false");
-            }} />
+            <SettingChip label="自动连播开" active={autoPlay()} onPress={() => { autoPlay.set(true); void Storage.setItem("autoPlay", "true"); }} />
+            <SettingChip label="自动连播关" active={!autoPlay()} onPress={() => { autoPlay.set(false); void Storage.setItem("autoPlay", "false"); }} />
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Option label="弹幕开" active={danmakuEnabled()} onPress={() => {
-              danmakuEnabled.set(true);
-              void Storage.setItem("danmakuEnabled", "true");
-              pushDanmaku();
-            }} />
-            <Option label="弹幕关" active={!danmakuEnabled()} onPress={() => {
-              danmakuEnabled.set(false);
-              void Storage.setItem("danmakuEnabled", "false");
-              pushDanmaku();
-            }} />
+            <SettingChip label="弹幕开" active={danmakuEnabled()} onPress={() => { danmakuEnabled.set(true); void Storage.setItem("danmakuEnabled", "true"); pushDanmaku(); }} />
+            <SettingChip label="弹幕关" active={!danmakuEnabled()} onPress={() => { danmakuEnabled.set(false); void Storage.setItem("danmakuEnabled", "false"); pushDanmaku(); }} />
           </View>
 
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>账号</Text>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: c.secondary }}>外观</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SettingChip label="浅色" active={theme() === "light"} onPress={() => { if (theme() !== "light") toggleTheme(); }} />
+            <SettingChip label="深色" active={theme() === "dark"} onPress={() => { if (theme() !== "dark") toggleTheme(); }} />
+          </View>
+
+          <Text style={{ fontSize: 13, fontWeight: "600", color: c.secondary }}>关于</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · 0.1.0</Text>
+          <SettingChip
+            label="检查更新"
+            active={false}
+            onPress={() => settingsMessage.set("当前已是最新开发版，自动下载未接")}
+          />
+        </View>
+      </Scroll>
+    </SheetShell>
+  );
+}
+
+function SettingsScreen() {
+  const c = C();
+  return (
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <WebTopBar title="设置" onBack={() => route.set({ name: "home" })} />
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ padding: 16, gap: 12 }}>
+          <Text style={{ fontSize: 14, color: c.text }}>外观</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SettingChip label="浅色" active={theme() === "light"} onPress={() => { if (theme() !== "light") toggleTheme(); }} />
+            <SettingChip label="深色" active={theme() === "dark"} onPress={() => { if (theme() !== "dark") toggleTheme(); }} />
+          </View>
+
+          <Text style={{ fontSize: 14, color: c.text }}>服务器地址</Text>
+          <Input
+            value={loginServer()}
+            onChange={(event) => loginServer.set(event.value)}
+            autoCapitalize="none"
+            style={{ color: c.text, backgroundColor: c.card, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: c.border }}
+          />
+          <View
+            onPress={() => {
+              const value = loginServer().trim().replace(/\/+$/, "");
+              if (!value) return;
+              server.set(value);
+              void Storage.setItem("server", value);
+              settingsMessage.set("服务器已保存，重新登录后生效");
+            }}
+            style={{ backgroundColor: c.brand, borderRadius: 8, paddingVertical: 12, alignItems: "center" }}
+          >
+            <Text style={{ color: "#fff", fontSize: 14 }}>保存服务器</Text>
+          </View>
+          {settingsMessage() ? <Text style={{ color: c.brand, fontSize: 12 }}>{settingsMessage()}</Text> : null}
+
+          <Text style={{ fontSize: 14, color: c.text }}>播放偏好</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>倍速记忆：{rate()}×</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {["auto", "720p", "1080p"].map((value) => (
+              <SettingChip
+                label={value === "auto" ? "清晰度自动" : value}
+                active={defaultQuality() === value}
+                onPress={() => {
+                  defaultQuality.set(value);
+                  void Storage.setItem("defaultQuality", value);
+                }}
+              />
+            ))}
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SettingChip label="自动连播开" active={autoPlay()} onPress={() => { autoPlay.set(true); void Storage.setItem("autoPlay", "true"); }} />
+            <SettingChip label="自动连播关" active={!autoPlay()} onPress={() => { autoPlay.set(false); void Storage.setItem("autoPlay", "false"); }} />
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SettingChip label="弹幕开" active={danmakuEnabled()} onPress={() => { danmakuEnabled.set(true); void Storage.setItem("danmakuEnabled", "true"); pushDanmaku(); }} />
+            <SettingChip label="弹幕关" active={!danmakuEnabled()} onPress={() => { danmakuEnabled.set(false); void Storage.setItem("danmakuEnabled", "false"); pushDanmaku(); }} />
+          </View>
+
+          <Text style={{ fontSize: 14, color: c.text }}>账号</Text>
           <View
             onPress={() => {
               void clearSession();
               route.set({ name: "login" });
             }}
-            style={{ backgroundColor: "#2a1a1a", borderRadius: 8, paddingVertical: 10, alignItems: "center" }}
+            style={{ backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingVertical: 12, alignItems: "center" }}
           >
-            <Text style={{ color: "#ff9b9b", fontSize: 13 }}>退出登录</Text>
+            <Text style={{ color: "#C0392B", fontSize: 14 }}>退出登录</Text>
           </View>
 
-          <Text style={{ color: "#c9c9d2", fontSize: 13 }}>关于</Text>
-          <Text style={{ color: "#8b8b98", fontSize: 12 }}>MoonTVPlus Native Shell · 0.1.0（P1.3）</Text>
+          <Text style={{ fontSize: 14, color: c.text }}>关于</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · 0.1.0（P1.3）</Text>
           <View
             onPress={() => settingsMessage.set("当前已是最新开发版，自动下载未接")}
-            style={{ backgroundColor: "#17171d", borderRadius: 8, paddingVertical: 10, alignItems: "center" }}
+            style={{ backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingVertical: 12, alignItems: "center" }}
           >
-            <Text style={{ color: "#8ab4ff", fontSize: 13 }}>检查更新</Text>
+            <Text style={{ color: c.brand, fontSize: 14 }}>检查更新</Text>
           </View>
         </View>
       </Scroll>
@@ -1504,52 +2737,37 @@ function SettingsScreen() {
 }
 
 function DetailScreen() {
+  const c = C();
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b0b0f" }}>
-      <Header title={detailTitle()} onBack={() => route.set({ name: "home" })} />
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <WebTopBar title="详情" onBack={() => route.set({ name: "home" })} />
       <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
-        <View style={{ padding: 12, gap: 12 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 16 }}>
           <View style={{ flexDirection: "row", gap: 12 }}>
             {detailPoster() ? (
               <Image
                 src={detailPoster()}
-                style={{ width: 96, height: 144, borderRadius: 8, backgroundColor: "#1c1c22" }}
+                style={{ width: 96, height: 144, borderRadius: 8, backgroundColor: c.border }}
               />
             ) : null}
             <View style={{ flex: 1, gap: 6 }}>
-              <Text style={{ color: "#f2f2f5", fontSize: 18, fontWeight: "600" }}>{detailTitle()}</Text>
-              <Text style={{ color: "#8b8b98", fontSize: 12 }}>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: c.text, numberOfLines: 2 }}>
+                {detailTitle()}
+              </Text>
+              <Text style={{ fontSize: 14, color: c.secondary }}>
                 {detailSources().length} 个源 · {detailEpisodes().length} 集
               </Text>
               {detailLoading() ? (
-                <Text style={{ color: "#8b8b98", fontSize: 12 }}>
+                <Text style={{ fontSize: 12, color: c.secondary }}>
                   搜索中 {detailSearchDone()}/{detailSearchTotal() || "?"} 源
-                  {searchFirstMs() >= 0 ? " · 首条 " + searchFirstMs() + "ms" : ""}
                 </Text>
               ) : null}
-              {searchCacheHit() ? (
-                <Text style={{ color: "#7ee2a8", fontSize: 12 }}>
-                  缓存命中 · 首条 {searchFirstMs()}ms / 全部 {searchAllMs()}ms
-                </Text>
+              {detailError() ? (
+                <Text style={{ fontSize: 12, color: "#C0392B" }}>{detailError()}</Text>
               ) : null}
-              {!detailLoading() && !searchCacheHit() && searchAllMs() >= 0 ? (
-                <Text style={{ color: "#7ee2a8", fontSize: 12 }}>
-                  首条 {searchFirstMs()}ms / 全部 {searchAllMs()}ms
-                </Text>
-              ) : null}
-              {detailSearchErrors().length > 0 ? (
-                <Text style={{ color: "#e2b07e", fontSize: 11, numberOfLines: 2 }}>
-                  失败源 {detailSearchErrors().length}:{" "}
-                  {detailSearchErrors()
-                    .slice(0, 3)
-                    .map((item) => item.sourceName)
-                    .join("、")}
-                </Text>
-              ) : null}
-              {detailError() ? <Text style={{ color: "#ff8b8b", fontSize: 12 }}>{detailError()}</Text> : null}
               {!detailLoading() && detailSources().length === 0 ? (
-                <View style={{ flexDirection: "row", gap: 12, paddingTop: 4 }}>
-                  <Text onPress={retryDetail} style={{ color: "#8ab4ff", fontSize: 13 }}>
+                <View style={{ flexDirection: "row", gap: 16, paddingTop: 4 }}>
+                  <Text onPress={retryDetail} style={{ fontSize: 14, color: c.brand }}>
                     重试
                   </Text>
                   <Text
@@ -1557,7 +2775,7 @@ function DetailScreen() {
                       const movie = detailMovie();
                       if (movie) useDemoDetail(movie, "手动试用演示源");
                     }}
-                    style={{ color: "#e2b07e", fontSize: 13 }}
+                    style={{ fontSize: 14, color: c.secondary }}
                   >
                     试用演示源
                   </Text>
@@ -1567,32 +2785,80 @@ function DetailScreen() {
           </View>
 
           {detailSources().length > 0 ? (
-            <View style={{ gap: 6 }}>
-              <Text style={{ color: "#c9c9d2", fontSize: 13 }}>选源</Text>
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>选源</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {detailSources().map((source) => (
-                  <View
-                    onPress={() => void selectSource(source)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 7,
-                      borderRadius: 6,
-                      backgroundColor: source.source === detailSource() ? "#2c5bd6" : "#1c1c22",
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 12 }}>{source.sourceName}</Text>
-                  </View>
-                ))}
+                {detailSources().map((source) => {
+                  const active = source.source === detailSource();
+                  return (
+                    <View
+                      onPress={() => void selectSource(source)}
+                      style={{
+                        height: 32,
+                        paddingHorizontal: 12,
+                        justifyContent: "center",
+                        borderRadius: 16,
+                        backgroundColor: active ? c.selected : "transparent",
+                        borderWidth: 1,
+                        borderColor: active ? c.selected : c.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: active ? "#fff" : c.text }}>
+                        {cleanSource(source.sourceName)}
+                      </Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           ) : null}
 
           {detailEpisodesLoading() ? (
-            <Text style={{ color: "#8b8b98", fontSize: 12 }}>正在获取集数…</Text>
+            <Text style={{ fontSize: 12, color: c.secondary }}>正在获取集数…</Text>
+          ) : null}
+
+          {detailEpisodes().length > 0 ? (
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: c.text }}>选集</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 8, columnGap: 8 }}>
+                {detailEpisodes().map((episode, index) => (
+                  <View
+                    onPress={() => playDetailEpisode(index)}
+                    style={{
+                      width: "31.5%",
+                      height: 44,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 8,
+                      backgroundColor: c.card,
+                      borderWidth: 1,
+                      borderColor: c.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, color: c.text, numberOfLines: 1 }}>
+                      {detailEpisodeTitles()[index]?.replace(/<[^>]+>/g, "") || String(index + 1)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <View
+                onPress={() => playDetailEpisode(0)}
+                style={{
+                  height: 48,
+                  marginTop: 4,
+                  borderRadius: 8,
+                  backgroundColor: c.brand,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: "600", color: "#fff" }}>播放第 1 集</Text>
+              </View>
+            </View>
           ) : null}
 
           {detailSources().length > 0 && detailEpisodes().length === 0 && !detailEpisodesLoading() ? (
-            <View style={{ flexDirection: "row", gap: 12 }}>
+            <View style={{ flexDirection: "row", gap: 16 }}>
               <Text
                 onPress={() => {
                   const item =
@@ -1600,47 +2866,13 @@ function DetailScreen() {
                     detailSources()[0];
                   if (item) void selectSource(item);
                 }}
-                style={{ color: "#8ab4ff", fontSize: 13 }}
+                style={{ fontSize: 14, color: c.brand }}
               >
                 重试集数
               </Text>
-              <Text style={{ color: "#8b8b98", fontSize: 13 }}>或在上方换源</Text>
+              <Text style={{ fontSize: 14, color: c.secondary }}>或在上方换源</Text>
             </View>
           ) : null}
-
-          {detailEpisodes().length > 0 ? (
-            <View style={{ gap: 6 }}>
-              <Text style={{ color: "#c9c9d2", fontSize: 13 }}>选集</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {detailEpisodes().map((episode, index) => (
-                  <View
-                    onPress={() => playDetailEpisode(index)}
-                    style={{
-                      minWidth: 52,
-                      paddingHorizontal: 10,
-                      paddingVertical: 8,
-                      borderRadius: 6,
-                      backgroundColor: "#1c1c22",
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 12, textAlign: "center" }}>
-                      {detailEpisodeTitles()[index]?.replace(/<[^>]+>/g, "") || String(index + 1)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          <Text
-            onPress={() => {
-              const movie = detailMovie();
-              if (movie) useDemoDetail(movie, "手动试用演示源");
-            }}
-            style={{ color: "#8b7a5a", fontSize: 11, paddingTop: 8 }}
-          >
-            试用演示源（真实 TS 测试流，手动）
-          </Text>
         </View>
       </Scroll>
     </View>
@@ -1656,10 +2888,11 @@ function Option(props: { label: string; active?: boolean; onPress: () => void })
     <View
       onPress={props.onPress}
       style={{
+        height: 32,
         paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 6,
-        backgroundColor: props.active ? "#2c5bd6" : "#1c1c24",
+        justifyContent: "center",
+        borderRadius: 16,
+        backgroundColor: props.active ? "#27AE60" : "rgba(255,255,255,0.08)",
       }}
     >
       <Text style={{ color: props.active ? "#fff" : "#c9c9d2", fontSize: 12 }}>{props.label}</Text>
@@ -1974,37 +3207,31 @@ function PlayScreen() {
                 backgroundColor: "rgba(0,0,0,0.42)",
               }}
             >
-              <Text
+              <View
                 onPress={() => {
                   saveResume(true);
                   paused.set(true);
                   if (fullscreen()) setFullscreenMode(false);
                   route.set({ name: "detail" });
                 }}
-                style={{ color: "#fff", fontSize: 15, paddingRight: 4 }}
+                style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
               >
-                ‹
-              </Text>
+                <Icon name="arrowLeft" color="#fff" size={22} />
+              </View>
               <Text
-                style={{ color: "#fff", fontSize: 14, flex: 1, numberOfLines: 1 }}
+                style={{ color: "#fff", fontSize: 14, fontWeight: "600", flex: 1, numberOfLines: 1 }}
               >
                 {playTitle()}
               </Text>
-              <Text onPress={toggleOrientation} style={{ color: "#c9c9d2", fontSize: 12 }}>
-                {orientationLandscape ? "竖屏" : "横屏"}
-              </Text>
-              <Text
-                onPress={() => playerRef?.command("enterPip")}
-                style={{ color: "#c9c9d2", fontSize: 12 }}
-              >
-                PiP
-              </Text>
-              <Text
-                onPress={() => setFullscreenMode(!fullscreen())}
-                style={{ color: "#8ab4ff", fontSize: 12 }}
-              >
-                {fullscreen() ? "退出" : "全屏"}
-              </Text>
+              <View onPress={toggleOrientation} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+                <Icon name="rotate" color="#fff" size={22} />
+              </View>
+              <View onPress={() => playerRef?.command("enterPip")} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+                <Icon name="pip" color="#fff" size={22} />
+              </View>
+              <View onPress={() => setFullscreenMode(!fullscreen())} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+                <Icon name={fullscreen() ? "minimize" : "maximize"} color="#fff" size={22} />
+              </View>
             </View>
 
             <View
@@ -2028,7 +3255,7 @@ function PlayScreen() {
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ color: "#fff", fontSize: 18 }}>{paused() ? "▶" : "❚❚"}</Text>
+                <Icon name={paused() ? "play" : "pause"} color="#fff" size={28} />
               </View>
             </View>
 
@@ -2051,13 +3278,13 @@ function PlayScreen() {
                   onLayout={(event) => seekBarW.set(event.bounds.size.width)}
                   style={{ flex: 1, height: 24, justifyContent: "center" }}
                 >
-                  <View style={{ height: 4, borderRadius: 2, backgroundColor: "#3a3a44" }}>
+                  <View style={{ height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.28)" }}>
                     <View
                       style={{
                         width: (percent() + "%") as any,
-                        height: 4,
+                        height: 3,
                         borderRadius: 2,
-                        backgroundColor: "#2c5bd6",
+                        backgroundColor: "#27AE60",
                       }}
                     />
                   </View>
@@ -2066,9 +3293,9 @@ function PlayScreen() {
                       position: "absolute",
                       left: (percent() + "%") as any,
                       marginLeft: -5,
-                      width: 10,
-                      height: 10,
-                      borderRadius: 5,
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
                       backgroundColor: "#fff",
                     }}
                   />
@@ -2076,20 +3303,20 @@ function PlayScreen() {
                 <Text style={{ color: "#fff", fontSize: 11 }}>{formatTime(playDuration())}</Text>
               </View>
 
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                <Text onPress={() => togglePanel("rate")} style={{ color: "#e8e8ee", fontSize: 12, paddingRight: 6 }}>
-                  倍速 {rate()}x
+              <View style={{ flexDirection: "row", gap: 16, flexWrap: "wrap", alignItems: "center", paddingTop: 2 }}>
+                <Text onPress={() => togglePanel("rate")} style={{ color: "#fff", fontSize: 12 }}>
+                  {rate()}×
                 </Text>
-                <Text onPress={() => togglePanel("quality")} style={{ color: "#e8e8ee", fontSize: 12, paddingRight: 6 }}>
-                  清晰度 {qualityLabel()}
+                <Text onPress={() => togglePanel("quality")} style={{ color: "#fff", fontSize: 12 }}>
+                  {qualityLabel()}
                 </Text>
-                <Text onPress={() => togglePanel("audio")} style={{ color: "#e8e8ee", fontSize: 12, paddingRight: 6 }}>
-                  音轨 {audioLabel()}
+                <Text onPress={() => togglePanel("audio")} style={{ color: "#fff", fontSize: 12 }}>
+                  {audioLabel()}
                 </Text>
-                <Text onPress={() => togglePanel("subtitle")} style={{ color: "#e8e8ee", fontSize: 12 }}>
+                <Text onPress={() => togglePanel("subtitle")} style={{ color: "#fff", fontSize: 12 }}>
                   字幕 {subtitleTracks().length > 0 || externalSubtitle() ? (subtitleEnabled() ? "开" : "关") : "无"}
                 </Text>
-                <Text onPress={() => togglePanel("danmaku")} style={{ color: "#e8e8ee", fontSize: 12 }}>
+                <Text onPress={() => togglePanel("danmaku")} style={{ color: "#fff", fontSize: 12 }}>
                   弹幕 {danmakuEnabled() ? danmakuItems().length : "关"}
                 </Text>
               </View>
@@ -2105,9 +3332,11 @@ function PlayScreen() {
                   maxHeight: 280,
                   padding: 12,
                   gap: 10,
-                  backgroundColor: "rgba(16,16,20,0.97)",
+                  backgroundColor: "rgba(20,20,24,0.98)",
                   borderTopWidth: 1,
-                  borderTopColor: "#2a2a33",
+                  borderTopColor: "rgba(255,255,255,0.12)",
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
                 }}
               >
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -2379,6 +3608,12 @@ function App() {
       <If when={booted() && route().name === "home"}>
         <HomeScreen />
       </If>
+      <If when={booted() && route().name === "search"}>
+        <SearchScreen />
+      </If>
+      <If when={booted() && route().name === "browse"}>
+        <BrowseScreen />
+      </If>
       <If when={booted() && route().name === "detail"}>
         <DetailScreen />
       </If>
@@ -2394,6 +3629,33 @@ function App() {
       <If when={booted() && route().name === "settings"}>
         <SettingsScreen />
       </If>
+      {sheet() ? (
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+          <View
+            onPress={() => sheet.set("")}
+            style={{ position: "absolute", left: 0, right: 0, top: 0, height: "18%", backgroundColor: "rgba(0,0,0,0.35)" }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: "82%",
+              backgroundColor: theme() === "light" ? "#FFFFFF" : "#1E1E1E",
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+            }}
+          >
+            {sheet() === "user" ? <UserSheet /> : null}
+            {sheet() === "favorites" ? <FavoritesSheet /> : null}
+            {sheet() === "history" ? <HistorySheet /> : null}
+            {sheet() === "settings" ? <SettingsSheet /> : null}
+            {sheet() === "sources" ? <SourcePickerSheet /> : null}
+            {sheet() === "magnet" ? <MagnetSheet /> : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -1,8 +1,8 @@
 {
   "name": "MoonTVPlus NSH",
   "id": "com.moontvplus.phone",
-  "version": "1.9.17",
-  "build": 27,
+  "version": "1.9.18",
+  "build": 28,
   "capabilities": {
     "network": {
       "hosts": [
