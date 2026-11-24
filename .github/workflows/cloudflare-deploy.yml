@@ -212,7 +212,16 @@ jobs:
             exit 1
           fi
           BODY=$(gh release view "$TAG" -R Happier-X/MoonTVPlus --json body --jq .body)
-          jq -n --arg version "$VERSION" --arg notes "$BODY" --arg url "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk" --arg sha "$SHA" --argjson size "$SIZE" '{version:$version,notes:$notes,apk:{name:"moontvplus-phone-latest.apk",url:$url,size:$size,sha256:$sha}}' > public/downloads/latest.json
+          VERSION_CODE=$(VERSION="$VERSION" node -e "const j=require('./apps/nsh-phone/embed/nsh.json'); if (j.version === process.env.VERSION) process.stdout.write(String(j.build))")
+          if [ -z "$VERSION_CODE" ]; then
+            VERSION_CODE=$(printf '%s' "$BODY" | grep -oE 'versionCode[[:space:]]+[0-9]+' | head -1 | grep -oE '[0-9]+')
+          fi
+          if [ -z "$VERSION_CODE" ]; then
+            echo "::error::cannot determine versionCode for $TAG (nsh.json version mismatch and release notes have no versionCode)"
+            exit 1
+          fi
+          echo "versionCode=$VERSION_CODE"
+          jq -n --arg version "$VERSION" --argjson versionCode "$VERSION_CODE" --arg notes "$BODY" --arg url "https://tv.370125.xyz/downloads/moontvplus-phone-latest.apk" --arg sha "$SHA" --argjson size "$SIZE" '{version:$version,versionCode:$versionCode,notes:$notes,apk:{name:"moontvplus-phone-latest.apk",url:$url,size:$size,sha256:$sha}}' > public/downloads/latest.json
           cat public/downloads/latest.json
 
       - name: Build for Cloudflare

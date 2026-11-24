@@ -781,21 +781,6 @@ function updateVersionCode(raw: any): number {
   return match ? Number(match[1]) : 0;
 }
 
-function versionParts(value: string): number[] {
-  return String(value).split(/[.+-]/).map((part) => Number(part.replace(/\D/g, "")) || 0);
-}
-
-function versionNewer(remote: string, local: string): boolean {
-  const a = versionParts(remote);
-  const b = versionParts(local);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const left = a[i] ?? 0;
-    const right = b[i] ?? 0;
-    if (left !== right) return left > right;
-  }
-  return false;
-}
-
 function updateUrl(url: string): string {
   if (/^https?:/i.test(url)) return url;
   return base() + (url.startsWith("/") ? url : "/" + url);
@@ -829,9 +814,11 @@ async function checkUpdate(manual: boolean) {
       },
     };
     await Storage.setItem("lastUpdateCheck", String(Date.now()));
-    const newer = info.versionCode > 0
-      ? info.versionCode > appVersionCode()
-      : versionNewer(info.version, appVersionName());
+    if (info.versionCode <= 0) {
+      if (manual) settingsMessage.set("无法比较版本，请手动更新");
+      return;
+    }
+    const newer = info.versionCode > appVersionCode();
     if (newer) {
       updateInfo.set(info);
       updateReceived.set(0);
