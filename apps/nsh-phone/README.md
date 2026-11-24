@@ -205,20 +205,20 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
   不再手抄到 build.gradle.kts。
 - CI 会下载 nsh v0.6.1 的 nsh.aar、构建 TSX、运行 Gradle assembleRelease，
   用 ANDROID_KEYSTORE_* secrets 签名，并用 apksigner/aapt 校验包名和版本后上传 artifact。
-- 当前发布：1.9.19（versionCode 29），tag client-v1.9.19。
-- 发布产物：moontvplus-phone-1.9.19-release-signed.apk（arm64）、app-armeabi-v7a-release.apk、SHA256SUMS.txt。
+- 当前发布：1.9.20（versionCode 30），tag client-v1.9.20。
+- 发布产物：moontvplus-phone-1.9.20-release-signed.apk（arm64）、app-armeabi-v7a-release.apk、SHA256SUMS.txt。
 - 站点下载：/downloads/latest.json 与 /downloads/moontvplus-phone-latest.apk 由 Cloudflare Deploy
   工作流从最新正式 Release 自动生成；APK 超过 Workers Assets 单文件限制时由 Worker 同域转发
   GitHub 资产，站点 URL 保持不变。
-- 1.9.18 已被 1.9.19 取代，请以 1.9.19 为准。
+- 1.9.20 增加应用内检查更新、下载校验与安装器拉起；1.9.19 已被 1.9.20 取代。
 
 ### 回退
 
-1.9.19 的 versionCode 是 29，直接装旧版会被系统拒绝。回退需要：
+1.9.20 的 versionCode 是 30，直接装旧版会被系统拒绝。回退需要：
 - 卸载当前应用后安装对应旧版 APK（会清空应用数据）；或
 - 用 adb install -d old.apk 允许降级。
 
-旧版 Release：client-v1.9.17、client-v1.9.16；client-v1.9.18 已标记 pre-release，不建议使用。
+旧版 Release：client-v1.9.19、client-v1.9.17、client-v1.9.16；client-v1.9.18 已标记 pre-release，不建议使用。
 
 ## 已知限制
 
