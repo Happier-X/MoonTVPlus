@@ -575,7 +575,10 @@ function parseBody(text: string): any {
 
 function headersFor(url: string, auth: boolean): Record<string, string> {
   const headers: Record<string, string> = { "User-Agent": UA, Accept: "*/*" };
-  if (auth && token()) headers.Authorization = "Bearer " + token();
+  if (auth && token()) {
+    headers.Authorization = "Bearer " + token();
+    console.log("nshspike: auth " + headers.Authorization.slice(0, 12));
+  }
   return headers;
 }
 
@@ -991,6 +994,10 @@ async function boot() {
       // ignore a broken resume entry
     }
   }
+  console.log(
+    "nshspike: boot token=" + (savedToken ? savedToken.slice(0, 12) : "none") +
+    " server=" + (savedServer || "default")
+  );
   booted.set(true);
   if (!autoUpdateScheduled) {
     autoUpdateScheduled = true;
