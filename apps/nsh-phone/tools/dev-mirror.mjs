@@ -1,7 +1,18 @@
 import http from "node:http";
+import fs from "node:fs";
+import crypto from "node:crypto";
 
 const UPSTREAM_HOST = "tv.370125.xyz";
 const PORT = 9000;
+const UPDATE_APK = process.env.MOCK_UPDATE_APK || "";
+const UPDATE_APK_NAME = "moontvplus-phone-1.9.20.apk";
+let UPDATE_SIZE = 0;
+let UPDATE_SHA = "";
+if (process.env.MOCK_UPDATE === "1" && UPDATE_APK && fs.existsSync(UPDATE_APK)) {
+  const data = fs.readFileSync(UPDATE_APK);
+  UPDATE_SIZE = data.length;
+  UPDATE_SHA = process.env.MOCK_UPDATE_BAD_SHA === "1" ? "0".repeat(64) : crypto.createHash("sha256").update(data).digest("hex");
+}
 
 const server = http.createServer((req, res) => {
   if (req.url === "/test.srt") {
@@ -82,6 +93,52 @@ const server = http.createServer((req, res) => {
       return;
     }
     json({ success: false, error: "mock live endpoint not found" });
+    return;
+  }
+
+  if (req.url === "/downloads/latest.json" && process.env.MOCK_UPDATE === "1" && UPDATE_SIZE > 0) {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      version: "1.9.20",
+      notes: "# MoonTVPlus Android 1.9.20 测试版\n\n- versionCode 30\n- 仅用于更新链路验证，不要对外发布。",
+      apk: {
+        name: UPDATE_APK_NAME,
+        url: "http://10.0.2.2:9000/downloads/" + UPDATE_APK_NAME,
+        size: UPDATE_SIZE,
+        sha256: UPDATE_SHA
+      }
+    }));
+    return;
+  }
+
+  if (req.url === "/downloads/" + UPDATE_APK_NAME && process.env.MOCK_UPDATE === "1" && UPDATE_SIZE > 0) {
+    res.writeHead(200, {
+      "content-type": "application/vnd.android.package-archive",
+      "content-length": UPDATE_SIZE
+    });
+    fs.createReadStream(UPDATE_APK).pipe(res);
+    return;
+  }
+
+  if (req.url.startsWith("/downloads/latest.json")) {
+    const options = {
+      host: UPSTREAM_HOST,
+      port: 80,
+      path: req.url,
+      method: "GET",
+      headers: { "User-Agent": "MoonTVPlus App/1.9.16 (Android) moontvplus app", Accept: "*/*", "Accept-Encoding": "identity" }
+    };
+    const upstream = http.request(options, (upstreamResponse) => {
+      const headers = { ...upstreamResponse.headers };
+      delete headers["content-encoding"];
+      res.writeHead(upstreamResponse.statusCode || 502, headers);
+      upstreamResponse.pipe(res);
+    });
+    upstream.on("error", (error) => {
+      res.writeHead(502, { "content-type": "text/plain" });
+      res.end(String(error));
+    });
+    upstream.end();
     return;
   }
 

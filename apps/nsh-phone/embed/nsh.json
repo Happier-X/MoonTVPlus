@@ -16,7 +16,10 @@
       "auth.token",
       "auth.clear",
       "device.brightness",
-      "device.volume"
+      "device.volume",
+      "update.download",
+      "update.cancel",
+      "update.install"
     ]
   },
   "android": {

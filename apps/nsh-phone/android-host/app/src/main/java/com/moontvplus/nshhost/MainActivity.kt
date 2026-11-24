@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import androidx.core.content.pm.PackageInfoCompat
 import com.longbridge.nsh.NshView
 import okhttp3.Call
 import okhttp3.Callback
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     private lateinit var nsh: NshView
+    private lateinit var updates: UpdateManager
 
     private val streams = ConcurrentHashMap<String, Call>()
 
@@ -41,6 +43,12 @@ class MainActivity : Activity() {
         nsh = NshView(this)
         nsh.setErrorListener { message -> Log.e("nsh-host", message) }
         nsh.setStorageDirectory(File(filesDir, "nsh/session"))
+        updates = UpdateManager(this, nsh, http)
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        nsh.setParams(mapOf(
+            "versionName" to (packageInfo.versionName ?: ""),
+            "versionCode" to PackageInfoCompat.getLongVersionCode(packageInfo)
+        ))
         nsh.registerComponent("moontvplus.player") { context -> ExoPlayerComponent(context) }
         nsh.handle("http") { data, reply -> handleHttp(data, reply) }
         nsh.handle("http.stream") { data, reply -> handleStream(data, reply) }
@@ -60,6 +68,9 @@ class MainActivity : Activity() {
         }
         nsh.handle("device.brightness") { data, reply -> handleBrightness(data, reply) }
         nsh.handle("device.volume") { data, reply -> handleVolume(data, reply) }
+        nsh.handle("update.download") { data, reply -> updates.download(data, reply) }
+        nsh.handle("update.cancel") { data, reply -> updates.cancel(data, reply) }
+        nsh.handle("update.install") { data, reply -> updates.install(data, reply) }
 
         AuthStore.onTokenChanged = { token ->
             runOnUiThread { nsh.send("session.token", mapOf("token" to token)) }
@@ -230,6 +241,12 @@ class MainActivity : Activity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         nsh.send("pip", mapOf("active" to isInPictureInPictureMode))
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        updates.onActivityResult(requestCode, resultCode)
     }
 
     override fun onDestroy() {

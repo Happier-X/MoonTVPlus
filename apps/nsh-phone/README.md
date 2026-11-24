@@ -174,6 +174,19 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
   模拟器里把服务器改成 http://10.0.2.2:9000。
 - 模拟器实测：4 个频道；CCTV-1 首帧约 4.6s，CCTV-2 切台约 3.6s，湖南卫视约 4.2s；故障源会显示错误和重试/换台。
 
+## 应用内更新
+
+- 版本来源：宿主在启动前调用 nsh.setParams 注入真实 versionName/versionCode，设置页和关于页直接读这个值。
+- 检查更新：请求当前服务器地址的 /downloads/latest.json，优先读 versionCode 字段，其次从 notes 里的 versionCode N 解析，最后才按版本号比较。
+- 下载：宿主 OkHttp 下到应用私有目录 files/updates/，校验 size、sha256、包名、versionCode 必须大于当前版本、非 debug；失败返回可重试错误。
+- 安装：FileProvider + ACTION_VIEW；未授权时先跳「安装未知应用」设置页，返回后自动继续拉起安装器，不申请存储权限。
+- 自动检查：启动后 4 秒静默检查，最多 12 小时一次；只有发现新版本才提示，失败不打扰。手动检查不受间隔限制。
+- 本地验证 1.9.20：把测试 APK 放到临时路径，然后
+
+      $env:MOCK_LIVE='1'; $env:MOCK_UPDATE='1'; $env:MOCK_UPDATE_APK='C:\path\to\app-x86_64-release.apk'; node apps/nsh-phone/tools/dev-mirror.mjs
+
+  模拟器服务器填 http://10.0.2.2:9000，手动检查即可看到 1.9.20 更新弹层。
+
 ## Release 构建
 
     cd apps/nsh-phone/android-host

@@ -136,6 +136,12 @@ type SourceItem = {
   year?: string;
   typeName?: string;
 };
+type UpdateInfo = {
+  version: string;
+  notes: string;
+  versionCode: number;
+  apk: { url: string; size: number; sha256: string };
+};
 type LiveSource = {
   key: string;
   name: string;
@@ -409,6 +415,17 @@ const favorites = signal<FavoriteItem[]>([]);
 const defaultQuality = signal("auto");
 const autoPlay = signal(false);
 const settingsMessage = signal("");
+const appVersionName = signal(String(host.params.versionName ?? "0.0.0"));
+const appVersionCode = signal(Number(host.params.versionCode ?? 0));
+const updateVisible = signal(false);
+const updateInfo = signal<UpdateInfo | null>(null);
+const updateBusy = signal(false);
+const updateStatus = signal("");
+const updateError = signal("");
+const updateReceived = signal(0);
+const updateTotal = signal(0);
+const updateId = signal("");
+let autoUpdateScheduled = false;
 const playEpisodes = signal<string[]>([]);
 const playEpisodeTitles = signal<string[]>([]);
 
@@ -757,6 +774,132 @@ function retryLive() {
   playerRef?.command("retry");
 }
 
+function updateVersionCode(raw: any): number {
+  const direct = Number(raw?.versionCode ?? raw?.apk?.versionCode ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const match = String(raw?.notes || "").match(/versionCode\s*(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function versionParts(value: string): number[] {
+  return String(value).split(/[.+-]/).map((part) => Number(part.replace(/\D/g, "")) || 0);
+}
+
+function versionNewer(remote: string, local: string): boolean {
+  const a = versionParts(remote);
+  const b = versionParts(local);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const left = a[i] ?? 0;
+    const right = b[i] ?? 0;
+    if (left !== right) return left > right;
+  }
+  return false;
+}
+
+function updateUrl(url: string): string {
+  if (/^https?:/i.test(url)) return url;
+  return base() + (url.startsWith("/") ? url : "/" + url);
+}
+
+function updatePercent(): number {
+  return updateTotal() > 0 ? Math.min(100, Math.round((updateReceived() / updateTotal()) * 100)) : 0;
+}
+
+async function checkUpdate(manual: boolean) {
+  if (updateBusy()) return;
+  if (!manual) {
+    const last = Number((await Storage.getItem("lastUpdateCheck")) || 0);
+    if (Date.now() - last < 12 * 60 * 60 * 1000) return;
+  }
+  if (manual) settingsMessage.set("正在检查更新…");
+  try {
+    const result = await api("/downloads/latest.json", "GET", undefined, false);
+    if (result.status !== 200 || !result.json?.version) throw new Error("HTTP " + result.status);
+    const raw = result.json;
+    const apk = raw.apk ?? {};
+    if (!apk.url) throw new Error("latest.json 缺少 APK 地址");
+    const info: UpdateInfo = {
+      version: String(raw.version),
+      notes: String(raw.notes || ""),
+      versionCode: updateVersionCode(raw),
+      apk: {
+        url: String(apk.url),
+        size: Number(apk.size || 0),
+        sha256: String(apk.sha256 || "").toLowerCase(),
+      },
+    };
+    await Storage.setItem("lastUpdateCheck", String(Date.now()));
+    const newer = info.versionCode > 0
+      ? info.versionCode > appVersionCode()
+      : versionNewer(info.version, appVersionName());
+    if (newer) {
+      updateInfo.set(info);
+      updateReceived.set(0);
+      updateTotal.set(info.apk.size);
+      updateError.set("");
+      updateStatus.set("");
+      updateVisible.set(true);
+    } else if (manual) {
+      settingsMessage.set("已是最新版本 " + appVersionName());
+    }
+  } catch (error) {
+    if (manual) settingsMessage.set("检查更新失败：" + String(error));
+  }
+}
+
+async function downloadUpdate() {
+  const info = updateInfo();
+  if (!info) return;
+  if (info.versionCode <= 0) {
+    updateError.set("latest.json 缺少 versionCode，无法校验安装包");
+    return;
+  }
+  updateBusy.set(true);
+  updateError.set("");
+  updateStatus.set("下载中…");
+  updateReceived.set(0);
+  updateTotal.set(info.apk.size);
+  try {
+    const result: any = await host.call("update.download", {
+      id: "app-update",
+      url: updateUrl(info.apk.url),
+      size: info.apk.size,
+      sha256: info.apk.sha256,
+      versionName: info.version,
+      versionCode: info.versionCode,
+    }, { timeout: 0 });
+    updateId.set(String(result?.id || "app-update"));
+  } catch (error) {
+    updateBusy.set(false);
+    updateStatus.set("");
+    updateError.set("下载失败：" + String(error));
+  }
+}
+
+async function installUpdate(path: string) {
+  try {
+    const result: any = await host.call("update.install", { path }, { timeout: 0 });
+    if (result?.needPermission) {
+      updateStatus.set("请允许安装未知应用，返回后自动继续");
+    } else if (result?.started) {
+      updateStatus.set("已拉起系统安装器");
+    }
+  } catch (error) {
+    updateError.set("无法安装：" + String(error));
+  }
+}
+
+function cancelUpdate() {
+  void host.call("update.cancel", { id: updateId() || "app-update" }, { timeout: 5000 });
+  updateBusy.set(false);
+  updateStatus.set("已取消");
+}
+
+function closeUpdate() {
+  if (updateBusy()) return;
+  updateVisible.set(false);
+}
+
 async function boot() {
   const savedServer = await Storage.getItem("server");
   const savedTheme = await Storage.getItem("theme");
@@ -797,6 +940,10 @@ async function boot() {
     }
   }
   booted.set(true);
+  if (!autoUpdateScheduled) {
+    autoUpdateScheduled = true;
+    setTimeout(() => { void checkUpdate(false); }, 4000);
+  }
   if (!savedToken) {
     route.set({ name: "login" });
     return;
@@ -2696,6 +2843,84 @@ function SourcePickerSheet() {
   );
 }
 
+function UpdateSheet() {
+  themeVersion();
+  const info = updateInfo();
+  if (!info) return null;
+  return (
+    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+      <View
+        onPress={closeUpdate}
+        style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          left: 16,
+          right: 16,
+          bottom: 24,
+          maxHeight: "78%",
+          padding: 20,
+          gap: 12,
+          borderRadius: 20,
+          backgroundColor: C().card,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: C().text }}>发现新版本 {info.version}</Text>
+          <View onPress={closeUpdate} style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="x" color={C().secondary} size={20} />
+          </View>
+        </View>
+        <Text style={{ fontSize: 12, color: C().secondary }}>
+          当前 {appVersionName()}（{appVersionCode()}） → 新版本 {info.version}（{info.versionCode || "未知"}）
+        </Text>
+        <Scroll style={{ maxHeight: 220 }}>
+          <Text style={{ fontSize: 12, color: C().text, lineHeight: 20 }}>{info.notes || "暂无更新说明"}</Text>
+        </Scroll>
+        <Text style={{ fontSize: 11, color: C().secondary }}>
+          安装包 {(info.apk.size / 1024 / 1024).toFixed(1)} MB · sha256 {info.apk.sha256.slice(0, 12)}…
+        </Text>
+        {updateBusy() || updateReceived() > 0 ? (
+          <View style={{ gap: 6 }}>
+            <View style={{ height: 6, borderRadius: 3, overflow: "hidden", backgroundColor: C().border }}>
+              <View style={{ height: 6, width: updatePercent() + "%", backgroundColor: C().brand }} />
+            </View>
+            <Text style={{ fontSize: 11, color: C().secondary }}>
+              {updatePercent()}% · {updateStatus() || "下载中…"}
+            </Text>
+          </View>
+        ) : null}
+        {updateError() ? (
+          <Text style={{ fontSize: 12, color: "#C0392B" }}>{updateError()}</Text>
+        ) : null}
+        {updateStatus() && !updateBusy() && !updateError() ? (
+          <Text style={{ fontSize: 12, color: C().brand }}>{updateStatus()}</Text>
+        ) : null}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          {updateBusy() ? (
+            <View onPress={cancelUpdate} style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: C().border }}>
+              <Text style={{ fontSize: 14, color: C().text }}>取消下载</Text>
+            </View>
+          ) : updateError() ? (
+            <View onPress={() => void downloadUpdate()} style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: C().brand }}>
+              <Text style={{ fontSize: 14, color: "#FFFFFF" }}>重试</Text>
+            </View>
+          ) : updateStatus().startsWith("已拉起") || updateStatus().includes("允许安装") ? (
+            <View onPress={closeUpdate} style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: C().border }}>
+              <Text style={{ fontSize: 14, color: C().text }}>关闭</Text>
+            </View>
+          ) : (
+            <View onPress={() => void downloadUpdate()} style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: C().brand }}>
+              <Text style={{ fontSize: 14, color: "#FFFFFF" }}>下载并安装</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function SettingsSheet() {
   const c = C();
   return (
@@ -2763,11 +2988,11 @@ function SettingsSheet() {
           </View>
 
           <Text style={{ fontSize: 13, fontWeight: "600", color: c.secondary }}>关于</Text>
-          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · 0.1.0</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · {appVersionName()}</Text>
           <SettingChip
             label="检查更新"
             active={false}
-            onPress={() => settingsMessage.set("当前已是最新开发版，自动下载未接")}
+            onPress={() => void checkUpdate(true)}
           />
         </View>
       </Scroll>
@@ -2844,9 +3069,9 @@ function SettingsScreen() {
           </View>
 
           <Text style={{ fontSize: 14, color: c.text }}>关于</Text>
-          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · 0.1.0（P1.3）</Text>
+          <Text style={{ fontSize: 12, color: c.secondary }}>MoonTVPlus Native Shell · {appVersionName()}（{appVersionCode()}）</Text>
           <View
-            onPress={() => settingsMessage.set("当前已是最新开发版，自动下载未接")}
+            onPress={() => void checkUpdate(true)}
             style={{ backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingVertical: 12, alignItems: "center" }}
           >
             <Text style={{ color: c.brand, fontSize: 14 }}>检查更新</Text>
@@ -3963,6 +4188,32 @@ function App() {
       void Storage.setItem("token", payload.token);
     });
   });
+  effect(() => {
+    return host.on("update.progress", (payload: any) => {
+      if (!payload) return;
+      if (payload.done) {
+        updateBusy.set(false);
+        if (payload.error) {
+          updateStatus.set("");
+          updateError.set(String(payload.error));
+        } else {
+          updateReceived.set(Number(payload.received || updateTotal()));
+          updateStatus.set("校验通过，正在拉起安装器…");
+          if (payload.path) void installUpdate(String(payload.path));
+        }
+      } else {
+        updateReceived.set(Number(payload.received || 0));
+        updateTotal.set(Number(payload.total || updateTotal()));
+      }
+    });
+  });
+
+  effect(() => {
+    return host.on("update.installResult", (payload: any) => {
+      if (payload?.error) updateError.set(String(payload.error));
+      else updateStatus.set("已拉起系统安装器");
+    });
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b0b0f" }}>
@@ -4030,6 +4281,9 @@ function App() {
           </View>
         </View>
       ) : null}
+      <If when={updateVisible()}>
+        <UpdateSheet />
+      </If>
     </View>
   );
 }
