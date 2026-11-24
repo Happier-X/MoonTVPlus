@@ -112,7 +112,27 @@ function Icon(props: { name: string; color: string; size?: number }) {
   );
 }
 
-type Movie = { id: string; title: string; poster: string; rate?: string; year?: string };
+type Movie = { id: string; title: string; poster: string; rate?: string; year?: string; releaseDate?: string };
+type DuanjuItem = {
+  id: string;
+  title: string;
+  poster: string;
+  episodes: string[];
+  episodes_titles?: string[];
+  source: string;
+  source_name: string;
+  year?: string;
+};
+type HomeModule = { id: string; name: string; enabled: boolean; order: number };
+
+const DEFAULT_HOME_MODULES: HomeModule[] = [
+  { id: "hotMovies", name: "热门电影", enabled: true, order: 0 },
+  { id: "hotDuanju", name: "热播短剧", enabled: true, order: 1 },
+  { id: "bangumiCalendar", name: "新番放送", enabled: true, order: 2 },
+  { id: "hotTvShows", name: "热门剧集", enabled: true, order: 3 },
+  { id: "hotVarietyShows", name: "热门综艺", enabled: true, order: 4 },
+  { id: "upcomingContent", name: "即将上映", enabled: true, order: 5 },
+];
 type SearchHit = {
   id: string;
   title: string;
@@ -160,7 +180,7 @@ type LiveChannel = {
 type EpgProgram = { start: string; end: string; title: string };
 type LiveProgram = { now: string; next: string };
 
-type Route = { name: "login" } | { name: "home" } | { name: "search" } | { name: "browse"; kind: BrowseKind } | { name: "detail" } | { name: "play" } | { name: "live" } | { name: "live-play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
+type Route = { name: "login" } | { name: "home" } | { name: "search" } | { name: "browse"; kind: BrowseKind } | { name: "duanju" } | { name: "detail" } | { name: "play" } | { name: "live" } | { name: "live-play" } | { name: "favorites" } | { name: "history" } | { name: "settings" };
 type BrowseKind = "movie" | "tv" | "anime" | "show";
 type BrowseOption = { label: string; value: string };
 const BROWSE_OPTIONS: Record<BrowseKind, { title: string; categories: BrowseOption[]; types: BrowseOption[] }> = {
@@ -291,6 +311,7 @@ const Player = nativeComponent<
     title?: string;
     subtitle?: string;
     live?: boolean;
+    orientation?: "auto" | "portrait" | "landscape";
   },
   {
     progress: { position: number; duration: number; rate: number };
@@ -302,7 +323,7 @@ const Player = nativeComponent<
     unsupported: { command: string };
   }
 >("moontvplus.player", {
-  props: ["url", "headers", "paused", "startPosition", "rate", "title", "subtitle", "live"],
+  props: ["url", "headers", "paused", "startPosition", "rate", "title", "subtitle", "live", "orientation"],
   events: ["progress", "ready", "state", "error", "tracks", "authExpired", "unsupported"],
 });
 
@@ -315,6 +336,15 @@ const busy = signal("");
 const message = signal("");
 const movies = signal<Movie[]>([]);
 const bangumi = signal<Movie[]>([]);
+const tvShows = signal<Movie[]>([]);
+const varietyShows = signal<Movie[]>([]);
+const duanjuItems = signal<DuanjuItem[]>([]);
+const upcomingMovies = signal<Movie[]>([]);
+const homeModules = signal<HomeModule[]>(DEFAULT_HOME_MODULES);
+const homeContinueWatching = signal(true);
+const duanjuLoading = signal(false);
+const duanjuError = signal("");
+const playVertical = signal(false);
 const resume = signal<Resume | null>(null);
 const homeError = signal("");
 const detailTitle = signal("");
@@ -984,50 +1014,137 @@ async function doLogin() {
   }
 }
 
+async function homeList(path: string): Promise<Movie[]> {
+  const result = await withTimeout(api(path), 30000);
+  return Array.isArray(result.json?.list) ? result.json.list : [];
+}
+
+function readHomeModules(raw: unknown): HomeModule[] | null {
+  if (!raw) return null;
+  let value: any = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return Array.isArray(value) ? (value as HomeModule[]) : null;
+}
+
+async function loadHomeLayout() {
+  try {
+    const result = await api("/api/local-settings-sync", "GET");
+    const data = result.json?.payload?.data;
+    if (!data) return;
+    const saved = readHomeModules(data.homeModules);
+    if (saved?.length) {
+      homeModules.set(
+        DEFAULT_HOME_MODULES.map((base) => {
+          const item = saved.find((entry) => entry.id === base.id);
+          return item
+            ? { ...base, enabled: item.enabled !== false, order: Number(item.order ?? base.order) }
+            : base;
+        })
+      );
+    }
+    if (data.homeContinueWatchingEnabled !== undefined) {
+      homeContinueWatching.set(String(data.homeContinueWatchingEnabled) !== "false");
+    }
+  } catch {
+    console.log("nshspike: home layout defaults (sync unavailable)");
+  }
+}
+
+function orderedHomeModules(): HomeModule[] {
+  return homeModules()
+    .filter((item) => item.enabled)
+    .sort((a, b) => a.order - b.order);
+}
+
 async function loadHome() {
   homeError.set("");
   busy.set("加载首页…");
-  try {
-    const moviePath =
+  await loadHomeLayout();
+  const [movieData, tvData, showData, bangumiData, duanjuData, upcomingData] = await Promise.all([
+    homeList(
       "/api/douban/categories?kind=movie&category=" +
-      encodeURIComponent("热门") +
-      "&type=" +
-      encodeURIComponent("全部") +
-      "&limit=24";
-    try {
-      const movieResult = await withTimeout(api(moviePath), 30000);
-      if (movieResult.json?.list) movies.set(movieResult.json.list);
-    } catch (error) {
+        encodeURIComponent("热门") +
+        "&type=" +
+        encodeURIComponent("全部") +
+        "&limit=24"
+    ).catch((error) => {
       homeError.set("电影加载失败：" + String(error));
-    }
-  } finally {
-    busy.set("");
-  }
-
-  try {
-    const bangumiResult = await withTimeout(api("/api/bangumi/calendar"), 20000);
-    if (Array.isArray(bangumiResult.json)) {
-      const flat: Movie[] = [];
-      for (const day of bangumiResult.json) {
-        for (const item of day.items ?? []) {
-          flat.push({
-            id: String(item.id ?? ""),
-            title: item.name_cn || item.name || "",
-            poster:
-              item.images?.large ||
-              item.images?.common ||
-              item.images?.medium ||
-              item.images?.small ||
-              "",
-            rate: item.rating?.score ? String(item.rating.score) : "",
-            year: (item.air_date || "").slice(0, 4),
-          });
+      return [] as Movie[];
+    }),
+    homeList("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24").catch(() => [] as Movie[]),
+    homeList("/api/douban/categories?kind=tv&category=show&type=show&limit=24").catch(() => [] as Movie[]),
+    api("/api/bangumi/calendar")
+      .then((result) => {
+        const flat: Movie[] = [];
+        if (!Array.isArray(result.json)) return flat;
+        for (const day of result.json) {
+          for (const item of day.items ?? []) {
+            if (!item.images) continue;
+            flat.push({
+              id: String(item.id ?? ""),
+              title: item.name_cn || item.name || "",
+              poster:
+                item.images?.large ||
+                item.images?.common ||
+                item.images?.medium ||
+                item.images?.small ||
+                "",
+              rate: item.rating?.score ? String(item.rating.score) : "",
+              year: (item.air_date || "").slice(0, 4),
+            });
+          }
         }
-      }
-      bangumi.set(flat.slice(0, 24));
-    }
+        return flat;
+      })
+      .catch((error) => {
+        console.warn("bangumi failed", error);
+        return [] as Movie[];
+      }),
+    api("/api/duanju/recommends")
+      .then((result) => (Array.isArray(result.json?.data) ? (result.json.data as DuanjuItem[]) : []))
+      .catch(() => [] as DuanjuItem[]),
+    api("/api/tmdb/upcoming")
+      .then((result) => {
+        const list = Array.isArray(result.json?.data) ? result.json.data : [];
+        return list
+          .map((item: any) => ({
+            id: String(item.id ?? ""),
+            title: item.title || item.name || "",
+            poster: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : "",
+            rate: item.vote_average ? Number(item.vote_average).toFixed(1) : "",
+            year: String(item.release_date || "").slice(0, 4),
+            releaseDate: String(item.release_date || ""),
+          }))
+          .sort((a: Movie, b: Movie) => String(a.releaseDate).localeCompare(String(b.releaseDate)));
+      })
+      .catch(() => [] as Movie[]),
+  ]);
+  movies.set(movieData);
+  bangumi.set(bangumiData);
+  tvShows.set(tvData);
+  varietyShows.set(showData);
+  duanjuItems.set(duanjuData);
+  upcomingMovies.set(upcomingData);
+  busy.set("");
+}
+
+async function loadDuanju() {
+  duanjuLoading.set(true);
+  duanjuError.set("");
+  try {
+    const result = await withTimeout(api("/api/duanju/recommends"), 30000);
+    if (result.status !== 200) throw new Error("HTTP " + result.status);
+    duanjuItems.set(Array.isArray(result.json?.data) ? result.json.data : []);
   } catch (error) {
-    console.warn("bangumi failed", error);
+    duanjuError.set("短剧加载失败：" + String(error));
+  } finally {
+    duanjuLoading.set(false);
   }
 }
 
@@ -1139,8 +1256,10 @@ function openPlay(
   episodes: string[],
   episodeTitles: string[],
   index: number,
-  start: number
+  start: number,
+  vertical = false
 ) {
+  playVertical.set(vertical);
   playTitle.set(title);
   playPoster.set(poster);
   playSource.set(source);
@@ -1156,6 +1275,12 @@ function openPlay(
   playEpisodeUrl.set(resolved);
   playHeaders.set(headersFor(resolved, resolved.startsWith(base())));
   playStart.set(start);
+  if (vertical) {
+    setTimeout(() => {
+      playerRef?.command("setFullscreen", true);
+      playerRef?.command("setOrientation", "portrait");
+    }, 60);
+  }
   paused.set(false);
   playPosition.set(start);
   playDuration.set(0);
@@ -2131,6 +2256,55 @@ function PosterCard(props: { movie: Movie; width?: number | string }) {
   );
 }
 
+function HomeRow(props: { title: string; onMore: () => void; children: any }) {
+  return (
+    <View style={{ gap: 12 }}>
+      <SectionTitle title={props.title} onMore={props.onMore} />
+      <Scroll horizontal>
+        <View style={{ flexDirection: "row", gap: 8 }}>{props.children}</View>
+      </Scroll>
+    </View>
+  );
+}
+
+function DuanjuCard(props: { item: DuanjuItem }) {
+  const c = C();
+  return (
+    <View
+      onPress={() => {
+        const episodes = Array.isArray(props.item.episodes) ? props.item.episodes : [];
+        if (!episodes.length) return;
+        openPlay(
+          props.item.title,
+          props.item.poster,
+          props.item.source,
+          props.item.source_name,
+          props.item.id,
+          episodes,
+          Array.isArray(props.item.episodes_titles) && props.item.episodes_titles.length
+            ? props.item.episodes_titles
+            : episodes.map((_, index) => "第 " + (index + 1) + " 集"),
+          0,
+          0,
+          true
+        );
+      }}
+      style={{ width: "31%", gap: 6 }}
+    >
+      <Image
+        src={props.item.poster}
+        style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+      />
+      <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
+        {props.item.title}
+      </Text>
+      <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
+        {props.item.year || ""}
+      </Text>
+    </View>
+  );
+}
+
 function HomeScreen() {
   const c = C();
   const historyItem = latestHistory();
@@ -2139,6 +2313,93 @@ function HomeScreen() {
   const resumeEpisode = historyItem ? historyItem.index - 1 : resumeItem?.episodeIndex ?? 0;
   const resumePosition = historyItem?.play_time ?? resumeItem?.position ?? 0;
   const resumeCover = historyItem?.cover ?? resumeItem?.poster ?? "";
+
+  const renderModule = (id: string) => {
+    if (id === "hotMovies" && movies().length) {
+      return (
+        <HomeRow key={id} title="热门电影" onMore={() => void openBrowse("movie")}>
+          {movies().map((movie) => (
+            <PosterCard key={"movie-" + movie.id} movie={movie} />
+          ))}
+        </HomeRow>
+      );
+    }
+    if (id === "hotDuanju" && duanjuItems().length) {
+      return (
+        <HomeRow key={id} title="热播短剧" onMore={() => { void loadDuanju(); route.set({ name: "duanju" }); }}>
+          {duanjuItems().map((item) => (
+            <View
+              key={"duanju-" + item.id}
+              onPress={() => {
+                const episodes = item.episodes ?? [];
+                if (!episodes.length) return;
+                openPlay(
+                  item.title,
+                  item.poster,
+                  item.source,
+                  item.source_name,
+                  item.id,
+                  episodes,
+                  item.episodes_titles?.length
+                    ? item.episodes_titles
+                    : episodes.map((_, index) => "第 " + (index + 1) + " 集"),
+                  0,
+                  0,
+                  true
+                );
+              }}
+              style={{ width: 96, gap: 6 }}
+            >
+              <Image
+                src={item.poster}
+                style={{ width: 96, aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: c.border }}
+              />
+              <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>{item.title}</Text>
+              <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>{item.year || ""}</Text>
+            </View>
+          ))}
+        </HomeRow>
+      );
+    }
+    if (id === "bangumiCalendar" && bangumi().length) {
+      return (
+        <HomeRow key={id} title="新番放送" onMore={() => void openBrowse("anime")}>
+          {bangumi().map((movie) => (
+            <PosterCard key={"anime-" + movie.id} movie={movie} />
+          ))}
+        </HomeRow>
+      );
+    }
+    if (id === "hotTvShows" && tvShows().length) {
+      return (
+        <HomeRow key={id} title="热门剧集" onMore={() => void openBrowse("tv")}>
+          {tvShows().map((movie) => (
+            <PosterCard key={"tv-" + movie.id} movie={movie} />
+          ))}
+        </HomeRow>
+      );
+    }
+    if (id === "hotVarietyShows" && varietyShows().length) {
+      return (
+        <HomeRow key={id} title="热门综艺" onMore={() => void openBrowse("show")}>
+          {varietyShows().map((movie) => (
+            <PosterCard key={"show-" + movie.id} movie={movie} />
+          ))}
+        </HomeRow>
+      );
+    }
+    if (id === "upcomingContent" && upcomingMovies().length) {
+      return (
+        <HomeRow key={id} title="即将上映" onMore={() => void openBrowse("movie")}>
+          {upcomingMovies().map((movie) => (
+            <PosterCard key={"upcoming-" + movie.id} movie={movie} />
+          ))}
+        </HomeRow>
+      );
+    }
+    return null;
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
       <WebTopBar showSearch />
@@ -2147,7 +2408,7 @@ function HomeScreen() {
           {homeError() ? (
             <Text style={{ color: "#C0392B", fontSize: 12 }}>{homeError()}</Text>
           ) : null}
-          {resumeTitle ? (
+          {homeContinueWatching() && resumeTitle ? (
             <View style={{ gap: 12 }}>
               <SectionTitle title="继续观看" onMore={() => { sheet.set("history"); void loadHistory(); }} />
               <View
@@ -2190,32 +2451,46 @@ function HomeScreen() {
               </View>
             </View>
           ) : null}
-          <View style={{ gap: 12 }}>
-            <SectionTitle title="热门电影" onMore={() => void openBrowse("movie")} />
-            <Scroll horizontal>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {movies().map((movie) => (
-                  <PosterCard movie={movie} />
-                ))}
-              </View>
-            </Scroll>
-          </View>
-          <View style={{ gap: 12 }}>
-            <SectionTitle title="番剧" onMore={() => void openBrowse("anime")} />
-            <Scroll horizontal>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {bangumi().map((movie) => (
-                  <PosterCard movie={movie} />
-                ))}
-              </View>
-            </Scroll>
-          </View>
+          {orderedHomeModules().map((item) => renderModule(item.id))}
           <Text onPress={() => void loadHome()} style={{ fontSize: 13, color: c.secondary, paddingVertical: 8 }}>
             刷新
           </Text>
         </View>
       </Scroll>
       <BottomNav active="home" />
+    </View>
+  );
+}
+
+function DuanjuScreen() {
+  const c = C();
+  return (
+    <View style={{ flex: 1, backgroundColor: theme() === "light" ? "#F8F9FA" : "#121212" }}>
+      <Header title="短剧" onBack={() => route.set({ name: "home" })} />
+      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
+        <View style={{ padding: 16, gap: 12 }}>
+          {duanjuLoading() ? <Text style={{ fontSize: 13, color: c.secondary }}>加载中…</Text> : null}
+          {duanjuError() ? (
+            <View style={{ gap: 10 }}>
+              <Text style={{ fontSize: 13, color: "#C0392B" }}>{duanjuError()}</Text>
+              <View
+                onPress={() => void loadDuanju()}
+                style={{ alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: c.brand }}
+              >
+                <Text style={{ fontSize: 13, color: "#fff" }}>重试</Text>
+              </View>
+            </View>
+          ) : null}
+          {!duanjuLoading() && !duanjuError() && duanjuItems().length === 0 ? (
+            <Text style={{ fontSize: 13, color: c.secondary, paddingVertical: 24, textAlign: "center" }}>暂无短剧</Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+            {duanjuItems().map((item) => (
+              <DuanjuCard key={item.id + item.source} item={item} />
+            ))}
+          </View>
+        </View>
+      </Scroll>
     </View>
   );
 }
@@ -3623,23 +3898,27 @@ function LivePlayScreen() {
   );
 }
 
+function exitPlay() {
+  saveResume(true);
+  paused.set(true);
+  const vertical = playVertical();
+  playerRef?.command("setOrientation", "auto");
+  if (vertical) playerRef?.command("setFullscreen", false);
+  if (fullscreen()) setFullscreenMode(false);
+  playVertical.set(false);
+  route.set(vertical ? { name: "duanju" } : { name: "detail" });
+}
+
 function PlayScreen() {
   const shown = () => (seekPreview() >= 0 ? seekPreview() : playPosition());
   const percent = () =>
     playDuration() > 0 ? Math.min(100, Math.max(0, (shown() / playDuration()) * 100)) : 0;
+  const immersive = () => fullscreen() || pipActive() || playVertical();
 
   return (
     <View style={{ flex: 1, backgroundColor: "#08080b" }}>
-      {!fullscreen() && !pipActive() ? (
-        <Header
-          title={playTitle()}
-          onBack={() => {
-            saveResume(true);
-            paused.set(true);
-            if (fullscreen()) setFullscreenMode(false);
-            route.set({ name: "detail" });
-          }}
-        />
+      {!immersive() ? (
+        <Header title={playTitle()} onBack={exitPlay} />
       ) : null}
 
       <View
@@ -3648,9 +3927,9 @@ function PlayScreen() {
           overlayH.set(event.bounds.size.height);
         }}
         style={{
-          height: fullscreen() || pipActive() ? undefined : 240,
-          flex: fullscreen() || pipActive() ? 1 : undefined,
-          position: fullscreen() || pipActive() ? "absolute" : "relative",
+          height: immersive() ? undefined : 240,
+          flex: immersive() ? 1 : undefined,
+          position: immersive() ? "absolute" : "relative",
           top: 0,
           left: 0,
           right: 0,
@@ -3670,6 +3949,7 @@ function PlayScreen() {
           startPosition={playStart()}
           title={playTitle()}
           subtitle={playSourceName()}
+          orientation={playVertical() ? "portrait" : "auto"}
           style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
           onReady={(event) => {
             logPlay("ready " + (Date.now() - playOpenedAt) + "ms duration=" + event.duration);
@@ -3788,12 +4068,7 @@ function PlayScreen() {
               }}
             >
               <View
-                onPress={() => {
-                  saveResume(true);
-                  paused.set(true);
-                  if (fullscreen()) setFullscreenMode(false);
-                  route.set({ name: "detail" });
-                }}
+                onPress={exitPlay}
                 style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
               >
                 <Icon name="arrowLeft" color="#fff" size={22} />
@@ -4220,6 +4495,9 @@ function App() {
       </If>
       <If when={booted() && route().name === "browse"}>
         <BrowseScreen />
+      </If>
+      <If when={booted() && route().name === "duanju"}>
+        <DuanjuScreen />
       </If>
       <If when={booted() && route().name === "detail"}>
         <DetailScreen />

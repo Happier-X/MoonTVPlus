@@ -186,6 +186,14 @@ class ExoPlayerComponent(
                 "live" -> {
                     liveMode = value as? Boolean ?: false
                 }
+                "orientation" -> {
+                    val activity = context as? Activity ?: return@post
+                    activity.requestedOrientation = when (value as? String) {
+                        "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                        "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
+                }
                 "paused" -> {
                     paused = value as? Boolean ?: false
                     player.playWhenReady = !paused
