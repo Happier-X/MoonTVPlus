@@ -8,7 +8,6 @@ import {
   Scroll,
   signal,
   Storage,
-  Clipboard,
   Text,
   View,
   type NativeComponentRef,
@@ -361,11 +360,7 @@ const searchMode = signal<"aggregate" | "card" | "list">("card");
 const searchType = signal("all");
 const searchYear = signal("all");
 const searchAdvanced = signal(false);
-const magnetItems = signal<any[]>([]);
-const magnetBusy = signal(false);
-const magnetError = signal("");
-const magnetNotice = signal("");
-const sheet = signal<"" | "user" | "favorites" | "history" | "settings" | "sources" | "magnet">("");
+const sheet = signal<"" | "user" | "favorites" | "history" | "settings" | "sources">("");
 const sourcePicker = signal<{ title: string; items: SearchHit[] } | null>(null);
 const browseKind = signal<BrowseKind>("movie");
 const browseCategory = signal("全部");
@@ -1115,40 +1110,6 @@ function openPickerFor(title: string, items: SearchHit[]) {
   pickerGuardUntil = Date.now() + 400;
   sourcePicker.set({ title, items });
   sheet.set("sources");
-}
-
-function asMagnetText(value: any): string {
-  if (Array.isArray(value)) return asMagnetText(value[0]);
-  if (value && typeof value === "object") {
-    return String(value._ ?? value.text ?? value.url ?? value.href ?? "");
-  }
-  return String(value ?? "");
-}
-
-async function runMagnetSearch() {
-  const query = searchQuery().trim();
-  if (!query) return;
-  magnetBusy.set(true);
-  magnetError.set("");
-  magnetNotice.set("");
-  magnetItems.set([]);
-  try {
-    const response = await api("/api/acg/mikan", "POST", { keyword: query, page: 1 });
-    if (response.status === 403) {
-      magnetError.set("当前账号没有磁力搜索权限（magnet_search）");
-      return;
-    }
-    if (response.status !== 200) {
-      magnetError.set("磁力搜索失败：HTTP " + response.status);
-      return;
-    }
-    const data = response.json ?? {};
-    magnetItems.set(Array.isArray(data.items) ? data.items : []);
-  } catch (error) {
-    magnetError.set(String(error));
-  } finally {
-    magnetBusy.set(false);
-  }
 }
 
 async function runSearch() {
@@ -1933,15 +1894,6 @@ function SearchScreen() {
             <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: c.border }}>
               <Text style={{ fontSize: 14, color: c.text }}>影视搜索</Text>
             </View>
-            <View
-              onPress={() => {
-                sheet.set("magnet");
-                void runMagnetSearch();
-              }}
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: c.border }}
-            >
-              <Text style={{ fontSize: 14, color: c.secondary }}>动漫磁力</Text>
-            </View>
           </View>
           {searchBusy() ? <Text style={{ fontSize: 13, color: c.secondary }}>搜索中…</Text> : null}
           {searchError() ? <Text style={{ fontSize: 13, color: "#C0392B" }}>{searchError()}</Text> : null}
@@ -2459,66 +2411,6 @@ function directPlayHit(hit: SearchHit) {
     hit.episodeTitles,
     0,
     0
-  );
-}
-
-function MagnetSheet() {
-  const c = C();
-  return (
-    <SheetShell title="动漫磁力" onClose={() => sheet.set("")}>
-      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-        <Input
-          value={searchQuery()}
-          onChange={(event) => searchQuery.set(event.value)}
-          autoCapitalize="none"
-          placeholder="输入番剧关键词"
-          placeholderColor={c.placeholder}
-          style={{ flex: 1, height: 44, color: c.text, backgroundColor: c.card, borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, fontSize: 13 }}
-        />
-        <View
-          onPress={() => void runMagnetSearch()}
-          style={{ height: 44, paddingHorizontal: 14, borderRadius: 8, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13 }}>搜索</Text>
-        </View>
-      </View>
-      {magnetBusy() ? <Text style={{ fontSize: 12, color: c.secondary }}>搜索中…</Text> : null}
-      {magnetError() ? <Text style={{ fontSize: 12, color: "#C0392B" }}>{magnetError()}</Text> : null}
-      {magnetNotice() ? <Text style={{ fontSize: 12, color: c.brand }}>{magnetNotice()}</Text> : null}
-      <Text style={{ fontSize: 12, color: c.secondary }}>
-        当前 NSH 播放器不支持磁链直放；可复制磁链到外部 BT 客户端。
-      </Text>
-      <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>
-        <View style={{ gap: 8, paddingTop: 8 }}>
-          {magnetItems().map((item, index) => {
-            const title = asMagnetText(item.title);
-            const url = asMagnetText(item.torrentUrl || item.link);
-            return (
-              <View key={String(index)} style={{ gap: 4, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border }}>
-                <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, numberOfLines: 2 }}>{title}</Text>
-                <Text style={{ fontSize: 11, color: c.secondary }}>{asMagnetText(item.pubDate)}</Text>
-                {url ? (
-                  <View style={{ flexDirection: "row", gap: 12, paddingTop: 2 }}>
-                    <Text
-                      onPress={() => {
-                        void Clipboard.write({ text: url });
-                        magnetNotice.set("已复制磁链");
-                      }}
-                      style={{ fontSize: 12, color: c.brand }}
-                    >
-                      复制磁链
-                    </Text>
-                    <Text style={{ fontSize: 12, color: c.secondary }}>
-                      {url.startsWith("magnet:") ? "BT 播放需引擎" : "链接可用"}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-      </Scroll>
-    </SheetShell>
   );
 }
 
@@ -3652,7 +3544,6 @@ function App() {
             {sheet() === "history" ? <HistorySheet /> : null}
             {sheet() === "settings" ? <SettingsSheet /> : null}
             {sheet() === "sources" ? <SourcePickerSheet /> : null}
-            {sheet() === "magnet" ? <MagnetSheet /> : null}
           </View>
         </View>
       ) : null}
