@@ -81,6 +81,8 @@ const ICON_PATHS: Record<string, string> = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
   settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  list: '<path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   arrowLeft: '<path d="m12 19-7-7 7-7M19 12H5"/>',
@@ -385,6 +387,7 @@ const detailSearchTotal = signal(0);
 const detailSearchErrors = signal<{ sourceName: string; error: string }[]>([]);
 const detailEpisodesLoading = signal(false);
 const detailTab = signal<"episodes" | "sources" | "danmaku">("episodes");
+const directUrl = signal("");
 const searchFirstMs = signal(-1);
 const searchAllMs = signal(-1);
 const searchCacheHit = signal(false);
@@ -2175,6 +2178,18 @@ function WebTopBar(props: { title?: string; onBack?: () => void; showSearch?: bo
         </Text>
         <View style={{ flexDirection: "row", gap: 4 }}>
           <View
+            onPress={() => sheet.set("direct")}
+            style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
+          >
+            <Icon name="link" color={c.text} size={20} />
+          </View>
+          <View
+            onPress={() => route.set({ name: "search" })}
+            style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
+          >
+            <Icon name="list" color={c.text} size={20} />
+          </View>
+          <View
             onPress={toggleTheme}
             style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 }}
           >
@@ -2263,8 +2278,8 @@ function PosterCard(props: { movie: Movie; width?: number | string }) {
   themeVersion();
   const c = C();
   return (
-    <View onPress={() => void openDetail(props.movie)} style={{ width: props.width ?? 96, gap: 6 }}>
-<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+    <View onPress={() => void openDetail(props.movie)} style={{ width: props.width ?? 96, gap: 8 }}>
+      <View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
         <RemoteImage
           url={imageSrc(props.movie.poster)}
           radius={8}
@@ -2272,20 +2287,24 @@ function PosterCard(props: { movie: Movie; width?: number | string }) {
           errorColor={c.border}
           style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
         />
+        {props.movie.rate ? (
+          <View
+            style={{
+              position: "absolute",
+              top: 6,
+              left: 6,
+              paddingHorizontal: 5,
+              paddingVertical: 2,
+              borderRadius: 4,
+              backgroundColor: c.brand,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: "600", color: "#fff" }}>{props.movie.rate}</Text>
+          </View>
+        ) : null}
       </View>
-      <Text
-        style={{
-          fontSize: 14,
-          fontWeight: "600",
-          color: c.text,
-          lineHeight: 20,
-          numberOfLines: 2,
-        }}
-      >
+      <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 1 }}>
         {props.movie.title}
-      </Text>
-      <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
-        {(props.movie.rate ? "★ " + props.movie.rate + "  " : "") + (props.movie.year ?? "")}
       </Text>
     </View>
   );
@@ -2296,7 +2315,7 @@ function HomeRow(props: { title: string; onMore: () => void; children: any }) {
     <View style={{ gap: 16 }}>
       <SectionTitle title={props.title} onMore={props.onMore} />
       <Scroll horizontal>
-        <View style={{ flexDirection: "row", gap: 8 }}>{props.children}</View>
+        <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16 }}>{props.children}</View>
       </Scroll>
     </View>
   );
@@ -2325,9 +2344,9 @@ function DuanjuCard(props: { item: DuanjuItem }) {
           true
         );
       }}
-      style={{ width: "31%", gap: 6 }}
+      style={{ width: "31%", gap: 8 }}
     >
-<View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
+      <View style={{ width: "100%", aspectRatio: 2 / 3, borderRadius: 8, overflow: "hidden" }}>
         <RemoteImage
           url={imageSrc(props.item.poster)}
           radius={8}
@@ -2336,11 +2355,8 @@ function DuanjuCard(props: { item: DuanjuItem }) {
           style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
         />
       </View>
-      <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>
+      <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 1 }}>
         {props.item.title}
-      </Text>
-      <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>
-        {props.item.year || ""}
       </Text>
     </View>
   );
@@ -2390,7 +2406,7 @@ function HomeScreen() {
                   true
                 );
               }}
-              style={{ width: 96, gap: 6 }}
+              style={{ width: 96, gap: 8 }}
             >
               <RemoteImage
                 url={imageSrc(item.poster)}
@@ -2400,8 +2416,7 @@ function HomeScreen() {
                 errorColor={c.border}
                 style={{ width: 96 }}
               />
-              <Text style={{ fontSize: 13, fontWeight: "600", color: c.text, numberOfLines: 2 }}>{item.title}</Text>
-              <Text style={{ fontSize: 11, color: c.secondary, numberOfLines: 1 }}>{item.year || ""}</Text>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: c.text, lineHeight: 20, numberOfLines: 1 }}>{item.title}</Text>
             </View>
           ))}
         </HomeRow>
@@ -2485,6 +2500,26 @@ function HomeScreen() {
                     left: 0,
                     right: 0,
                     bottom: 0,
+                    height: 3,
+                    backgroundColor: "rgba(255,255,255,0.25)",
+                  }}
+                >
+                  <View
+                    style={{
+                      height: 3,
+                      width: (historyItem && historyItem.total_time > 0
+                        ? Math.min(100, (historyItem.play_time / historyItem.total_time) * 100)
+                        : 0) + "%",
+                      backgroundColor: c.brand,
+                    }}
+                  />
+                </View>
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: 3,
                     padding: 8,
                     gap: 2,
                     backgroundColor: "rgba(0,0,0,0.55)",
@@ -3251,6 +3286,33 @@ function UpdateSheet() {
         </View>
       </View>
     </View>
+  );
+}
+
+function DirectSheet() {
+  const c = C();
+  const play = () => {
+    const value = directUrl().trim();
+    if (!value) return;
+    sheet.set("");
+    openPlay("直链播放", "", "directplay", "直链", value, [value], ["第 1 集"], 0, 0);
+  };
+  return (
+    <SheetShell title="直链播放" onClose={() => sheet.set("")}>
+      <Input
+        value={directUrl()}
+        onChange={(event) => directUrl.set(event.value)}
+        placeholder="输入 m3u8 或视频直链"
+        autoCapitalize="none"
+        style={{ height: 44, color: c.text, backgroundColor: c.card, borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, fontSize: 13 }}
+      />
+      <View
+        onPress={play}
+        style={{ height: 44, borderRadius: 8, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" }}
+      >
+        <Text style={{ fontSize: 15, fontWeight: "600", color: "#fff" }}>播放</Text>
+      </View>
+    </SheetShell>
   );
 }
 
@@ -4661,6 +4723,7 @@ function App() {
             {sheet() === "history" ? <HistorySheet /> : null}
             {sheet() === "settings" ? <SettingsSheet /> : null}
             {sheet() === "sources" ? <SourcePickerSheet /> : null}
+            {sheet() === "direct" ? <DirectSheet /> : null}
           </View>
         </View>
       ) : null}
