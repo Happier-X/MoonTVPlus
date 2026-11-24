@@ -19,47 +19,99 @@ export * from './.open-next/worker.js';
 
 export { WatchRoomHub } from './src/worker/watch-room-hub';
 
+interface R2ObjectHead {
+  size: number;
+  httpEtag: string;
+  writeHttpMetadata(headers: Headers): void;
+}
+
+interface R2ObjectBody extends R2ObjectHead {
+  body: ReadableStream<Uint8Array>;
+}
+
+interface R2BucketLike {
+  get(key: string, options?: { range?: { offset: number; length: number } }): Promise<R2ObjectBody | null>;
+  head(key: string): Promise<R2ObjectHead | null>;
+}
+
 interface Env {
   ASSETS: { fetch(input: URL | Request, init?: RequestInit): Promise<Response> };
+  DOWNLOADS: R2BucketLike;
   WATCH_ROOM: DurableObjectNamespace;
   CRON_PASSWORD?: string;
   [key: string]: unknown;
 }
 
-async function serveLatestApk(request: Request, env: Env, url: URL): Promise<Response> {
+type RangeResult = { offset: number; length: number } | 'invalid' | null;
+
+function parseRange(header: string | null, size: number): RangeResult {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return null;
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) return null;
+  let start = rawStart ? Number(rawStart) : size - Number(rawEnd);
+  let end = rawEnd ? Number(rawEnd) : size - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= size) {
+    return 'invalid';
+  }
+  end = Math.min(end, size - 1);
+  return { offset: start, length: end - start + 1 };
+}
+
+async function serveDownload(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   }
 
-  const manifestResponse = await env.ASSETS.fetch(new URL('/downloads/latest.json', url));
-  if (!manifestResponse.ok) return new Response('Update manifest unavailable', { status: 503 });
-  const manifest = (await manifestResponse.json()) as { version?: string };
-  if (!manifest.version || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
-    return new Response('Invalid update manifest', { status: 503 });
+  const key = url.pathname.slice('/downloads/'.length);
+  if (!key || key.includes('/') || key.includes('..')) {
+    return new Response('Not Found', { status: 404 });
   }
 
-  const headers = new Headers();
-  const range = request.headers.get('Range');
-  if (range) headers.set('Range', range);
-  headers.set('User-Agent', 'MoonTVPlus-Android-Updater');
+  const head = await env.DOWNLOADS.head(key);
+  if (!head) return new Response('Not Found', { status: 404 });
 
-  const assetUrl =
-    'https://github.com/Happier-X/MoonTVPlus/releases/download/client-v' + manifest.version +
-    '/moontvplus-phone-' + manifest.version + '-release-signed.apk';
-  const upstream = await fetch(assetUrl, { method: request.method, headers, redirect: 'follow' });
-  const responseHeaders = new Headers(upstream.headers);
-  responseHeaders.set('Cache-Control', 'public, max-age=300');
-  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+  const headers = new Headers();
+  head.writeHttpMetadata(headers);
+  headers.set('ETag', head.httpEtag);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Cache-Control', key === 'latest.json' ? 'public, max-age=60' : 'public, max-age=300');
+
+  const range = parseRange(request.headers.get('Range'), head.size);
+  if (range === 'invalid') {
+    return new Response(null, {
+      status: 416,
+      headers: { 'Content-Range': 'bytes */' + head.size },
+    });
+  }
+
+  if (range) {
+    headers.set('Content-Range', 'bytes ' + range.offset + '-' + (range.offset + range.length - 1) + '/' + head.size);
+    headers.set('Content-Length', String(range.length));
+  } else {
+    headers.set('Content-Length', String(head.size));
+  }
+
+  if (request.method === 'HEAD') {
+    return new Response(null, { status: range ? 206 : 200, headers });
+  }
+
+  const object = range
+    ? await env.DOWNLOADS.get(key, { range: { offset: range.offset, length: range.length } })
+    : await env.DOWNLOADS.get(key);
+  if (!object) return new Response('Not Found', { status: 404 });
+
+  return new Response(object.body, { status: range ? 206 : 200, headers });
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // 站点 APK 下载：Cloudflare 静态资产单文件上限 25 MiB，这里从 Release 流式转发。
-    // 保持 200/206 直出，避免 302 到 GitHub CDN —— 老版更新器只认站点和 github.com。
-    if (url.pathname === '/downloads/moontvplus-phone-latest.apk') {
-      return serveLatestApk(request, env, url);
+    // 站点下载资源：APK 和 latest.json 由 R2 托管，保持 /downloads/* 同域 URL。
+    if (url.pathname.startsWith('/downloads/')) {
+      return serveDownload(request, env, url);
     }
 
     // 观影室的 Socket.IO 连接：整体交给 hub DO。

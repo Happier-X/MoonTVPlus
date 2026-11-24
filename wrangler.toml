@@ -10,6 +10,11 @@ minify = true
 directory = ".open-next/assets"
 binding = "ASSETS"
 
+# R2 下载资源（APK / latest.json）
+[[r2_buckets]]
+binding = "DOWNLOADS"
+bucket_name = "moontvplus-downloads"
+
 # D1 数据库绑定
 [[d1_databases]]
 binding = "DB"
