@@ -185,7 +185,7 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 - 站点下载：/downloads/latest.json 与 /downloads/moontvplus-phone-latest.apk 由 Cloudflare Deploy
   工作流从最新正式 Release 自动生成；APK 超过 Workers Assets 单文件限制时由 Worker 同域转发
   GitHub 资产，站点 URL 保持不变。
-- 1.9.18 的包内容有残留，已被 1.9.19 取代，请勿再分发。
+- 1.9.18 已被 1.9.19 取代，请以 1.9.19 为准。
 
 ### 回退
 
@@ -216,4 +216,5 @@ Phase 1 默认服务器写成 http://tv.370125.xyz，壳开了 usesCleartextTraf
 
 版本号单点来源是 embed/nsh.json 的 version/build；Gradle 直接读取，不单独维护。
 Gradle 的 debug 构建使用 Android debug key。
+
 
