@@ -2523,13 +2523,13 @@ function HomeScreen() {
           onPress={() => sheet.set("direct")}
           style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18 }}
         >
-          <Icon name="link" color="#3B82F6" size={20} />
+          <Icon name="link" color={c.text} size={20} />
         </View>
         <View
           onPress={() => route.set({ name: "search" })}
           style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18 }}
         >
-          <Icon name="list" color="#3B82F6" size={20} />
+          <Icon name="list" color={c.text} size={20} />
         </View>
       </View>
       <Scroll style={{ flex: 1 }} contentInset={{ bottom: 24 }}>

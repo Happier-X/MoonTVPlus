@@ -5,6 +5,7 @@ import nodeFetch from 'node-fetch';
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { refererForImage } from '@/lib/image-referer';
 
 export const runtime = 'nodejs';
 
@@ -60,7 +61,7 @@ async function fetchImage(
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-    Referer: isBangumiImage ? 'https://bgm.tv/' : 'https://movie.douban.com/',
+    Referer: refererForImage(imageUrl),
   };
 
   const config = isBangumiImage ? await getConfig() : null;
