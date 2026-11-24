@@ -16,6 +16,9 @@ const customJestConfig = {
 
   testEnvironment: 'jest-environment-jsdom',
 
+  // NSH 应用的测试由 nsh test 运行，不进入 Jest。
+  testPathIgnorePatterns: ['/node_modules/', '/apps/'],
+
   /**
    * Absolute imports and Module Path Aliases
    */
