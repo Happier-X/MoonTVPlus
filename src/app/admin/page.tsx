@@ -384,11 +384,6 @@ interface SiteConfig {
   BannerDataSource?: string;
   RecommendationDataSource?: string;
   LocalSettingsSyncMode?: 'off' | 'manual' | 'auto';
-  MagnetProxy?: string;
-  MagnetMikanReverseProxy?: string;
-  MagnetDmhyReverseProxy?: string;
-  MagnetAcgripReverseProxy?: string;
-  MagnetNyaaReverseProxy?: string;
   EnableComments: boolean;
   EnableRegistration?: boolean;
   RequireRegistrationInviteCode?: boolean;
@@ -7959,11 +7954,6 @@ const SiteConfigComponent = ({
     BannerDataSource: 'Douban',
     RecommendationDataSource: 'Mixed',
     LocalSettingsSyncMode: 'off',
-    MagnetProxy: '',
-    MagnetMikanReverseProxy: '',
-    MagnetDmhyReverseProxy: '',
-    MagnetAcgripReverseProxy: '',
-    MagnetNyaaReverseProxy: '',
     EnableComments: false,
     EnableRegistration: false,
     RegistrationRequireTurnstile: false,
@@ -8084,13 +8074,6 @@ const SiteConfigComponent = ({
         RecommendationDataSource:
           config.SiteConfig.RecommendationDataSource || 'Mixed',
         LocalSettingsSyncMode: config.SiteConfig.LocalSettingsSyncMode || 'off',
-        MagnetProxy: config.SiteConfig.MagnetProxy || '',
-        MagnetMikanReverseProxy:
-          config.SiteConfig.MagnetMikanReverseProxy || '',
-        MagnetDmhyReverseProxy: config.SiteConfig.MagnetDmhyReverseProxy || '',
-        MagnetAcgripReverseProxy:
-          config.SiteConfig.MagnetAcgripReverseProxy || '',
-        MagnetNyaaReverseProxy: config.SiteConfig.MagnetNyaaReverseProxy || '',
         EnableComments: config.SiteConfig.EnableComments || false,
         AnnouncementDisplayMode:
           config.SiteConfig.AnnouncementDisplayMode === 'every'
@@ -9126,122 +9109,6 @@ const SiteConfigComponent = ({
               </code>
             </pre>
           </details>
-        </div>
-      </details>
-
-      <details className='pt-4 border-t border-gray-200 dark:border-gray-700'>
-        <summary className='text-sm font-semibold text-gray-900 dark:text-gray-100 cursor-pointer'>
-          磁链配置
-        </summary>
-        <div className='mt-4 space-y-4'>
-          <p className='text-xs text-amber-600 dark:text-amber-400'>
-            由于国内网络环境限制，部分磁链搜索站点通常需要配置代理后才能正常访问。
-          </p>
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              系统代理
-            </label>
-            <input
-              type='text'
-              placeholder='请输入代理地址（可选）'
-              value={siteSettings.MagnetProxy || ''}
-              onChange={(e) =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  MagnetProxy: e.target.value,
-                }))
-              }
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            />
-            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              用于访问磁链搜索站点的系统代理。Cloudflare
-              部署环境下不会使用该代理。
-            </p>
-          </div>
-
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              Mikan 反代代理
-            </label>
-            <input
-              type='text'
-              placeholder='请输入 Mikan 反代 Base URL（可选）'
-              value={siteSettings.MagnetMikanReverseProxy || ''}
-              onChange={(e) =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  MagnetMikanReverseProxy: e.target.value,
-                }))
-              }
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            />
-            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              配置后将使用该地址替代默认的 Mikan 域名进行请求。
-            </p>
-          </div>
-
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              动漫花园反代代理
-            </label>
-            <input
-              type='text'
-              placeholder='请输入动漫花园反代 Base URL（可选）'
-              value={siteSettings.MagnetDmhyReverseProxy || ''}
-              onChange={(e) =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  MagnetDmhyReverseProxy: e.target.value,
-                }))
-              }
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            />
-            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              配置后将使用该地址替代默认的动漫花园域名进行请求。
-            </p>
-          </div>
-
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              ACG.RIP 反代代理
-            </label>
-            <input
-              type='text'
-              placeholder='请输入 ACG.RIP 反代 Base URL（可选）'
-              value={siteSettings.MagnetAcgripReverseProxy || ''}
-              onChange={(e) =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  MagnetAcgripReverseProxy: e.target.value,
-                }))
-              }
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            />
-            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              配置后将使用该地址替代默认的 ACG.RIP 域名进行请求。
-            </p>
-          </div>
-
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              Nyaa 反代代理
-            </label>
-            <input
-              type='text'
-              placeholder='请输入 Nyaa 反代 Base URL（可选）'
-              value={siteSettings.MagnetNyaaReverseProxy || ''}
-              onChange={(e) =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  MagnetNyaaReverseProxy: e.target.value,
-                }))
-              }
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            />
-            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              配置后将使用该地址替代默认的 Nyaa 域名进行请求。
-            </p>
-          </div>
         </div>
       </details>
 

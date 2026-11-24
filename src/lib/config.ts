@@ -341,12 +341,6 @@ async function getInitConfig(
       LiveChartProxy: process.env.LIVECHART_PROXY || '',
       // 本地设置云同步模式（全局）：off=关闭 manual=手动 auto=自动
       LocalSettingsSyncMode: 'off',
-      // 磁链配置
-      MagnetProxy: '',
-      MagnetMikanReverseProxy: '',
-      MagnetDmhyReverseProxy: '',
-      MagnetAcgripReverseProxy: '',
-      MagnetNyaaReverseProxy: '',
       // 评论功能开关
       EnableComments: false,
       EnableRegistration: false,
@@ -562,11 +556,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       DanmakuApiToken: '87654321',
       DanmakuAutoLoadDefault: true,
       TMDBImageBaseUrl: DEFAULT_TMDB_IMAGE_BASE_URL,
-      MagnetProxy: '',
-      MagnetMikanReverseProxy: '',
-      MagnetDmhyReverseProxy: '',
-      MagnetAcgripReverseProxy: '',
-      MagnetNyaaReverseProxy: '',
       EnableComments: false,
       EnableRegistration: false,
       RequireRegistrationInviteCode: false,
@@ -671,21 +660,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (adminConfig.TelegramConfig.registrationEnabled === undefined) {
     adminConfig.TelegramConfig.registrationEnabled =
       process.env.TELEGRAM_REGISTRATION_ENABLED === 'true';
-  }
-  if (adminConfig.SiteConfig.MagnetProxy === undefined) {
-    adminConfig.SiteConfig.MagnetProxy = '';
-  }
-  if (adminConfig.SiteConfig.MagnetMikanReverseProxy === undefined) {
-    adminConfig.SiteConfig.MagnetMikanReverseProxy = '';
-  }
-  if (adminConfig.SiteConfig.MagnetDmhyReverseProxy === undefined) {
-    adminConfig.SiteConfig.MagnetDmhyReverseProxy = '';
-  }
-  if (adminConfig.SiteConfig.MagnetAcgripReverseProxy === undefined) {
-    adminConfig.SiteConfig.MagnetAcgripReverseProxy = '';
-  }
-  if (adminConfig.SiteConfig.MagnetNyaaReverseProxy === undefined) {
-    adminConfig.SiteConfig.MagnetNyaaReverseProxy = '';
   }
   if (!adminConfig.UserConfig) {
     adminConfig.UserConfig = { Users: [] };
@@ -803,19 +777,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     site.BangumiImageBaseUrl = normalizeApiBaseUrl(site.BangumiImageBaseUrl);
     site.BangumiProxy = normalizeApiBaseUrl(site.BangumiProxy);
     site.LiveChartProxy = normalizeApiBaseUrl(site.LiveChartProxy);
-    site.MagnetProxy = normalizeApiBaseUrl(site.MagnetProxy);
-    site.MagnetMikanReverseProxy = normalizeApiBaseUrl(
-      site.MagnetMikanReverseProxy
-    );
-    site.MagnetDmhyReverseProxy = normalizeApiBaseUrl(
-      site.MagnetDmhyReverseProxy
-    );
-    site.MagnetAcgripReverseProxy = normalizeApiBaseUrl(
-      site.MagnetAcgripReverseProxy
-    );
-    site.MagnetNyaaReverseProxy = normalizeApiBaseUrl(
-      site.MagnetNyaaReverseProxy
-    );
     site.OIDCIssuer = normalizeApiBaseUrl(site.OIDCIssuer);
   }
 

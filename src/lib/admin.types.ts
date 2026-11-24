@@ -46,12 +46,6 @@ export interface AdminConfig {
     RecommendationDataSource?: string; // 更多推荐数据源：Douban、TMDB、Mixed
     // 本地设置云同步模式：off=关闭，manual=手动（面板右上角备份/恢复按钮），auto=自动（进入网站静默拉取、面板打开静默同步）
     LocalSettingsSyncMode?: 'off' | 'manual' | 'auto';
-    // 磁链配置
-    MagnetProxy?: string;
-    MagnetMikanReverseProxy?: string;
-    MagnetDmhyReverseProxy?: string;
-    MagnetAcgripReverseProxy?: string;
-    MagnetNyaaReverseProxy?: string;
     // 评论功能开关
     EnableComments: boolean;
     // 自定义去广告代码

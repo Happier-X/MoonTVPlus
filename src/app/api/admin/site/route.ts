@@ -57,11 +57,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource,
       RecommendationDataSource,
       LocalSettingsSyncMode,
-      MagnetProxy,
-      MagnetMikanReverseProxy,
-      MagnetDmhyReverseProxy,
-      MagnetAcgripReverseProxy,
-      MagnetNyaaReverseProxy,
       EnableComments,
       CustomAdFilterCode,
       CustomAdFilterVersion,
@@ -120,11 +115,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource?: string;
       RecommendationDataSource?: string;
       LocalSettingsSyncMode?: 'off' | 'manual' | 'auto';
-      MagnetProxy?: string;
-      MagnetMikanReverseProxy?: string;
-      MagnetDmhyReverseProxy?: string;
-      MagnetAcgripReverseProxy?: string;
-      MagnetNyaaReverseProxy?: string;
       EnableComments: boolean;
       CustomAdFilterCode?: string;
       CustomAdFilterVersion?: number;
@@ -200,15 +190,6 @@ export async function POST(request: NextRequest) {
         LocalSettingsSyncMode !== 'off' &&
         LocalSettingsSyncMode !== 'manual' &&
         LocalSettingsSyncMode !== 'auto') ||
-      (MagnetProxy !== undefined && typeof MagnetProxy !== 'string') ||
-      (MagnetMikanReverseProxy !== undefined &&
-        typeof MagnetMikanReverseProxy !== 'string') ||
-      (MagnetDmhyReverseProxy !== undefined &&
-        typeof MagnetDmhyReverseProxy !== 'string') ||
-      (MagnetAcgripReverseProxy !== undefined &&
-        typeof MagnetAcgripReverseProxy !== 'string') ||
-      (MagnetNyaaReverseProxy !== undefined &&
-        typeof MagnetNyaaReverseProxy !== 'string') ||
       typeof EnableComments !== 'boolean' ||
       (CustomAdFilterCode !== undefined &&
         typeof CustomAdFilterCode !== 'string') ||
@@ -297,11 +278,6 @@ export async function POST(request: NextRequest) {
       BannerDataSource,
       RecommendationDataSource,
       LocalSettingsSyncMode,
-      MagnetProxy: normalizeApiBaseUrl(MagnetProxy),
-      MagnetMikanReverseProxy: normalizeApiBaseUrl(MagnetMikanReverseProxy),
-      MagnetDmhyReverseProxy: normalizeApiBaseUrl(MagnetDmhyReverseProxy),
-      MagnetAcgripReverseProxy: normalizeApiBaseUrl(MagnetAcgripReverseProxy),
-      MagnetNyaaReverseProxy: normalizeApiBaseUrl(MagnetNyaaReverseProxy),
       EnableComments,
       CustomAdFilterCode,
       CustomAdFilterVersion,
