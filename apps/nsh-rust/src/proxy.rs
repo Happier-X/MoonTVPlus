@@ -3,8 +3,10 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use url::Url;
 use urlencoding::{decode, encode};
@@ -16,24 +18,67 @@ pub struct ProxyConfig {
     pub ua: String,
 }
 
-pub fn start(site: String, token: String) -> std::io::Result<u16> {
+struct Instance {
+    site: String,
+    token: String,
+    port: u16,
+    stop: Arc<AtomicBool>,
+}
+
+static INSTANCE: Mutex<Option<Instance>> = Mutex::new(None);
+
+/// One proxy per app process: the same site and token reuse the running port.
+pub fn ensure(site: String, token: String) -> std::io::Result<u16> {
+    let site = site.trim_end_matches('/').to_owned();
+    {
+        let guard = INSTANCE.lock().unwrap();
+        if let Some(instance) = guard.as_ref() {
+            if instance.site == site && instance.token == token {
+                return Ok(instance.port);
+            }
+        }
+    }
+    stop();
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
+    listener.set_nonblocking(true)?;
     let config = Arc::new(ProxyConfig {
-        site: site.trim_end_matches('/').to_owned(),
-        token,
+        site: site.clone(),
+        token: token.clone(),
         ua: "MoonTVPlus Rust/0.1 (Android)".to_owned(),
     });
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
     thread::spawn(move || {
-        eprintln!("moontv proxy listening on {port}");
-        for stream in listener.incoming().flatten() {
-            let config = config.clone();
-            thread::spawn(move || {
-                let _ = handle(stream, config, port);
-            });
+        while !stop_thread.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let config = config.clone();
+                    thread::spawn(move || {
+                        let _ = handle(stream, config, port);
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => break,
+            }
         }
+        // Dropping the listener here releases the port.
+    });
+    *INSTANCE.lock().unwrap() = Some(Instance {
+        site,
+        token,
+        port,
+        stop,
     });
     Ok(port)
+}
+
+pub fn stop() {
+    if let Some(instance) = INSTANCE.lock().unwrap().take() {
+        instance.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 struct Request {
