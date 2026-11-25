@@ -289,6 +289,23 @@ pub fn App() -> impl IntoElement {
             });
         }
     };
+    let public_probe = {
+        let server = server.clone();
+        let message = message.clone();
+        let error = error.clone();
+        move || {
+            let server_value = server.get();
+            let message = message.clone();
+            let error = error.clone();
+            spawn(async move {
+                match api(&server_value, "", "/api/server-config", "GET", None, false).await {
+                    Ok((status, _body, _)) => message.set(format!("公开接口 HTTP {status}（未清会话）")),
+                    Err(ApiError::AuthExpired) => error.set("公开接口错误地要求登出".to_owned()),
+                    Err(ApiError::Network(reason)) => error.set(format!("公开接口网络错误：{reason}")),
+                }
+            });
+        }
+    };
     let open_play = {
         let server = server.clone();
         let token = token.clone();
@@ -470,6 +487,18 @@ pub fn App() -> impl IntoElement {
                                             move || probe()
                                         })
                                         .child(text("鉴权自检")),
+                                )
+                                .child(
+                                    view()
+                                        .px_3()
+                                        .py_2()
+                                        .rounded(px(8.0))
+                                        .bg(move || theme().muted)
+                                        .on_press({
+                                            let probe = public_probe.clone();
+                                            move || probe()
+                                        })
+                                        .child(text("公开自检")),
                                 )
                                 .child(
                                     view()

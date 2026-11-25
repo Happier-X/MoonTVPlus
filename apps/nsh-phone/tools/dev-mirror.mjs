@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 const UPSTREAM_HOST = "tv.370125.xyz";
-const PORT = 9000;
+const PORT = Number(process.env.PORT || 9000);
 const CACHE_DIR = path.join(os.tmpdir(), "moontv-mirror-cache");
 const CACHE_TTL = 30 * 60 * 1000;
 fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -49,6 +49,43 @@ if (process.env.MOCK_UPDATE === "1" && UPDATE_APK && fs.existsSync(UPDATE_APK)) 
 }
 
 const server = http.createServer((req, res) => {
+  console.log(req.method + " " + req.url + " host=" + (req.headers.host || ""));
+
+  const json = (status, value) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(value));
+  };
+
+  if (process.env.MOCK_AUTH_FAIL === "1") {
+    if (req.url.startsWith("/api/auth/refresh") || req.url.startsWith("/api/favorites")) {
+      res.writeHead(401, { "content-type": "text/plain" });
+      res.end("Unauthorized");
+      return;
+    }
+  }
+
+  if (process.env.MOCK_AUTH_REFRESH === "1") {
+    if (req.url.startsWith("/api/auth/refresh")) {
+      json(200, { ok: true, token: "NEWTOKEN" });
+      return;
+    }
+    if (req.url.startsWith("/api/favorites")) {
+      const auth = String(req.headers.authorization || "");
+      if (auth.includes("NEWTOKEN")) json(200, { list: [] });
+      else {
+        res.writeHead(401, { "content-type": "text/plain" });
+        res.end("Unauthorized");
+      }
+      return;
+    }
+  }
+
+  if (process.env.MOCK_PUBLIC_401 === "1" && req.url.startsWith("/api/server-config")) {
+    res.writeHead(401, { "content-type": "text/plain" });
+    res.end("Unauthorized");
+    return;
+  }
+
   if (req.url === "/test.srt") {
     res.writeHead(200, { "content-type": "application/x-subrip" });
     res.end("1\n00:00:00,000 --> 00:01:00,000\nNSH 外挂字幕测试\n\n");
