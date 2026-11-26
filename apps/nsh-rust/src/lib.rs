@@ -16,8 +16,23 @@ use serde_json::json;
 const DEFAULT_SERVER: &str = "https://tv.370125.xyz";
 const REDBULL: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
 
+const ICON_SEARCH: ImageAsset = asset!("icons/search.svg");
+const ICON_HOME: ImageAsset = asset!("icons/home.svg");
+const ICON_FILM: ImageAsset = asset!("icons/film.svg");
+const ICON_TV: ImageAsset = asset!("icons/tv.svg");
+const ICON_CAT: ImageAsset = asset!("icons/cat.svg");
+const ICON_CLOVER: ImageAsset = asset!("icons/clover.svg");
+const ICON_MOON: ImageAsset = asset!("icons/moon.svg");
+const ICON_SUN: ImageAsset = asset!("icons/sun.svg");
+
+/// The web layout is drawn for 390dp; each screen scales from that.
+const BASE_WIDTH: f32 = 390.0;
+/// The web brand green, used for the wordmark, the selected tab and the rating badge.
+const BRAND: AdaptiveColor = AdaptiveColor::rgb(0x22C55E, 0x22C55E);
+
 #[native_module("moontvplus-rust/native")]
 fn exports(registry: &mut Registry) {
+    registry.assets(assets!());
     registry.register::<App>();
 }
 
@@ -28,6 +43,8 @@ struct Movie {
     poster: String,
     rate: String,
     year: String,
+    /// Watch progress 0..=1 for continue-watching cards (0 hides the bar).
+    progress: f64,
 }
 
 #[derive(Clone, PartialEq)]
@@ -46,6 +63,7 @@ struct History {
     year: String,
     index: f64,
     play_time: f64,
+    total_time: f64,
     save_time: f64,
 }
 
@@ -195,6 +213,7 @@ fn parse_movies(text: &str) -> Vec<Movie> {
             poster: item["poster"].as_str().unwrap_or_default().to_owned(),
             rate: item["rate"].as_str().unwrap_or_default().to_owned(),
             year: item["year"].as_str().unwrap_or_default().to_owned(),
+            progress: 0.0,
         })
         .filter(|movie| !movie.title.is_empty())
         .collect()
@@ -242,6 +261,7 @@ fn parse_bangumi(text: &str) -> Vec<Movie> {
                     .map(|score| format!("{score:.1}"))
                     .unwrap_or_default(),
                 year: air_date.get(0..4).unwrap_or_default().to_owned(),
+                progress: 0.0,
             });
         }
     }
@@ -262,6 +282,7 @@ fn parse_duanju(text: &str) -> Vec<Movie> {
             poster: item["poster"].as_str().unwrap_or_default().to_owned(),
             rate: String::new(),
             year: item["year"].as_str().unwrap_or_default().to_owned(),
+            progress: 0.0,
         })
         .filter(|movie| !movie.title.is_empty() && !movie.poster.is_empty())
         .collect()
@@ -297,6 +318,7 @@ fn parse_upcoming(text: &str) -> Vec<Movie> {
                     .get(0..4)
                     .unwrap_or_default()
                     .to_owned(),
+                progress: 0.0,
             })
         })
         .collect();
@@ -320,6 +342,7 @@ fn parse_history(text: &str) -> Vec<History> {
             year: value["year"].as_str().unwrap_or_default().to_owned(),
             index: value["index"].as_f64().unwrap_or(0.0),
             play_time: value["play_time"].as_f64().unwrap_or(0.0),
+            total_time: value["total_time"].as_f64().unwrap_or(0.0),
             save_time: value["save_time"].as_f64().unwrap_or(0.0),
         })
         .filter(|item| !item.title.is_empty())
@@ -406,7 +429,15 @@ pub fn App() -> impl IntoElement {
     let current = signal(Movie::default());
     let browse_title = signal(String::new());
     let stage = signal("idle".to_owned());
+    let refreshing = signal(false);
     let rows = signal(Vec::<Row>::new());
+    let scale = signal(1.0_f32);
+    effect(move || {
+        let width = window().width.0;
+        if width > 0.0 {
+            scale.set((width / BASE_WIDTH).clamp(0.85, 1.6));
+        }
+    });
 
     let theme_watch = dark.clone();
     effect(move || {
@@ -591,15 +622,29 @@ pub fn App() -> impl IntoElement {
                     let _ = message;
                 }
                 let mut list: Vec<Row> = Vec::new();
+                let mut seen_titles: Vec<String> = Vec::new();
                 let history_items: Vec<Movie> = history
                     .get()
                     .into_iter()
+                    .filter(|item| {
+                        if seen_titles.iter().any(|title| title == &item.title) {
+                            false
+                        } else {
+                            seen_titles.push(item.title.clone());
+                            true
+                        }
+                    })
                     .map(|item| Movie {
                         id: item.key.clone(),
                         title: item.title.clone(),
                         poster: item.cover.clone(),
                         rate: String::new(),
                         year: item.year.clone(),
+                        progress: if item.total_time > 0.0 {
+                            (item.play_time / item.total_time).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        },
                     })
                     .collect();
                 if !history_items.is_empty() {
@@ -729,6 +774,21 @@ pub fn App() -> impl IntoElement {
         }
     };
 
+    let self_check = {
+        let rows = rows.clone();
+        let proxy_port = proxy_port.clone();
+        move || {
+            let (count, hit, miss, fail) = proxy::image_stats();
+            let _ = Storage::set_item(
+                "imgstats",
+                format!(
+                    "count={count} hit={hit} miss={miss} fail={fail} rows={} port={}",
+                    rows.get().len(),
+                    proxy_port.get()
+                ),
+            );
+        }
+    };
     let logout = {
         let token = token.clone();
         let page = page.clone();
@@ -761,30 +821,14 @@ pub fn App() -> impl IntoElement {
         .child(
             view()
                 .flex_1()
-                .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .px_4()
-                        .py_3()
-                        .child(text("MoonTVPlus").text_size(px(20.0)))
-                        .child(
-                            view()
-                                .px_3()
-                                .py_1()
-                                .rounded(px(8.0))
-                                .bg(move || theme().muted)
-                                .on_press({
-                                    let toggle = toggle_theme.clone();
-                                    move || toggle()
-                                })
-                                .child(text({
-                                    let dark = dark_for_ui.clone();
-                                    move || if dark.get() { "深色".to_owned() } else { "浅色".to_owned() }
-                                })),
-                        ),
-                )
+                .child(top_bar(
+                    scale.read_only(),
+                    dark_for_ui.read_only(),
+                    toggle_theme.clone(),
+                    page.clone(),
+                    username.clone(),
+                    self_check.clone(),
+                ))
                 .child(when(
                     {
                         let page = login_page.clone();
@@ -879,149 +923,92 @@ pub fn App() -> impl IntoElement {
                     {
                         let loading = home_loading.clone();
                         let error = error.clone();
-                        let stage = stage.clone();
                         let rows = rows.clone();
+                        let scale = scale.clone();
                         let port = port_for_ui.clone();
-                        let username = username.clone();
                         let server_value = server.clone();
+                        let refreshing = refreshing.clone();
                         let refresh = refresh.clone();
-                        let logout = logout.clone();
                         let open = open_detail.clone();
                         let browse = open_browse.clone();
                         move || {
                             view()
                                 .flex_1()
-                                .gap_3()
                                 .child(
-                                    text({
-                                        let stage = stage.clone();
-                                        move || stage.get()
-                                    })
-                                    .px_4()
-                                    .text_size(px(10.0))
-                                    .text_color(move || theme().muted_foreground),
-                                )
-                                .child(when(
-                                    {
-                                        let loading = loading.clone();
-                                        move || loading.get()
-                                    },
-                                    || {
-                                        text("加载中…")
-                                            .px_4()
-                                            .text_color(move || theme().muted_foreground)
-                                    },
-                                ))
-                                .child(when(
-                                    {
-                                        let error = error.clone();
-                                        move || !error.get().is_empty()
-                                    },
-                                    {
-                                        let error = error.clone();
-                                        move || {
-                                            text({
-                                                let error = error.clone();
-                                                move || error.get()
-                                            })
-                                            .px_4()
-                                            .text_color(rgb(0xcc2222))
-                                        }
-                                    },
-                                ))
-                                .child(
-                                    scroll().flex_1().child(
-                                        view()
-                                            .gap_5()
-                                            .pb_8()
-                                            .child(each(
-                                                {
-                                                    let rows = rows.clone();
-                                                    move || rows.get()
-                                                },
-                                                |row: &Row| row.id.clone(),
-                                                {
-                                                    let port = port.clone();
-                                                    let open = open.clone();
-                                                    let browse = browse.clone();
-                                                    let site_signal = server_value.clone();
-                                                    move |row: ReadSignal<Row>, _index| {
-                                                        let kind = row.get().title.clone();
+                                    scroll()
+                                        .flex_1()
+                                        .refreshing({
+                                            let refreshing = refreshing.clone();
+                                            move || refreshing.get()
+                                        })
+                                        .on_refresh({
+                                            let refresh = refresh.clone();
+                                            let refreshing = refreshing.clone();
+                                            move || {
+                                                refreshing.set(true);
+                                                refresh();
+                                                refreshing.set(false);
+                                            }
+                                        })
+                                        .child(
+                                            view()
+                                                .gap_5()
+                                                .pb_8()
+                                                .child(when(
+                                                    {
+                                                        let loading = loading.clone();
+                                                        move || loading.get()
+                                                    },
+                                                    || {
+                                                        text("加载中…")
+                                                            .px_4()
+                                                            .text_color(move || theme().muted_foreground)
+                                                    },
+                                                ))
+                                                .child(when(
+                                                    {
+                                                        let error = error.clone();
+                                                        move || !error.get().is_empty()
+                                                    },
+                                                    {
+                                                        let error = error.clone();
+                                                        move || {
+                                                            text({
+                                                                let error = error.clone();
+                                                                move || error.get()
+                                                            })
+                                                            .px_4()
+                                                            .text_color(rgb(0xcc2222))
+                                                        }
+                                                    },
+                                                ))
+                                                .child(each(
+                                                    {
+                                                        let rows = rows.clone();
+                                                        move || rows.get()
+                                                    },
+                                                    |row: &Row| row.id.clone(),
+                                                    {
+                                                        let port = port.clone();
+                                                        let scale = scale.clone();
+                                                        let open = open.clone();
                                                         let browse = browse.clone();
-                                                        row_view(
-                                                            row,
-                                                            port.get(),
-                                                            site_signal.get(),
-                                                            open.clone(),
-                                                            move || browse(kind.clone()),
-                                                        )
-                                                    }
-                                                },
-                                            )),
-                                    ),
-                                )
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .gap_2()
-                                        .px_4()
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let refresh = refresh.clone();
-                                                    move || refresh()
-                                                })
-                                                .child(text("刷新")),
-                                        )
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let port = port_for_ui.clone();
-                                                    let rows = rows.clone();
-                                                    move || {
-                                                        let (count, hit, miss, fail) = proxy::image_stats();
-                                                        let _ = Storage::set_item(
-                                                            "imgstats",
-                                                            format!(
-                                                                "count={count} hit={hit} miss={miss} fail={fail} rows={} port={}",
-                                                                rows.get().len(),
-                                                                port.get()
-                                                            ),
-                                                        );
-                                                    }
-                                                })
-                                                .child(text("图片自检")),
-                                        )
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let logout = logout.clone();
-                                                    move || logout()
-                                                })
-                                                .child(text("退出登录")),
+                                                        let site_signal = server_value.clone();
+                                                        move |row: ReadSignal<Row>, _index| {
+                                                            let kind = row.get().title.clone();
+                                                            let browse = browse.clone();
+                                                            row_view(
+                                                                row,
+                                                                port.get(),
+                                                                scale.get(),
+                                                                site_signal.get(),
+                                                                open.clone(),
+                                                                move || browse(kind.clone()),
+                                                            )
+                                                        }
+                                                    },
+                                                )),
                                         ),
-                                )
-                                .child(
-                                    text({
-                                        let username = username.clone();
-                                        let server = server_value.clone();
-                                        move || format!("{} @ {}", username.get(), server.get())
-                                    })
-                                    .px_4()
-                                    .text_size(px(11.0))
-                                    .text_color(move || theme().muted_foreground),
                                 )
                         }
                     },
@@ -1086,6 +1073,39 @@ pub fn App() -> impl IntoElement {
                                     text("详情页与选源将在批 4 完成")
                                         .text_color(move || theme().muted_foreground),
                                 )
+                        }
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = page.clone();
+                        move || page.get() == "search"
+                    },
+                    {
+                        let back = back_home.clone();
+                        move || {
+                            view().flex_1().p_4().gap_3().child(
+                                view()
+                                    .flex_row()
+                                    .gap_2()
+                                    .child(
+                                        view()
+                                            .px_3()
+                                            .py_2()
+                                            .rounded(px(8.0))
+                                            .bg(move || theme().muted)
+                                            .on_press({
+                                                let back = back.clone();
+                                                move || back()
+                                            })
+                                            .child(text("返回")),
+                                    )
+                                    .child(text("搜索").text_size(px(18.0))),
+                            )
+                            .child(
+                                text("搜索页将在批 2 完成")
+                                    .text_color(move || theme().muted_foreground),
+                            )
                         }
                     },
                 ))
@@ -1188,97 +1208,131 @@ pub fn App() -> impl IntoElement {
                     },
                 )),
         )
+        .child(when(
+            {
+                let page = page.clone();
+                move || page.get() != "login"
+            },
+            {
+                let scale = scale.clone();
+                let page = page.clone();
+                move || {
+                    let active = match page.get() {
+                        "movie" => "movie",
+                        "tv" => "tv",
+                        "anime" => "anime",
+                        "show" => "show",
+                        _ => "home",
+                    };
+                    bottom_bar(scale.read_only(), active, {
+                        let page = page.clone();
+                        move |key| {
+                            if key == "home" {
+                                page.set("home");
+                            } else {
+                                page.set("browse");
+                            }
+                        }
+                    })
+                }
+            },
+        ))
 }
 
 fn row_view(
     row: ReadSignal<Row>,
     port: u16,
+    scale: f32,
     site: String,
     open: impl Fn(Movie) + Clone + 'static,
     more: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let pad = px(16.0 * scale);
     view()
-        .gap_2()
+        .gap(px(16.0 * scale))
         .child(
             view()
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .px_4()
-                .child(text(move || row.get().title.clone()).text_size(px(18.0)))
+                .px(pad)
                 .child(
-                    view().on_press(more).child(
-                        text("查看更多")
-                            .text_size(px(12.0))
-                            .text_color(move || theme().muted_foreground),
-                    ),
+                    text(move || row.get().title.clone())
+                        .text_size(px(20.0 * scale))
+                        .font_weight(nsh_core::element::FontWeight::BOLD),
+                )
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .on_press(more)
+                        .child(
+                            text("查看更多")
+                                .text_size(px(14.0 * scale))
+                                .text_color(move || theme().muted_foreground),
+                        )
                 ),
         )
-        .child(scroll().horizontal().child(
-            view().flex_row().gap_3().px_4().child(each(
-                move || row.get().items.clone(),
-                |movie: &Movie| movie.id.clone(),
-                {
-                    let site = site.clone();
-                    move |movie: ReadSignal<Movie>, _index| {
-                        let open = open.clone();
-                        card(movie.get(), port, site.clone(), move |value| open(value))
-                    }
-                },
-            )),
-        ))
+        .child(
+            scroll().horizontal().child(
+                view()
+                    .flex_row()
+                    .gap(px(8.0 * scale))
+                    .px(pad)
+                    .child(each(
+                        move || row.get().items.clone(),
+                        |movie: &Movie| movie.id.clone(),
+                        {
+                            let site = site.clone();
+                            move |movie: ReadSignal<Movie>, _index| {
+                                let open = open.clone();
+                                card(
+                                    movie.get(),
+                                    port,
+                                    scale,
+                                    site.clone(),
+                                    move |value| open(value),
+                                )
+                            }
+                        },
+                    )),
+            ),
+        )
 }
 
 fn page_get(page: &Signal<&'static str>) -> &'static str {
     page.get()
 }
 
-fn row_shell(title: String, more: impl Fn() + 'static) -> nsh_core::element::View {
-    view()
-        .gap_3()
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .px_4()
-                .child(text(title).text_size(px(18.0)))
-                .child(
-                    view()
-                        .on_press(more)
-                        .child(
-                            text("查看更多")
-                                .text_size(px(12.0))
-                                .text_color(move || theme().muted_foreground),
-                        ),
-                ),
-        )
-}
-
 fn card(
     movie: Movie,
     port: u16,
+    scale: f32,
     site: String,
     on_press: impl Fn(Movie) + 'static,
 ) -> impl IntoElement {
     let poster = movie.poster.clone();
     let rate = movie.rate.clone();
+    let progress = movie.progress;
+    let width = px(96.0 * scale);
     view()
-        .w(px(96.0))
-        .gap_1()
+        .w(width)
+        .gap(px(8.0 * scale))
         .on_press({
             let movie = movie.clone();
             move || on_press(movie.clone())
         })
         .child(
             view()
-                .w(px(96.0))
+                .w(width)
                 .aspect_ratio(2.0 / 3.0)
-                .rounded(px(8.0))
+                .rounded(px(8.0 * scale))
                 .overflow_hidden()
                 .bg(move || theme().muted)
                 .child(
                     image(image_url(port, &site, &poster))
+                        .absolute()
+                        .inset_0()
                         .w_full()
                         .h_full(),
                 )
@@ -1289,21 +1343,188 @@ fn card(
                             move || !rate.is_empty()
                         },
                         {
-                        let rate = rate.clone();
-                        move || {
-                            text(rate.clone())
-                                .px_1()
-                                .text_size(px(11.0))
-                                .text_color(rgb(0xffffff))
-                                .bg(move || theme().primary)
-                                .rounded(px(4.0))
-                        }
-                    }),
-                ),
+                            let rate = rate.clone();
+                            move || {
+                                view()
+                                    .absolute()
+                                    .top(px(6.0 * scale))
+                                    .left(px(6.0 * scale))
+                                    .px(px(5.0 * scale))
+                                    .py(px(2.0 * scale))
+                                    .bg(BRAND)
+                                    .rounded(px(4.0 * scale))
+                                    .child(
+                                        text(rate.clone())
+                                            .text_size(px(11.0 * scale))
+                                            .text_color(rgb(0xffffff)),
+                                    )
+                            }
+                        },
+                    ),
+                )
+                .child(when(
+                    move || progress > 0.0,
+                    move || {
+                        view()
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .w(px(96.0 * scale * progress as f32))
+                            .h(px(3.0 * scale))
+                            .bg(BRAND)
+                    },
+                )),
         )
         .child(
             text(movie.title.clone())
-                .text_size(px(12.0))
+                .text_size(px(14.0 * scale))
+                .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                .line_height(px(20.0 * scale))
                 .number_of_lines(1),
         )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn top_bar(
+    scale: ReadSignal<f32>,
+    dark: ReadSignal<bool>,
+    toggle: impl Fn() + 'static,
+    page: Signal<&'static str>,
+    username: Signal<String>,
+    self_check: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .h(move || px(48.0 * scale.get()))
+        .flex_row()
+        .items_center()
+        .px(move || px(16.0 * scale.get()))
+        .gap(move || px(4.0 * scale.get()))
+        .bg(move || theme().background)
+        .border_b(px(1.0))
+        .border_color(move || theme().border)
+        .child(
+            view()
+                .w(move || px(40.0 * scale.get()))
+                .h(move || px(40.0 * scale.get()))
+                .items_center()
+                .justify_center()
+                .on_press({
+                    let page = page.clone();
+                    move || page.set("search")
+                })
+                .child(
+                    image(ICON_SEARCH)
+                        .w(move || px(24.0 * scale.get()))
+                        .h(move || px(24.0 * scale.get()))
+                        .tint_color(move || theme().foreground),
+                ),
+        )
+        .child(
+            view()
+                .flex_1()
+                .items_center()
+                .on_long_press(self_check)
+                .child(
+                    text("MoonTVPlus")
+                        .text_size(move || px(24.0 * scale.get()))
+                        .font_weight(nsh_core::element::FontWeight::BOLD)
+                        .text_color(BRAND),
+                ),
+        )
+        .child(
+            view()
+                .w(move || px(40.0 * scale.get()))
+                .h(move || px(40.0 * scale.get()))
+                .items_center()
+                .justify_center()
+                .on_press(toggle)
+                .child(
+                    image(move || if dark.get() { ICON_SUN } else { ICON_MOON })
+                        .w(move || px(24.0 * scale.get()))
+                        .h(move || px(24.0 * scale.get()))
+                        .tint_color(move || theme().foreground),
+                ),
+        )
+        .child(
+            view()
+                .w(move || px(40.0 * scale.get()))
+                .h(move || px(40.0 * scale.get()))
+                .rounded(move || px(20.0 * scale.get()))
+                .items_center()
+                .justify_center()
+                .bg(move || theme().muted)
+                .child(
+                    text({
+                        let username = username.clone();
+                        move || {
+                            username
+                                .get()
+                                .chars()
+                                .next()
+                                .unwrap_or('M')
+                                .to_uppercase()
+                                .to_string()
+                        }
+                    })
+                    .text_size(move || px(14.0 * scale.get()))
+                    .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                    .text_color(move || theme().foreground),
+                ),
+        )
+}
+
+fn bottom_bar(
+    scale: ReadSignal<f32>,
+    active: &'static str,
+    select: impl Fn(&'static str) + Clone + 'static,
+) -> impl IntoElement {
+    let items: [(&'static str, &'static str, ImageAsset); 5] = [
+        ("home", "首页", ICON_HOME),
+        ("movie", "电影", ICON_FILM),
+        ("tv", "剧集", ICON_TV),
+        ("anime", "动漫", ICON_CAT),
+        ("show", "综艺", ICON_CLOVER),
+    ];
+    let mut bar = view()
+        .h(move || px(56.0 * scale.get()))
+        .flex_row()
+        .bg(move || theme().background)
+        .border_t(px(1.0))
+        .border_color(move || theme().border);
+    for (key, label, icon) in items {
+        let select = select.clone();
+        let is_active = key == active;
+        bar = bar.child(
+            view()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .gap(move || px(2.0 * scale.get()))
+                .on_press(move || select(key))
+                .child(
+                    image(icon)
+                        .w(move || px(24.0 * scale.get()))
+                        .h(move || px(24.0 * scale.get()))
+                        .tint_color(move || {
+                            if is_active {
+                                BRAND
+                            } else {
+                                theme().muted_foreground
+                            }
+                        }),
+                )
+                .child(
+                    text(label)
+                        .text_size(move || px(12.0 * scale.get()))
+                        .text_color(move || {
+                            if is_active {
+                                BRAND
+                            } else {
+                                theme().muted_foreground
+                            }
+                        }),
+                ),
+        );
+    }
+    bar
 }
