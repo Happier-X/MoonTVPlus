@@ -1,4 +1,4 @@
-//! MoonTVPlus pure-Rust app: batch 0 (shell, session, proxy lifecycle).
+//! MoonTVPlus pure-Rust app: batch 1 (home modules, images, continue watching).
 
 mod proxy;
 
@@ -19,6 +19,34 @@ const REDBULL: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
 #[native_module("moontvplus-rust/native")]
 fn exports(registry: &mut Registry) {
     registry.register::<App>();
+}
+
+#[derive(Clone, PartialEq, Default)]
+struct Movie {
+    id: String,
+    title: String,
+    poster: String,
+    rate: String,
+    year: String,
+}
+
+#[derive(Clone, PartialEq)]
+struct Row {
+    id: String,
+    title: String,
+    kind: String,
+    items: Vec<Movie>,
+}
+
+#[derive(Clone, PartialEq, Default)]
+struct History {
+    key: String,
+    title: String,
+    cover: String,
+    year: String,
+    index: f64,
+    play_time: f64,
+    save_time: f64,
 }
 
 enum ApiError {
@@ -153,6 +181,201 @@ fn clear_session() {
     let _ = Storage::remove_item("username");
 }
 
+fn parse_movies(text: &str) -> Vec<Movie> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(list) = json["list"].as_array() else {
+        return Vec::new();
+    };
+    list.iter()
+        .map(|item| Movie {
+            id: item["id"].as_str().unwrap_or_default().to_owned(),
+            title: item["title"].as_str().unwrap_or_default().to_owned(),
+            poster: item["poster"].as_str().unwrap_or_default().to_owned(),
+            rate: item["rate"].as_str().unwrap_or_default().to_owned(),
+            year: item["year"].as_str().unwrap_or_default().to_owned(),
+        })
+        .filter(|movie| !movie.title.is_empty())
+        .collect()
+}
+
+fn parse_bangumi(text: &str) -> Vec<Movie> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(days) = json.as_array() else {
+        return Vec::new();
+    };
+    let mut movies = Vec::new();
+    for day in days {
+        let Some(items) = day["items"].as_array() else {
+            continue;
+        };
+        for item in items {
+            let images = &item["images"];
+            let poster = ["large", "common", "medium", "small"]
+                .iter()
+                .find_map(|key| images[*key].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            if poster.is_empty() {
+                continue;
+            }
+            let title = item["name_cn"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .or_else(|| item["name"].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            if title.is_empty() {
+                continue;
+            }
+            let air_date = item["air_date"].as_str().unwrap_or_default();
+            movies.push(Movie {
+                id: item["id"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                title,
+                poster,
+                rate: item["rating"]["score"]
+                    .as_f64()
+                    .filter(|score| *score > 0.0)
+                    .map(|score| format!("{score:.1}"))
+                    .unwrap_or_default(),
+                year: air_date.get(0..4).unwrap_or_default().to_owned(),
+            });
+        }
+    }
+    movies
+}
+
+fn parse_duanju(text: &str) -> Vec<Movie> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(list) = json["data"].as_array() else {
+        return Vec::new();
+    };
+    list.iter()
+        .map(|item| Movie {
+            id: item["id"].as_str().unwrap_or_default().to_owned(),
+            title: item["title"].as_str().unwrap_or_default().to_owned(),
+            poster: item["poster"].as_str().unwrap_or_default().to_owned(),
+            rate: String::new(),
+            year: item["year"].as_str().unwrap_or_default().to_owned(),
+        })
+        .filter(|movie| !movie.title.is_empty() && !movie.poster.is_empty())
+        .collect()
+}
+
+fn parse_upcoming(text: &str) -> Vec<Movie> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(list) = json["data"].as_array() else {
+        return Vec::new();
+    };
+    let mut movies: Vec<Movie> = list
+        .iter()
+        .filter_map(|item| {
+            let poster = item["poster_path"].as_str()?;
+            Some(Movie {
+                id: item["id"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                title: item["title"]
+                    .as_str()
+                    .or_else(|| item["name"].as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                poster: format!("https://image.tmdb.org/t/p/w500{poster}"),
+                rate: item["vote_average"]
+                    .as_f64()
+                    .filter(|score| *score > 0.0)
+                    .map(|score| format!("{score:.1}"))
+                    .unwrap_or_default(),
+                year: item["release_date"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .get(0..4)
+                    .unwrap_or_default()
+                    .to_owned(),
+            })
+        })
+        .collect();
+    movies.sort_by(|a, b| a.year.cmp(&b.year));
+    movies
+}
+
+fn parse_history(text: &str) -> Vec<History> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(map) = json.as_object() else {
+        return Vec::new();
+    };
+    let mut list: Vec<History> = map
+        .iter()
+        .map(|(key, value)| History {
+            key: key.clone(),
+            title: value["title"].as_str().unwrap_or_default().to_owned(),
+            cover: value["cover"].as_str().unwrap_or_default().to_owned(),
+            year: value["year"].as_str().unwrap_or_default().to_owned(),
+            index: value["index"].as_f64().unwrap_or(0.0),
+            play_time: value["play_time"].as_f64().unwrap_or(0.0),
+            save_time: value["save_time"].as_f64().unwrap_or(0.0),
+        })
+        .filter(|item| !item.title.is_empty())
+        .collect();
+    list.sort_by(|a, b| b.save_time.partial_cmp(&a.save_time).unwrap_or(std::cmp::Ordering::Equal));
+    list
+}
+
+/// Image URL through the local proxy, so the host can attach Authorization.
+fn image_url(port: u16, site: &str, url: &str) -> String {
+    if url.is_empty() || url.starts_with("asset:") {
+        return url.to_owned();
+    }
+    // Douban and Bangumi reject hotlinks, so the site's image proxy (which sets
+    // the right Referer) fetches them; the local proxy only adds the Bearer.
+    let target = if url.contains("doubanio.com") || url.contains("bgm.tv") {
+        format!(
+            "{}/api/image-proxy?url={}",
+            site.trim_end_matches('/'),
+            urlencoding::encode(url)
+        )
+    } else {
+        url.to_owned()
+    };
+    if port == 0 {
+        return target;
+    }
+    format!(
+        "http://127.0.0.1:{}/img?u={}",
+        port,
+        urlencoding::encode(&target)
+    )
+}
+
+fn module_visible(id: &str, enabled: &[(String, bool)]) -> bool {
+    enabled
+        .iter()
+        .find(|(key, _)| key == id)
+        .map(|(_, value)| *value)
+        .unwrap_or(true)
+}
+
+fn module_order(enabled: &[(String, bool)]) -> Vec<String> {
+    match enabled.len() {
+        0 => vec![
+            "hotMovies".to_owned(),
+            "hotDuanju".to_owned(),
+            "bangumiCalendar".to_owned(),
+            "hotTvShows".to_owned(),
+            "hotVarietyShows".to_owned(),
+            "upcomingContent".to_owned(),
+        ],
+        _ => enabled.iter().map(|(id, _)| id.clone()).collect(),
+    }
+}
+
 #[component]
 pub fn App() -> impl IntoElement {
     let saved_server = Storage::get_item("server").unwrap_or_else(|| DEFAULT_SERVER.to_owned());
@@ -171,6 +394,20 @@ pub fn App() -> impl IntoElement {
     let dark = signal(saved_theme == "dark");
     let proxy_port = signal(0_u16);
 
+    let movies = signal(Vec::<Movie>::new());
+    let duanju = signal(Vec::<Movie>::new());
+    let bangumi = signal(Vec::<Movie>::new());
+    let tv_shows = signal(Vec::<Movie>::new());
+    let variety = signal(Vec::<Movie>::new());
+    let upcoming = signal(Vec::<Movie>::new());
+    let history = signal(Vec::<History>::new());
+    let modules = signal(Vec::<(String, bool)>::new());
+    let home_loading = signal(false);
+    let current = signal(Movie::default());
+    let browse_title = signal(String::new());
+    let stage = signal("idle".to_owned());
+    let rows = signal(Vec::<Row>::new());
+
     let theme_watch = dark.clone();
     effect(move || {
         set_color_scheme(if theme_watch.get() { Appearance::Dark } else { Appearance::Light });
@@ -185,16 +422,270 @@ pub fn App() -> impl IntoElement {
         }
     };
 
+    // One proxy for both images and playback.
+    let proxy_watch_server = server.clone();
+    let proxy_watch_token = token.clone();
+    let proxy_watch_page = page.clone();
+    let proxy_watch_port = proxy_port.clone();
+    effect(move || {
+        if page_get(&proxy_watch_page) == "login" {
+            return;
+        }
+        if proxy_watch_port.get() > 0 {
+            return;
+        }
+        if let Ok(port) = proxy::ensure(proxy_watch_server.get(), proxy_watch_token.get()) {
+            proxy_watch_port.set(port);
+        }
+    });
+
+    let load_home = {
+        let server = server.clone();
+        let token = token.clone();
+        let movies = movies.clone();
+        let duanju = duanju.clone();
+        let bangumi = bangumi.clone();
+        let tv_shows = tv_shows.clone();
+        let variety = variety.clone();
+        let upcoming = upcoming.clone();
+        let history = history.clone();
+        let modules = modules.clone();
+        let loading = home_loading.clone();
+        let error = error.clone();
+        let page = page.clone();
+        let proxy_port = proxy_port.clone();
+        let username = username.clone();
+        let message = message.clone();
+        let stage = stage.clone();
+        let rows = rows.clone();
+        move || {
+            if loading.get() {
+                return;
+            }
+            loading.set(true);
+            error.set(String::new());
+            let server_value = server.get();
+            let token_value = token.get();
+            let token = token.clone();
+            let movies = movies.clone();
+            let duanju = duanju.clone();
+            let bangumi = bangumi.clone();
+            let tv_shows = tv_shows.clone();
+            let variety = variety.clone();
+            let upcoming = upcoming.clone();
+            let history = history.clone();
+            let modules = modules.clone();
+            let loading = loading.clone();
+            let error = error.clone();
+            let page = page.clone();
+            let proxy_port = proxy_port.clone();
+            let username = username.clone();
+            let message = message.clone();
+            let stage_inner = stage.clone();
+            let rows_inner = rows.clone();
+            // Keep the task: dropping `Spawned` cancels the load.
+            std::mem::forget(spawn(async move {
+                stage_inner.set("start".to_owned());
+                // Layout settings are optional: a 401 or a closed sync keeps defaults.
+                if let Ok((200, text, _)) =
+                    api(&server_value, &token_value, "/api/local-settings-sync", "GET", None, true).await
+                {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(items) = json["payload"]["data"]["homeModules"].as_str() {
+                            if let Ok(list) = serde_json::from_str::<serde_json::Value>(items) {
+                                if let Some(array) = list.as_array() {
+                                    let mut ordered: Vec<(f64, String, bool)> = array
+                                        .iter()
+                                        .filter_map(|item| {
+                                            let id = item["id"].as_str()?.to_owned();
+                                            Some((
+                                                item["order"].as_f64().unwrap_or(0.0),
+                                                id,
+                                                item["enabled"].as_bool().unwrap_or(true),
+                                            ))
+                                        })
+                                        .collect();
+                                    ordered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                                    modules.set(
+                                        ordered
+                                            .into_iter()
+                                            .map(|(_, id, enabled)| (id, enabled))
+                                            .collect(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let get = |path: &'static str| {
+                    let server = server_value.clone();
+                    let token = token_value.clone();
+                    async move {
+                        api(&server, &token, path, "GET", None, true)
+                            .await
+                            .map(|(_, text, _)| text)
+                            .unwrap_or_default()
+                    }
+                };
+
+                stage_inner.set("settings done".to_owned());
+                let movie_text = get(
+                    "/api/douban/categories?kind=movie&category=%E7%83%AD%E9%97%A8&type=%E5%85%A8%E9%83%A8&limit=24",
+                )
+                .await;
+                movies.set(parse_movies(&movie_text));
+
+                stage_inner.set("movies done".to_owned());
+                let duanju_text = get("/api/duanju/recommends").await;
+                duanju.set(parse_duanju(&duanju_text));
+
+                stage_inner.set("duanju done".to_owned());
+                let bangumi_text = get("/api/bangumi/calendar").await;
+                bangumi.set(parse_bangumi(&bangumi_text));
+
+                stage_inner.set("bangumi done".to_owned());
+                let tv_text =
+                    get("/api/douban/categories?kind=tv&category=tv&type=tv&limit=24").await;
+                tv_shows.set(parse_movies(&tv_text));
+
+                let show_text =
+                    get("/api/douban/categories?kind=tv&category=show&type=show&limit=24").await;
+                variety.set(parse_movies(&show_text));
+
+                stage_inner.set("shows done".to_owned());
+                let upcoming_text = get("/api/tmdb/upcoming").await;
+                upcoming.set(parse_upcoming(&upcoming_text));
+
+                stage_inner.set("upcoming done".to_owned());
+                match api(&server_value, &token_value, "/api/playrecords", "GET", None, true).await {
+                    Ok((status, text, next)) => {
+                        if status == 401 {
+                            error.set("登录已过期，请重新登录".to_owned());
+                        } else {
+                            history.set(parse_history(&text));
+                        }
+                        if let Some(next) = next {
+                            token.set(next.clone());
+                            let _ = Storage::set_item("token", &next);
+                        }
+                    }
+                    Err(ApiError::AuthExpired) => {
+                        clear_session();
+                        token.set(String::new());
+                        proxy_port.set(0);
+                        page.set("login");
+                        error.set("登录已过期，请重新登录".to_owned());
+                    }
+                    Err(ApiError::Network(reason)) => {
+                        error.set(format!("网络错误：{reason}"));
+                    }
+                }
+
+                if proxy_port.get() == 0 {
+                    if let Ok(port) = proxy::ensure(server_value.clone(), token.get()) {
+                        proxy_port.set(port);
+                    }
+                }
+                if username.get().is_empty() {
+                    let _ = message;
+                }
+                let mut list: Vec<Row> = Vec::new();
+                let history_items: Vec<Movie> = history
+                    .get()
+                    .into_iter()
+                    .map(|item| Movie {
+                        id: item.key.clone(),
+                        title: item.title.clone(),
+                        poster: item.cover.clone(),
+                        rate: String::new(),
+                        year: item.year.clone(),
+                    })
+                    .collect();
+                if !history_items.is_empty() {
+                    list.push(Row {
+                        id: "history".to_owned(),
+                        title: "继续观看".to_owned(),
+                        kind: "history".to_owned(),
+                        items: history_items,
+                    });
+                }
+                let configured = module_order(&modules.get());
+                let mut candidates = vec![
+                    ("hotMovies", "热门电影", movies.get(), "movie"),
+                    ("hotDuanju", "热播短剧", duanju.get(), "duanju"),
+                    ("bangumiCalendar", "新番放送", bangumi.get(), "anime"),
+                    ("hotTvShows", "热门剧集", tv_shows.get(), "tv"),
+                    ("hotVarietyShows", "热门综艺", variety.get(), "show"),
+                    ("upcomingContent", "即将上映", upcoming.get(), "upcoming"),
+                ];
+                candidates.sort_by_key(|(id, _, _, _)| {
+                    configured.iter().position(|key| key == *id).unwrap_or(99)
+                });
+                for (id, title, items, kind) in candidates {
+                    if items.is_empty() || !module_visible(id, &modules.get()) {
+                        continue;
+                    }
+                    list.push(Row {
+                        id: id.to_owned(),
+                        title: title.to_owned(),
+                        kind: kind.to_owned(),
+                        items,
+                    });
+                }
+                rows_inner.set(list);
+                stage_inner.set(format!(
+                    "done m={} d={} b={} t={} v={} u={} h={}",
+                    movies.get().len(), duanju.get().len(), bangumi.get().len(),
+                    tv_shows.get().len(), variety.get().len(), upcoming.get().len(), history.get().len()
+                ));
+                loading.set(false);
+            }));
+        }
+    };
+
+    // Started here, before any image URL is built: the port is stable for the
+    // session and images cannot wait for a later update.
+    if page.get() == "home" && proxy_port.get() == 0 && !token.get().is_empty() {
+        if let Ok(port) = proxy::ensure(server.get(), token.get()) {
+            proxy_port.set(port);
+        }
+    }
+
+    // Spawned from the component body: here the task's owner is the component,
+    // so the load is not cancelled (an effect's owner ends with the effect).
+    if page.get() == "home" && !token.get().is_empty() {
+        (load_home)();
+    }
+
+    let open_detail = {
+        let current = current.clone();
+        let page = page.clone();
+        move |movie: Movie| {
+            current.set(movie);
+            page.set("detail");
+        }
+    };
+    let open_browse = {
+        let page = page.clone();
+        let browse_title = browse_title.clone();
+        move |title: String| {
+            browse_title.set(title);
+            page.set("browse");
+        }
+    };
+    let back_home = {
+        let page = page.clone();
+        move || page.set("home")
+    };
+
     let server_input = server.clone();
     let user_input = username.clone();
     let password_input = password.clone();
     let login_page = page.clone();
-    let home_page = page.clone();
-    let play_page = page.clone();
     let busy_login = busy.clone();
     let login_message = message.clone();
     let login_error = error.clone();
-    let login_token = token.clone();
 
     let login_action = {
         let server = server.clone();
@@ -238,95 +729,29 @@ pub fn App() -> impl IntoElement {
         }
     };
 
-    let home_logout = {
+    let logout = {
         let token = token.clone();
         let page = page.clone();
         let message = message.clone();
         let proxy_port = proxy_port.clone();
+        let modules = modules.clone();
         move || {
             clear_session();
             token.set(String::new());
             proxy_port.set(0);
+            modules.set(Vec::new());
             page.set("login");
             message.set("已退出登录".to_owned());
         }
     };
-    let home_probe = {
-        let server = server.clone();
-        let token = token.clone();
-        let message = message.clone();
-        let error = error.clone();
-        let page = page.clone();
-        let proxy_port = proxy_port.clone();
-        move || {
-            let server_value = server.get();
-            let token_value = token.get();
-            let token = token.clone();
-            let message = message.clone();
-            let error = error.clone();
-            let page = page.clone();
-            let proxy_port = proxy_port.clone();
-            spawn(async move {
-                match api(&server_value, &token_value, "/api/favorites", "GET", None, true).await {
-                    Ok((status, _body, next)) => {
-                        if let Some(next) = next {
-                            token.set(next.clone());
-                            let _ = Storage::set_item("token", &next);
-                        }
-                        message.set(format!("鉴权自检 HTTP {status}"));
-                    }
-                    Err(ApiError::AuthExpired) => {
-                        clear_session();
-                        token.set(String::new());
-                        proxy_port.set(0);
-                        page.set("login");
-                        error.set("登录已过期，请重新登录".to_owned());
-                    }
-                    Err(ApiError::Network(reason)) => {
-                        error.set(format!("网络错误：{reason}（未清除登录）"));
-                    }
-                }
-            });
-        }
-    };
-    let public_probe = {
-        let server = server.clone();
-        let message = message.clone();
-        let error = error.clone();
-        move || {
-            let server_value = server.get();
-            let message = message.clone();
-            let error = error.clone();
-            spawn(async move {
-                match api(&server_value, "", "/api/server-config", "GET", None, false).await {
-                    Ok((status, _body, _)) => message.set(format!("公开接口 HTTP {status}（未清会话）")),
-                    Err(ApiError::AuthExpired) => error.set("公开接口错误地要求登出".to_owned()),
-                    Err(ApiError::Network(reason)) => error.set(format!("公开接口网络错误：{reason}")),
-                }
-            });
-        }
-    };
-    let open_play = {
-        let server = server.clone();
-        let token = token.clone();
-        let page = page.clone();
-        let error = error.clone();
-        let proxy_port = proxy_port.clone();
-        move || {
-            match proxy::ensure(server.get(), token.get()) {
-                Ok(port) => {
-                    proxy_port.set(port);
-                    page.set("play");
-                    error.set(String::new());
-                }
-                Err(reason) => error.set(format!("代理启动失败：{reason}")),
-            }
-        }
-    };
-    let back_home = {
-        let page = page.clone();
-        move || page.set("home")
-    };
+    let refresh = load_home.clone();
+    let home_page = page.clone();
+    let detail_page = page.clone();
+    let browse_page = page.clone();
+    let play_page = page.clone();
+
+    let dark_for_ui = dark.clone();
+    let port_for_ui = proxy_port.clone();
 
     view()
         .flex_1()
@@ -336,14 +761,14 @@ pub fn App() -> impl IntoElement {
         .child(
             view()
                 .flex_1()
-                .p_4()
-                .gap_3()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
                         .justify_between()
-                        .child(text("MoonTVPlus Rust").text_size(px(22.0)))
+                        .px_4()
+                        .py_3()
+                        .child(text("MoonTVPlus").text_size(px(20.0)))
                         .child(
                             view()
                                 .px_3()
@@ -354,7 +779,10 @@ pub fn App() -> impl IntoElement {
                                     let toggle = toggle_theme.clone();
                                     move || toggle()
                                 })
-                                .child(text(move || if dark.get() { "深色" } else { "浅色" })),
+                                .child(text({
+                                    let dark = dark_for_ui.clone();
+                                    move || if dark.get() { "深色".to_owned() } else { "浅色".to_owned() }
+                                })),
                         ),
                 )
                 .child(when(
@@ -363,205 +791,384 @@ pub fn App() -> impl IntoElement {
                         move || page.get() == "login"
                     },
                     move || {
-                    view()
-                        .gap_2()
-                        .child(
-                            input()
-                                .value({
-                                    let server = server_input.clone();
-                                    move || server.get()
-                                })
-                                .on_change({
-                                    let server = server_input.clone();
-                                    move |value: &str| server.set(value.to_owned())
-                                })
-                                .placeholder("服务器地址"),
-                        )
-                        .child(
-                            input()
-                                .value({
-                                    let user = user_input.clone();
-                                    move || user.get()
-                                })
-                                .on_change({
-                                    let user = user_input.clone();
-                                    move |value: &str| user.set(value.to_owned())
-                                })
-                                .placeholder("用户名"),
-                        )
-                        .child(
-                            input()
-                                .value({
-                                    let password = password_input.clone();
-                                    move || password.get()
-                                })
-                                .masked(true)
-                                .on_change({
-                                    let password = password_input.clone();
-                                    move |value: &str| password.set(value.to_owned())
-                                })
-                                .placeholder("密码"),
-                        )
-                        .child(
-                            view()
-                                .px_4()
-                                .py_3()
-                                .rounded(px(8.0))
-                                .bg(move || theme().primary)
-                                .on_press({
-                                    let login = login_action.clone();
-                                    move || login()
-                                })
-                                .child(
-                                    text({
-                                        let busy = busy_login.clone();
-                                        move || {
-                                            if busy.get() {
-                                                "登录中…".to_owned()
-                                            } else {
-                                                "登录".to_owned()
-                                            }
-                                        }
+                        view()
+                            .p_4()
+                            .gap_2()
+                            .child(
+                                input()
+                                    .value({
+                                        let server = server_input.clone();
+                                        move || server.get()
                                     })
-                                    .text_color(move || theme().primary_foreground),
-                                ),
-                        )
-                        .child(
-                            text({
-                                let message = login_message.clone();
-                                move || message.get()
-                            })
-                            .text_color(move || theme().muted_foreground),
-                        )
-                        .child(
-                            text({
-                                let error = login_error.clone();
-                                move || error.get()
-                            })
-                            .text_color(rgb(0xcc2222)),
-                        )
-                }))
+                                    .on_change({
+                                        let server = server_input.clone();
+                                        move |value: &str| server.set(value.to_owned())
+                                    })
+                                    .placeholder("服务器地址"),
+                            )
+                            .child(
+                                input()
+                                    .value({
+                                        let user = user_input.clone();
+                                        move || user.get()
+                                    })
+                                    .on_change({
+                                        let user = user_input.clone();
+                                        move |value: &str| user.set(value.to_owned())
+                                    })
+                                    .placeholder("用户名"),
+                            )
+                            .child(
+                                input()
+                                    .value({
+                                        let password = password_input.clone();
+                                        move || password.get()
+                                    })
+                                    .masked(true)
+                                    .on_change({
+                                        let password = password_input.clone();
+                                        move |value: &str| password.set(value.to_owned())
+                                    })
+                                    .placeholder("密码"),
+                            )
+                            .child(
+                                view()
+                                    .px_4()
+                                    .py_3()
+                                    .rounded(px(8.0))
+                                    .bg(move || theme().primary)
+                                    .on_press({
+                                        let login = login_action.clone();
+                                        move || login()
+                                    })
+                                    .child(
+                                        text({
+                                            let busy = busy_login.clone();
+                                            move || {
+                                                if busy.get() {
+                                                    "登录中…".to_owned()
+                                                } else {
+                                                    "登录".to_owned()
+                                                }
+                                            }
+                                        })
+                                        .text_color(move || theme().primary_foreground),
+                                    ),
+                            )
+                            .child(
+                                text({
+                                    let message = login_message.clone();
+                                    move || message.get()
+                                })
+                                .text_color(move || theme().muted_foreground),
+                            )
+                            .child(
+                                text({
+                                    let error = login_error.clone();
+                                    move || error.get()
+                                })
+                                .text_color(rgb(0xcc2222)),
+                            )
+                    },
+                ))
                 .child(when(
                     {
                         let page = home_page.clone();
                         move || page.get() == "home"
                     },
-                    move || {
-                    view()
-                        .gap_3()
-                        .child(
-                            text({
-                                let user = username.clone();
-                                let server = server.clone();
-                                move || format!("{} @ {}", user.get(), server.get())
-                            })
-                            .text_color(move || theme().muted_foreground),
-                        )
-                        .child(
+                    {
+                        let loading = home_loading.clone();
+                        let error = error.clone();
+                        let stage = stage.clone();
+                        let rows = rows.clone();
+                        let port = port_for_ui.clone();
+                        let username = username.clone();
+                        let server_value = server.clone();
+                        let refresh = refresh.clone();
+                        let logout = logout.clone();
+                        let open = open_detail.clone();
+                        let browse = open_browse.clone();
+                        move || {
                             view()
-                                .flex_row()
-                                .gap_2()
+                                .flex_1()
+                                .gap_3()
+                                .child(
+                                    text({
+                                        let stage = stage.clone();
+                                        move || stage.get()
+                                    })
+                                    .px_4()
+                                    .text_size(px(10.0))
+                                    .text_color(move || theme().muted_foreground),
+                                )
+                                .child(when(
+                                    {
+                                        let loading = loading.clone();
+                                        move || loading.get()
+                                    },
+                                    || {
+                                        text("加载中…")
+                                            .px_4()
+                                            .text_color(move || theme().muted_foreground)
+                                    },
+                                ))
+                                .child(when(
+                                    {
+                                        let error = error.clone();
+                                        move || !error.get().is_empty()
+                                    },
+                                    {
+                                        let error = error.clone();
+                                        move || {
+                                            text({
+                                                let error = error.clone();
+                                                move || error.get()
+                                            })
+                                            .px_4()
+                                            .text_color(rgb(0xcc2222))
+                                        }
+                                    },
+                                ))
+                                .child(
+                                    scroll().flex_1().child(
+                                        view()
+                                            .gap_5()
+                                            .pb_8()
+                                            .child(each(
+                                                {
+                                                    let rows = rows.clone();
+                                                    move || rows.get()
+                                                },
+                                                |row: &Row| row.id.clone(),
+                                                {
+                                                    let port = port.clone();
+                                                    let open = open.clone();
+                                                    let browse = browse.clone();
+                                                    let site_signal = server_value.clone();
+                                                    move |row: ReadSignal<Row>, _index| {
+                                                        let kind = row.get().title.clone();
+                                                        let browse = browse.clone();
+                                                        row_view(
+                                                            row,
+                                                            port.get(),
+                                                            site_signal.get(),
+                                                            open.clone(),
+                                                            move || browse(kind.clone()),
+                                                        )
+                                                    }
+                                                },
+                                            )),
+                                    ),
+                                )
                                 .child(
                                     view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().primary)
-                                        .on_press({
-                                            let open = open_play.clone();
-                                            move || open()
-                                        })
+                                        .flex_row()
+                                        .gap_2()
+                                        .px_4()
                                         .child(
-                                            text("播放测试")
-                                                .text_color(move || theme().primary_foreground),
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let refresh = refresh.clone();
+                                                    move || refresh()
+                                                })
+                                                .child(text("刷新")),
+                                        )
+                                        .child(
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let port = port_for_ui.clone();
+                                                    let rows = rows.clone();
+                                                    move || {
+                                                        let (count, hit, miss, fail) = proxy::image_stats();
+                                                        let _ = Storage::set_item(
+                                                            "imgstats",
+                                                            format!(
+                                                                "count={count} hit={hit} miss={miss} fail={fail} rows={} port={}",
+                                                                rows.get().len(),
+                                                                port.get()
+                                                            ),
+                                                        );
+                                                    }
+                                                })
+                                                .child(text("图片自检")),
+                                        )
+                                        .child(
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let logout = logout.clone();
+                                                    move || logout()
+                                                })
+                                                .child(text("退出登录")),
                                         ),
                                 )
                                 .child(
+                                    text({
+                                        let username = username.clone();
+                                        let server = server_value.clone();
+                                        move || format!("{} @ {}", username.get(), server.get())
+                                    })
+                                    .px_4()
+                                    .text_size(px(11.0))
+                                    .text_color(move || theme().muted_foreground),
+                                )
+                        }
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = detail_page.clone();
+                        move || page.get() == "detail"
+                    },
+                    {
+                        let current = current.clone();
+                        let port = port_for_ui.clone();
+                        let back = back_home.clone();
+                        move || {
+                            let movie = current.get();
+                            view()
+                                .flex_1()
+                                .p_4()
+                                .gap_3()
+                                .child(
                                     view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().muted)
-                                        .on_press({
-                                            let probe = home_probe.clone();
-                                            move || probe()
-                                        })
-                                        .child(text("鉴权自检")),
+                                        .flex_row()
+                                        .gap_2()
+                                        .child(
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let back = back.clone();
+                                                    move || back()
+                                                })
+                                                .child(text("返回")),
+                                        )
+                                        .child(text("详情").text_size(px(18.0))),
                                 )
                                 .child(
                                     view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().muted)
-                                        .on_press({
-                                            let probe = public_probe.clone();
-                                            move || probe()
-                                        })
-                                        .child(text("公开自检")),
+                                        .flex_row()
+                                        .gap_3()
+                                        .child(
+                                            image(image_url(port.get(), "", &movie.poster))
+                                                .w(px(96.0))
+                                                .aspect_ratio(2.0 / 3.0)
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted),
+                                        )
+                                        .child(
+                                            view()
+                                                .flex_1()
+                                                .gap_1()
+                                                .child(text(movie.title.clone()).text_size(px(18.0)))
+                                                .child(
+                                                    text(format!("{} {}", movie.year, movie.rate))
+                                                        .text_size(px(12.0))
+                                                        .text_color(move || theme().muted_foreground),
+                                                ),
+                                        ),
                                 )
                                 .child(
+                                    text("详情页与选源将在批 4 完成")
+                                        .text_color(move || theme().muted_foreground),
+                                )
+                        }
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = browse_page.clone();
+                        move || page.get() == "browse"
+                    },
+                    {
+                        let title = browse_title.clone();
+                        let back = back_home.clone();
+                        move || {
+                            view()
+                                .flex_1()
+                                .p_4()
+                                .gap_3()
+                                .child(
                                     view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().muted)
-                                        .on_press({
-                                            let logout = home_logout.clone();
-                                            move || logout()
-                                        })
-                                        .child(text("退出登录")),
-                                ),
-                        )
-                }))
+                                        .flex_row()
+                                        .gap_2()
+                                        .child(
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let back = back.clone();
+                                                    move || back()
+                                                })
+                                                .child(text("返回")),
+                                        )
+                                        .child(text({
+                                            let title = title.clone();
+                                            move || title.get()
+                                        }).text_size(px(18.0))),
+                                )
+                                .child(
+                                    text("分类页将在批 3 完成")
+                                        .text_color(move || theme().muted_foreground),
+                                )
+                        }
+                    },
+                ))
                 .child(when(
                     {
                         let page = play_page.clone();
                         move || page.get() == "play"
                     },
-                    move || {
-                    view()
-                        .flex_1()
-                        .gap_2()
-                        .child(
+                    {
+                        let port = port_for_ui.clone();
+                        let back = back_home.clone();
+                        move || {
                             view()
-                                .flex_row()
+                                .flex_1()
                                 .gap_2()
                                 .child(
                                     view()
-                                        .px_3()
-                                        .py_2()
-                                        .rounded(px(8.0))
-                                        .bg(move || theme().muted)
-                                        .on_press({
-                                            let back = back_home.clone();
-                                            move || back()
-                                        })
-                                        .child(text("返回")),
+                                        .flex_row()
+                                        .gap_2()
+                                        .child(
+                                            view()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded(px(8.0))
+                                                .bg(move || theme().muted)
+                                                .on_press({
+                                                    let back = back.clone();
+                                                    move || back()
+                                                })
+                                                .child(text("返回")),
+                                        )
+                                        .child(
+                                            text({
+                                                let port = port.clone();
+                                                move || format!("代理 {}", port.get())
+                                            })
+                                            .text_color(move || theme().muted_foreground),
+                                        ),
                                 )
                                 .child(
-                                    text({
-                                        let port = proxy_port.clone();
-                                        move || {
-                                            if port.get() > 0 {
-                                                format!("代理端口 {}", port.get())
-                                            } else {
-                                                "无代理".to_owned()
-                                            }
-                                        }
-                                    })
-                                    .text_color(move || theme().muted_foreground),
-                                ),
-                        )
-                        .child(
-                            view()
-                                .flex_1()
-                                .rounded(px(8.0))
-                                .overflow_hidden()
-                                .bg(rgb(0x000000))
-                                .child(
                                     video({
-                                        let port = proxy_port.clone();
+                                        let port = port.clone();
                                         move || {
                                             if port.get() == 0 {
                                                 String::new()
@@ -576,34 +1183,127 @@ pub fn App() -> impl IntoElement {
                                     })
                                     .flex_1()
                                     .controls(true),
-                                ),
-                        )
-                }))
-                .child(when(
-                    {
-                        let page = page.clone();
-                        move || page.get() != "login"
+                                )
+                        }
                     },
-                    move || {
-                        view()
-                            .gap_1()
-                            .child(
-                                text({
-                                    let message = message.clone();
-                                    move || message.get()
-                                })
-                                .text_color(move || theme().muted_foreground)
-                                .text_size(px(13.0)),
-                            )
-                            .child(
-                                text({
-                                    let error = error.clone();
-                                    move || error.get()
-                                })
-                                .text_color(rgb(0xcc2222))
-                                .text_size(px(13.0)),
-                            )
-                    },
-                ))
+                )),
+        )
+}
+
+fn row_view(
+    row: ReadSignal<Row>,
+    port: u16,
+    site: String,
+    open: impl Fn(Movie) + Clone + 'static,
+    more: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .gap_2()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .px_4()
+                .child(text(move || row.get().title.clone()).text_size(px(18.0)))
+                .child(
+                    view().on_press(more).child(
+                        text("查看更多")
+                            .text_size(px(12.0))
+                            .text_color(move || theme().muted_foreground),
+                    ),
+                ),
+        )
+        .child(scroll().horizontal().child(
+            view().flex_row().gap_3().px_4().child(each(
+                move || row.get().items.clone(),
+                |movie: &Movie| movie.id.clone(),
+                {
+                    let site = site.clone();
+                    move |movie: ReadSignal<Movie>, _index| {
+                        let open = open.clone();
+                        card(movie.get(), port, site.clone(), move |value| open(value))
+                    }
+                },
+            )),
+        ))
+}
+
+fn page_get(page: &Signal<&'static str>) -> &'static str {
+    page.get()
+}
+
+fn row_shell(title: String, more: impl Fn() + 'static) -> nsh_core::element::View {
+    view()
+        .gap_3()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .px_4()
+                .child(text(title).text_size(px(18.0)))
+                .child(
+                    view()
+                        .on_press(more)
+                        .child(
+                            text("查看更多")
+                                .text_size(px(12.0))
+                                .text_color(move || theme().muted_foreground),
+                        ),
+                ),
+        )
+}
+
+fn card(
+    movie: Movie,
+    port: u16,
+    site: String,
+    on_press: impl Fn(Movie) + 'static,
+) -> impl IntoElement {
+    let poster = movie.poster.clone();
+    let rate = movie.rate.clone();
+    view()
+        .w(px(96.0))
+        .gap_1()
+        .on_press({
+            let movie = movie.clone();
+            move || on_press(movie.clone())
+        })
+        .child(
+            view()
+                .w(px(96.0))
+                .aspect_ratio(2.0 / 3.0)
+                .rounded(px(8.0))
+                .overflow_hidden()
+                .bg(move || theme().muted)
+                .child(
+                    image(image_url(port, &site, &poster))
+                        .w_full()
+                        .h_full(),
+                )
+                .child(
+                    when(
+                        {
+                            let rate = rate.clone();
+                            move || !rate.is_empty()
+                        },
+                        {
+                        let rate = rate.clone();
+                        move || {
+                            text(rate.clone())
+                                .px_1()
+                                .text_size(px(11.0))
+                                .text_color(rgb(0xffffff))
+                                .bg(move || theme().primary)
+                                .rounded(px(4.0))
+                        }
+                    }),
+                ),
+        )
+        .child(
+            text(movie.title.clone())
+                .text_size(px(12.0))
+                .number_of_lines(1),
         )
 }

@@ -1,7 +1,10 @@
 //! Local HTTP proxy for HLS playback: injects the site's Bearer token and UA,
 //! passes Range through, and rewrites playlist URIs to 127.0.0.1.
 
+use std::collections::HashMap;
+use std::fs;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,6 +19,77 @@ pub struct ProxyConfig {
     pub site: String,
     pub token: String,
     pub ua: String,
+}
+
+static IMAGE_MEMORY: Mutex<Option<HashMap<String, (String, Vec<u8>)>>> = Mutex::new(None);
+static IMG_HITS: AtomicBool = AtomicBool::new(false);
+static IMG_MISS: AtomicBool = AtomicBool::new(false);
+static IMG_FAIL: AtomicBool = AtomicBool::new(false);
+static IMG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static STORE: Mutex<Option<Arc<Mutex<Option<String>>>>> = Mutex::new(None);
+
+/// Counters for the image endpoint, for on-device checks.
+pub fn image_stats() -> (u32, bool, bool, bool) {
+    (
+        IMG_COUNT.load(Ordering::Relaxed),
+        IMG_HITS.load(Ordering::Relaxed),
+        IMG_MISS.load(Ordering::Relaxed),
+        IMG_FAIL.load(Ordering::Relaxed),
+    )
+}
+
+pub fn reset_image_stats() {
+    IMG_COUNT.store(0, Ordering::Relaxed);
+    IMG_HITS.store(false, Ordering::Relaxed);
+    IMG_MISS.store(false, Ordering::Relaxed);
+    IMG_FAIL.store(false, Ordering::Relaxed);
+}
+
+fn cache_dir() -> PathBuf {
+    std::env::temp_dir().join("moontv-rust-images")
+}
+
+fn disk_key(url: &str) -> String {
+    // FNV-1a, stable across runs and cheap.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in url.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn memory_get(url: &str) -> Option<(String, Vec<u8>)> {
+    IMAGE_MEMORY
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().and_then(|map| map.get(url).cloned()))
+}
+
+fn memory_put(url: &str, content_type: String, body: Vec<u8>) {
+    if let Ok(mut guard) = IMAGE_MEMORY.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        if map.len() > 200 {
+            map.clear();
+        }
+        map.insert(url.to_owned(), (content_type, body));
+    }
+}
+
+fn disk_get(url: &str) -> Option<(String, Vec<u8>)> {
+    let dir = cache_dir();
+    let type_path = dir.join(format!("{}.type", disk_key(url)));
+    let body_path = dir.join(format!("{}.bin", disk_key(url)));
+    let content_type = fs::read_to_string(type_path).ok()?;
+    let body = fs::read(body_path).ok()?;
+    Some((content_type, body))
+}
+
+fn disk_put(url: &str, content_type: &str, body: &[u8]) {
+    let dir = cache_dir();
+    let _ = fs::create_dir_all(&dir);
+    let _ = fs::write(dir.join(format!("{}.type", disk_key(url))), content_type);
+    let _ = fs::write(dir.join(format!("{}.bin", disk_key(url))), body);
 }
 
 struct Instance {
@@ -134,6 +208,38 @@ fn handle(mut stream: TcpStream, config: Arc<ProxyConfig>, port: u16) -> std::io
         return respond(&mut stream, 405, "text/plain", &[], b"method not allowed");
     }
 
+    if request.path.starts_with("/img") {
+        let Some(target) = query_value(&request.path, "u") else {
+            return respond(&mut stream, 400, "text/plain", &[], b"missing url");
+        };
+        IMG_COUNT.fetch_add(1, Ordering::Relaxed);
+        if let Some((content_type, body)) = memory_get(&target) {
+            IMG_HITS.store(true, Ordering::Relaxed);
+            eprintln!("img hit memory {} {}", body.len(), target);
+            return respond(&mut stream, 200, &content_type, &[("X-Cache", "memory".to_owned())], &body);
+        }
+        if let Some((content_type, body)) = disk_get(&target) {
+            IMG_HITS.store(true, Ordering::Relaxed);
+            eprintln!("img hit disk {} {}", body.len(), target);
+            memory_put(&target, content_type.clone(), body.clone());
+            return respond(&mut stream, 200, &content_type, &[("X-Cache", "disk".to_owned())], &body);
+        }
+        return match fetch_image(&target, &config) {
+            Some((content_type, body)) => {
+                IMG_MISS.store(true, Ordering::Relaxed);
+                eprintln!("img miss {} {}", body.len(), target);
+                memory_put(&target, content_type.clone(), body.clone());
+                disk_put(&target, &content_type, &body);
+                respond(&mut stream, 200, &content_type, &[("X-Cache", "miss".to_owned())], &body)
+            }
+            None => {
+                IMG_FAIL.store(true, Ordering::Relaxed);
+                eprintln!("img fail {target}");
+                respond(&mut stream, 502, "text/plain", &[], b"image fetch failed")
+            }
+        };
+    }
+
     if request.path.starts_with("/a.m3u8") {
         let Some(original) = query_value(&request.path, "u").or_else(|| query_value(&request.path, "url")) else {
             return respond(&mut stream, 400, "text/plain", &[], b"missing url");
@@ -209,6 +315,33 @@ fn fetch(
     let mut body = Vec::new();
     response.into_reader().read_to_end(&mut body)?;
     Ok((status, content_type, content_range, body))
+}
+
+fn fetch_image(target: &str, config: &ProxyConfig) -> Option<(String, Vec<u8>)> {
+    let mut request = ureq::get(target)
+        .set("User-Agent", &config.ua)
+        .set("Accept", "image/avif,image/webp,image/*,*/*;q=0.8");
+    if target.starts_with(&config.site) {
+        request = request.set("Authorization", &format!("Bearer {}", config.token));
+    }
+    let response = match request.call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(_, response)) => response,
+        Err(_) => return None,
+    };
+    if response.status() != 200 {
+        return None;
+    }
+    let content_type = response
+        .header("content-type")
+        .unwrap_or("image/jpeg")
+        .to_owned();
+    let mut body = Vec::new();
+    response.into_reader().read_to_end(&mut body).ok()?;
+    if body.is_empty() {
+        return None;
+    }
+    Some((content_type, body))
 }
 
 fn respond(
