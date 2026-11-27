@@ -1,5 +1,6 @@
 //! MoonTVPlus pure-Rust app: batch 1 (home modules, images, continue watching).
 
+mod browse;
 mod detail;
 mod proxy;
 mod search;
@@ -471,10 +472,7 @@ pub fn App() -> impl IntoElement {
     let home_loading = signal(false);
     let details = detail::Controller::new(server.clone(), token.clone(), username.clone(), page.clone(), proxy_port.clone());
     let detail_origin = signal("home");
-    let browse_title = signal(String::new());
-    let browse_items = signal(Vec::<Movie>::new());
-    let browse_error = signal(String::new());
-    let browse_loading = signal(false);
+    let browse = browse::Controller::new(server.clone(), token.clone(), page.clone());
     let stage = signal("idle".to_owned());
     let refreshing = signal(false);
     let rows = signal(Vec::<Row>::new());
@@ -784,36 +782,8 @@ pub fn App() -> impl IntoElement {
         move || page.set(origin.get())
     };
     let load_browse = {
-        let site = server.clone(); let token = token.clone();
-        let items = browse_items.clone(); let error = browse_error.clone();
-        let loading = browse_loading.clone(); let title = browse_title.clone();
-        let page = page.clone();
-        move |kind: String| {
-            title.set(kind.clone()); page.set("browse");
-            items.set(Vec::new()); error.set(String::new()); loading.set(true);
-            let path = match kind.as_str() {
-                "tv" | "剧集" | "热门剧集" => "/api/douban/categories?kind=tv&category=最近热门&type=tv&limit=30",
-                "show" | "综艺" | "热门综艺" => "/api/douban/categories?kind=tv&category=最近热门&type=show&limit=30",
-                "anime" | "动漫" | "番剧" | "新番放送" => "/api/bangumi/calendar",
-                "movie" | "电影" | "热门电影" => "/api/douban/categories?kind=movie&category=热门&type=全部&limit=30",
-                _ => { loading.set(false); error.set("此分类尚未接入；本轮仅补详情必需入口".to_owned()); return; }
-            };
-            let site = site.get(); let token = token.get();
-            let items = items.clone(); let error = error.clone();
-            let loading = loading.clone(); let title = title.clone();
-            spawn(async move {
-                // Category endpoints are public; their 401 must not clear a session.
-                let result = api(&site, &token, path, "GET", None, false).await;
-                if title.get() != kind { return; }
-                loading.set(false);
-                match result {
-                    Ok((200, body, _)) => items.set(if path.contains("bangumi") { parse_bangumi(&body) } else { parse_movies(&body) }),
-                    Ok((status, _, _)) => error.set(format!("分类加载失败 HTTP {status}，请重新点击分类重试")),
-                    Err(ApiError::Network(message)) => error.set(message),
-                    Err(ApiError::AuthExpired) => error.set("分类暂不可用".to_owned()),
-                }
-            });
-        }
+        let browse = browse.clone();
+        move |kind: String| browse.open(kind)
     };
     let open_browse = load_browse.clone();
     let back_home = {
@@ -1306,56 +1276,14 @@ pub fn App() -> impl IntoElement {
                         move || page.get() == "browse"
                     },
                     {
-                        let title = browse_title.clone();
-                        let back = back_home.clone();
-                        let items = browse_items.clone();
-                        let loading = browse_loading.clone();
-                        let error = browse_error.clone();
+                        let browse = browse.clone();
                         let open = open_detail.clone();
                         let port = proxy_port.clone();
                         let site = server.clone();
                         let scale = scale.clone();
-                        move || {
-                            view()
-                                .flex_1()
-                                .p_4()
-                                .gap_3()
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .gap_2()
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let back = back.clone();
-                                                    move || back()
-                                                })
-                                                .child(text("返回")),
-                                        )
-                                        .child(text({
-                                            let title = title.clone();
-                                            move || title.get()
-                                        }).text_size(px(18.0))),
-                                )
-                                .child(text({ let loading = loading.clone(); move || if loading.get() { "加载中…" } else { "" } }))
-                                .child(text({ let error = error.clone(); move || error.get() }))
-                                .child(scroll().flex_1().child(view().gap_2().child(each(
-                                    { let items = items.clone(); move || items.get().chunks(3).map(|row| row.to_vec()).collect::<Vec<_>>() },
-                                    |row: &Vec<Movie>| row.first().map(|item| item.id.clone()).unwrap_or_default(),
-                                    { let open = open.clone(); let site = site.clone(); let port = port.clone(); let scale = scale.clone();
-                                      move |row: ReadSignal<Vec<Movie>>, _| {
-                                        view().flex_row().gap_2().child(each(move || row.get(), |movie: &Movie| movie.id.clone(), {
-                                            let open = open.clone(); let site = site.clone(); let port = port.clone(); let scale = scale.clone();
-                                            move |movie: ReadSignal<Movie>, _| card(movie.get(), port.get(), scale.get(), site.get(), open.clone())
-                                        }))
-                                      }
-                                    }
-                                ))))
-                        }
+                        move || browse::page(browse.clone(), open.clone(), {
+                            let back = back_home.clone(); move || back()
+                        }, port.get(), site.get(), scale.get())
                     },
                 ))
                 .child(when(
@@ -1428,9 +1356,9 @@ pub fn App() -> impl IntoElement {
                 let scale = scale.clone();
                 let page = page.clone();
                 let load = load_browse.clone();
-                let title = browse_title.clone();
+                let title = browse.filters.clone();
                 move || {
-                    let active = match if page.get() == "browse" { title.get() } else { page.get().to_owned() }.as_str() {
+                    let active = match if page.get() == "browse" { title.get().kind } else { page.get().to_owned() }.as_str() {
                         "movie" => "movie",
                         "tv" => "tv",
                         "anime" => "anime",
