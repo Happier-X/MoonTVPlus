@@ -125,6 +125,23 @@ pub fn cache_put(query: &str, snapshot: &SearchSnapshot) {
     cache.truncate(8);
 }
 
+/// Source names carry emoji the Android font cannot draw; drop them so the
+/// list never shows tofu boxes.
+fn clean_name(name: &str) -> String {
+    let filtered: String = name
+        .chars()
+        .filter(|value| {
+            let code = *value as u32;
+            !(0x1F000..=0x1FAFF).contains(&code)
+                && !(0x2600..=0x27BF).contains(&code)
+                && !(0x2B00..=0x2BFF).contains(&code)
+                && !(0x2190..=0x21FF).contains(&code)
+                && code != 0xFE0F
+        })
+        .collect();
+    filtered.trim().to_owned()
+}
+
 fn parse_item(value: &Value) -> Option<SearchItem> {
     let title = value["title"].as_str().unwrap_or_default().trim().to_owned();
     if title.is_empty() {
@@ -165,7 +182,7 @@ fn apply(queue: &Mutex<Vec<Msg>>, payload: &str) {
                 .unwrap_or_default();
             queue.push(Msg::Group(SearchGroup {
                 source: value["source"].as_str().unwrap_or_default().to_owned(),
-                name: value["sourceName"].as_str().unwrap_or_default().to_owned(),
+                name: clean_name(value["sourceName"].as_str().unwrap_or_default()),
                 status: "done".to_owned(),
                 message: String::new(),
                 items,
@@ -180,7 +197,7 @@ fn apply(queue: &Mutex<Vec<Msg>>, payload: &str) {
             };
             queue.push(Msg::Group(SearchGroup {
                 source: value["source"].as_str().unwrap_or_default().to_owned(),
-                name: value["sourceName"].as_str().unwrap_or_default().to_owned(),
+                name: clean_name(value["sourceName"].as_str().unwrap_or_default()),
                 status: status.to_owned(),
                 message,
                 items: Vec::new(),

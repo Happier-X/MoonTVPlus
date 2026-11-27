@@ -977,13 +977,29 @@ pub fn App() -> impl IntoElement {
         .child(
             view()
                 .flex_1()
-                .child(top_bar(
-                    scale.read_only(),
-                    dark_for_ui.read_only(),
-                    toggle_theme.clone(),
-                    page.clone(),
-                    username.clone(),
-                    self_check.clone(),
+                .child(when(
+                    {
+                        let page = page.clone();
+                        move || page.get() != "search"
+                    },
+                    {
+                        let scale = scale.clone();
+                        let dark = dark_for_ui.clone();
+                        let toggle = toggle_theme.clone();
+                        let page = page.clone();
+                        let username = username.clone();
+                        let self_check = self_check.clone();
+                        move || {
+                            top_bar(
+                                scale.read_only(),
+                                dark.read_only(),
+                                toggle.clone(),
+                                page.clone(),
+                                username.clone(),
+                                self_check.clone(),
+                            )
+                        }
+                    },
                 ))
                 .child(when(
                     {
@@ -1545,8 +1561,11 @@ fn search_view(
     scale: f32,
 ) -> impl IntoElement {
     let sc = scale;
-    let group_state = state.clone();
-    let group_site = site.clone();
+    // 390dp wide pages: 16dp side padding, three 2:3 posters with 8dp gaps.
+    let content = 390.0 * sc - 32.0 * sc;
+    let card_w = (content - 16.0 * sc) / 3.0;
+    let rows_state = state.clone();
+    let rows_site = site.clone();
     view()
         .flex_1()
         .child(
@@ -1627,70 +1646,36 @@ fn search_view(
                         ),
                 ),
         )
-        .child(
-            view()
-                .px(px(16.0 * sc))
-                .pt(px(8.0 * sc))
-                .child(
-                    text({
-                        let state = state.clone();
-                        let running = running.clone();
-                        move || {
-                            let snapshot = state.get();
-                            if !snapshot.error.is_empty() {
-                                String::new()
-                            } else if running.get() {
-                                if snapshot.total == 0 {
-                                    "搜索中…".to_owned()
-                                } else if snapshot.first_ms > 0 {
-                                    format!(
-                                        "搜索中… {}/{} 个源 · 首包 {:.1}s",
-                                        snapshot.done,
-                                        snapshot.total,
-                                        snapshot.first_ms as f64 / 1000.0
-                                    )
-                                } else {
-                                    format!("搜索中… {}/{} 个源", snapshot.done, snapshot.total)
-                                }
-                            } else if snapshot.query.is_empty() {
-                                String::new()
-                            } else if snapshot.complete {
-                                let sources = snapshot
-                                    .groups
-                                    .iter()
-                                    .filter(|group| !group.items.is_empty())
-                                    .count();
-                                if snapshot.cached {
-                                    format!(
-                                        "共 {} 个结果 · {} 个源 · 缓存",
-                                        snapshot.result_count(),
-                                        sources
-                                    )
-                                } else {
-                                    format!(
-                                        "共 {} 个结果 · {} 个源 · 首包 {:.1}s · 全部 {:.1}s",
-                                        snapshot.result_count(),
-                                        sources,
-                                        snapshot.first_ms as f64 / 1000.0,
-                                        snapshot.total_ms as f64 / 1000.0
-                                    )
-                                }
-                            } else {
-                                String::new()
-                            }
-                        }
-                    })
-                    .text_size(px(12.0 * sc))
-                    .text_color(move || theme().muted_foreground),
-                ),
-        )
+        // Progress is the only line that shows; once the stream ends it is gone.
+        .child(when(
+            {
+                let state = state.clone();
+                let running = running.clone();
+                move || running.get() && state.get().error.is_empty()
+            },
+            {
+                let state = state.clone();
+                move || {
+                    let snapshot = state.get();
+                    let label = if snapshot.total == 0 {
+                        "搜索中…".to_owned()
+                    } else {
+                        format!("搜索中… {}/{} 个源", snapshot.done, snapshot.total)
+                    };
+                    text(label)
+                        .px(px(16.0 * sc))
+                        .pt(px(8.0 * sc))
+                        .text_size(px(12.0 * sc))
+                        .text_color(move || theme().muted_foreground)
+                }
+            },
+        ))
         .child(
             view().flex_1().child(
                 scroll().flex_1().child(
                     view()
-                        .gap(px(16.0 * sc))
-                        .px(px(16.0 * sc))
-                        .py(px(8.0 * sc))
+                        .gap(px(12.0 * sc))
+                        .py(px(12.0 * sc))
                         .pb_8()
                         .child(when(
                             {
@@ -1704,8 +1689,8 @@ fn search_view(
                                     let message = state.get().error;
                                     let retry = run.clone();
                                     view()
-                                        .gap(px(12.0 * sc))
                                         .items_center()
+                                        .gap(px(12.0 * sc))
                                         .py(px(48.0 * sc))
                                         .child(
                                             text(message)
@@ -1736,14 +1721,20 @@ fn search_view(
                                     let snapshot = state.get();
                                     !running.get()
                                         && snapshot.error.is_empty()
-                                        && snapshot.result_count() == 0
+                                        && snapshot.groups.is_empty()
                                 }
                             },
                             {
                                 let query = query.clone();
+                                let state = state.clone();
                                 move || {
-                                    let hint = if query.get().trim().is_empty() {
-                                        "输入关键词开始搜索"
+                                    let snapshot = state.get();
+                                    let hint = if !snapshot.complete && snapshot.groups.is_empty() {
+                                        if query.get().trim().is_empty() {
+                                            "输入关键词开始搜索"
+                                        } else {
+                                            "按「搜索」开始查找"
+                                        }
                                     } else {
                                         "没有找到相关内容，换个关键词试试"
                                     };
@@ -1766,21 +1757,37 @@ fn search_view(
                             },
                         ))
                         .child(each(
-                            move || {
-                                group_state
-                                    .get()
-                                    .groups
-                                    .into_iter()
-                                    .filter(|group| {
-                                        !group.items.is_empty() || group.status != "done"
-                                    })
-                                    .collect::<Vec<_>>()
+                            move || search_grid_rows(&rows_state.get()),
+                            |row: &Vec<search::SearchItem>| {
+                                row.first()
+                                    .map(|item| format!("{}:{}", item.source, item.id))
+                                    .unwrap_or_default()
                             },
-                            |group: &search::SearchGroup| group.source.clone(),
                             {
-                                let site = group_site.clone();
-                                move |group: ReadSignal<search::SearchGroup>, _index| {
-                                    search_group_view(group, port, sc, site.clone())
+                                let site = rows_site.clone();
+                                move |row: ReadSignal<Vec<search::SearchItem>>, _index| {
+                                    view()
+                                        .flex_row()
+                                        .gap(px(8.0 * sc))
+                                        .px(px(16.0 * sc))
+                                        .child(each(
+                                            move || row.get(),
+                                            |item: &search::SearchItem| {
+                                                format!("{}:{}", item.source, item.id)
+                                            },
+                                            {
+                                                let site = site.clone();
+                                                move |item: ReadSignal<search::SearchItem>, _index| {
+                                                    search_grid_card(
+                                                        item,
+                                                        port,
+                                                        sc,
+                                                        card_w,
+                                                        site.clone(),
+                                                    )
+                                                }
+                                            },
+                                        ))
                                 }
                             },
                         )),
@@ -1789,129 +1796,71 @@ fn search_view(
         )
 }
 
-fn search_group_view(
-    group: ReadSignal<search::SearchGroup>,
-    port: u16,
-    scale: f32,
-    site: String,
-) -> impl IntoElement {
-    view()
-        .gap(px(8.0 * scale))
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(
-                    text(move || group.get().name.clone())
-                        .text_size(px(14.0 * scale))
-                        .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
-                )
-                .child(
-                    text(move || {
-                        let value = group.get();
-                        match value.status.as_str() {
-                            "timeout" => "超时".to_owned(),
-                            "error" => "失败".to_owned(),
-                            _ => format!("{} 个", value.items.len()),
-                        }
-                    })
-                    .text_size(px(12.0 * scale))
-                    .text_color(move || theme().muted_foreground),
-                ),
-        )
-        .child(when(
-            {
-                let group = group.clone();
-                move || group.get().status != "done"
-            },
-            {
-                let group = group.clone();
-                move || {
-                    text(group.get().message)
-                        .text_size(px(12.0 * scale))
-                        .text_color(move || theme().muted_foreground)
-                }
-            },
-        ))
-        .child(each(
-            move || group.get().items.clone(),
-            |item: &search::SearchItem| format!("{}:{}", item.source, item.id),
-            {
-                let site = site.clone();
-                move |item: ReadSignal<search::SearchItem>, _index| {
-                    search_item_view(item, port, scale, site.clone())
-                }
-            },
-        ))
+/// Flattens the per-source groups into poster rows, one entry per title.
+fn search_grid_rows(snapshot: &search::SearchSnapshot) -> Vec<Vec<search::SearchItem>> {
+    let mut seen: Vec<String> = Vec::new();
+    let mut items: Vec<search::SearchItem> = Vec::new();
+    for group in &snapshot.groups {
+        for item in &group.items {
+            let key = format!("{}|{}", item.title.trim(), item.year.trim());
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            items.push(item.clone());
+        }
+    }
+    items.chunks(3).map(|chunk| chunk.to_vec()).collect()
 }
 
-fn search_item_view(
+fn search_grid_card(
     item: ReadSignal<search::SearchItem>,
     port: u16,
     scale: f32,
+    card_w: f32,
     site: String,
 ) -> impl IntoElement {
     let poster_site = site;
     view()
-        .flex_row()
-        .gap(px(10.0 * scale))
-        .items_center()
+        .w(px(card_w))
+        .gap(px(8.0 * scale))
         .child(
             view()
-                .w(px(56.0 * scale))
-                .h(px(84.0 * scale))
-                .rounded(px(6.0 * scale))
+                .w(px(card_w))
+                .aspect_ratio(2.0 / 3.0)
+                .rounded(px(8.0 * scale))
                 .overflow_hidden()
                 .bg(move || theme().muted)
+                .child(
+                    view()
+                        .absolute()
+                        .inset_0()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            image(ICON_FILM)
+                                .w(px(28.0 * scale))
+                                .h(px(28.0 * scale))
+                                .tint_color(move || theme().border),
+                        ),
+                )
                 .child(
                     image({
                         let item = item.clone();
                         let poster_site = poster_site.clone();
                         move || image_url(port, &poster_site, &item.get().poster)
                     })
+                    .absolute()
+                    .inset_0()
                     .w_full()
                     .h_full(),
                 ),
         )
         .child(
-            view()
-                .flex_1()
-                .gap(px(4.0 * scale))
-                .child(
-                    text(move || item.get().title.clone())
-                        .text_size(px(14.0 * scale))
-                        .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
-                        .number_of_lines(1),
-                )
-                .child(
-                    text(move || {
-                        let value = item.get();
-                        let mut parts: Vec<String> = Vec::new();
-                        if !value.year.is_empty() {
-                            parts.push(value.year.clone());
-                        }
-                        if !value.type_name.is_empty() {
-                            parts.push(value.type_name.clone());
-                        }
-                        if !value.remarks.is_empty() {
-                            parts.push(value.remarks.clone());
-                        }
-                        if !value.source_name.is_empty() {
-                            parts.push(value.source_name.clone());
-                        }
-                        parts.join(" · ")
-                    })
-                    .text_size(px(12.0 * scale))
-                    .text_color(move || theme().muted_foreground)
-                    .number_of_lines(1),
-                ),
-        )
-        .child(
-            image(ICON_CHEVRON)
-                .w(px(16.0 * scale))
-                .h(px(16.0 * scale))
-                .tint_color(move || theme().border),
+            text(move || item.get().title.clone())
+                .text_size(px(14.0 * scale))
+                .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                .number_of_lines(1),
         )
 }
 
