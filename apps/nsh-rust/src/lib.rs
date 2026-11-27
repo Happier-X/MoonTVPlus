@@ -1,6 +1,7 @@
 //! MoonTVPlus pure-Rust app: batch 1 (home modules, images, continue watching).
 
 mod proxy;
+mod search;
 
 use std::pin::pin;
 use std::time::Duration;
@@ -463,6 +464,9 @@ pub fn App() -> impl IntoElement {
     let variety = signal(Vec::<Movie>::new());
     let upcoming = signal(Vec::<Movie>::new());
     let history = signal(Vec::<History>::new());
+    let search_query = signal(Storage::get_item("last_search").unwrap_or_default());
+    let search_state = signal(search::SearchSnapshot::default());
+    let search_running = signal(false);
     let modules = signal(Vec::<(String, bool)>::new());
     let home_loading = signal(false);
     let current = signal(Movie::default());
@@ -801,6 +805,77 @@ pub fn App() -> impl IntoElement {
                     true,
                 )
                 .await;
+            });
+        }
+    };
+
+    let run_search = {
+        let server = server.clone();
+        let token = token.clone();
+        let query = search_query.clone();
+        let state = search_state.clone();
+        let running = search_running.clone();
+        move || {
+            let value = query.get().trim().to_owned();
+            if value.is_empty() {
+                return;
+            }
+            let _ = Storage::set_item("last_search", &value);
+            if let Some(mut snapshot) = search::cache_get(&value) {
+                snapshot.cached = true;
+                state.set(snapshot);
+                running.set(false);
+                return;
+            }
+            state.set(search::SearchSnapshot {
+                query: value.clone(),
+                ..Default::default()
+            });
+            running.set(true);
+            let started = std::time::Instant::now();
+            let handle = search::start(&server.get(), &token.get(), &value);
+            let state = state.clone();
+            let running = running.clone();
+            let cache_key = value.clone();
+            spawn(async move {
+                loop {
+                    timer(Duration::from_millis(120)).await;
+                    let messages = handle.drain();
+                    let mut snapshot = state.get();
+                    if snapshot.query != cache_key {
+                        break;
+                    }
+                    let mut finished = false;
+                    for message in messages {
+                        match message {
+                            search::Msg::Start(total) => snapshot.total = total,
+                            search::Msg::Group(group) => {
+                                snapshot.done += 1;
+                                if snapshot.first_ms == 0 && !group.items.is_empty() {
+                                    snapshot.first_ms = started.elapsed().as_millis() as u64;
+                                }
+                                snapshot.groups.push(group);
+                            }
+                            search::Msg::Complete => {
+                                snapshot.complete = true;
+                                snapshot.done = snapshot.total.max(snapshot.done);
+                                snapshot.total_ms = started.elapsed().as_millis() as u64;
+                                finished = true;
+                            }
+                            search::Msg::Failed(reason) => {
+                                snapshot.error = reason;
+                                snapshot.complete = true;
+                                finished = true;
+                            }
+                        }
+                    }
+                    state.set(snapshot.clone());
+                    if finished {
+                        running.set(false);
+                        search::cache_put(&cache_key, &snapshot);
+                        break;
+                    }
+                }
             });
         }
     };
@@ -1183,28 +1258,24 @@ pub fn App() -> impl IntoElement {
                     },
                     {
                         let back = back_home.clone();
+                        let query = search_query.clone();
+                        let state = search_state.clone();
+                        let running = search_running.clone();
+                        let run = run_search.clone();
+                        let port = port_for_ui.clone();
+                        let site_signal = server.clone();
+                        let scale = scale.clone();
                         move || {
-                            view().flex_1().p_4().gap_3().child(
-                                view()
-                                    .flex_row()
-                                    .gap_2()
-                                    .child(
-                                        view()
-                                            .px_3()
-                                            .py_2()
-                                            .rounded(px(8.0))
-                                            .bg(move || theme().muted)
-                                            .on_press({
-                                                let back = back.clone();
-                                                move || back()
-                                            })
-                                            .child(text("返回")),
-                                    )
-                                    .child(text("搜索").text_size(px(18.0))),
-                            )
-                            .child(
-                                text("搜索页将在批 2 完成")
-                                    .text_color(move || theme().muted_foreground),
+                            let sc = scale.get();
+                            search_view(
+                                query.clone(),
+                                state.clone(),
+                                running.clone(),
+                                run.clone(),
+                                back.clone(),
+                                port.get(),
+                                site_signal.get(),
+                                sc,
                             )
                         }
                     },
@@ -1459,6 +1530,388 @@ fn row_view(
                         },
                     )),
             ),
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_view(
+    query: Signal<String>,
+    state: Signal<search::SearchSnapshot>,
+    running: Signal<bool>,
+    run: impl Fn() + Clone + 'static,
+    back: impl Fn() + Clone + 'static,
+    port: u16,
+    site: String,
+    scale: f32,
+) -> impl IntoElement {
+    let sc = scale;
+    let group_state = state.clone();
+    let group_site = site.clone();
+    view()
+        .flex_1()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap(px(8.0 * sc))
+                .px(px(16.0 * sc))
+                .pt(px(8.0 * sc))
+                .child(
+                    view()
+                        .w(px(36.0 * sc))
+                        .h(px(36.0 * sc))
+                        .rounded(px(8.0 * sc))
+                        .items_center()
+                        .justify_center()
+                        .on_press(move || back())
+                        .child(
+                            image(ICON_CHEVRON)
+                                .w(px(20.0 * sc))
+                                .h(px(20.0 * sc))
+                                .rotate(deg(180.0))
+                                .tint_color(move || theme().foreground),
+                        ),
+                )
+                .child(
+                    view()
+                        .flex_1()
+                        .h(px(48.0 * sc))
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.0 * sc))
+                        .px(px(12.0 * sc))
+                        .rounded(px(8.0 * sc))
+                        .bg(move || theme().muted)
+                        .child(
+                            image(ICON_SEARCH)
+                                .w(px(20.0 * sc))
+                                .h(px(20.0 * sc))
+                                .tint_color(move || theme().muted_foreground),
+                        )
+                        .child(
+                            input()
+                                .flex_1()
+                                .h(px(48.0 * sc))
+                                .value({
+                                    let query = query.clone();
+                                    move || query.get()
+                                })
+                                .on_change({
+                                    let query = query.clone();
+                                    move |value: &str| query.set(value.to_owned())
+                                })
+                                .on_submit({
+                                    let run = run.clone();
+                                    move |_value: &str| run()
+                                })
+                                .placeholder("搜索电影、剧集、动漫…"),
+                        ),
+                )
+                .child(
+                    view()
+                        .h(px(48.0 * sc))
+                        .px(px(14.0 * sc))
+                        .rounded(px(8.0 * sc))
+                        .items_center()
+                        .justify_center()
+                        .bg(BRAND)
+                        .on_press({
+                            let run = run.clone();
+                            move || run()
+                        })
+                        .child(
+                            text("搜索")
+                                .text_size(px(14.0 * sc))
+                                .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                                .text_color(rgb(0xffffff)),
+                        ),
+                ),
+        )
+        .child(
+            view()
+                .px(px(16.0 * sc))
+                .pt(px(8.0 * sc))
+                .child(
+                    text({
+                        let state = state.clone();
+                        let running = running.clone();
+                        move || {
+                            let snapshot = state.get();
+                            if !snapshot.error.is_empty() {
+                                String::new()
+                            } else if running.get() {
+                                if snapshot.total == 0 {
+                                    "搜索中…".to_owned()
+                                } else if snapshot.first_ms > 0 {
+                                    format!(
+                                        "搜索中… {}/{} 个源 · 首包 {:.1}s",
+                                        snapshot.done,
+                                        snapshot.total,
+                                        snapshot.first_ms as f64 / 1000.0
+                                    )
+                                } else {
+                                    format!("搜索中… {}/{} 个源", snapshot.done, snapshot.total)
+                                }
+                            } else if snapshot.query.is_empty() {
+                                String::new()
+                            } else if snapshot.complete {
+                                let sources = snapshot
+                                    .groups
+                                    .iter()
+                                    .filter(|group| !group.items.is_empty())
+                                    .count();
+                                if snapshot.cached {
+                                    format!(
+                                        "共 {} 个结果 · {} 个源 · 缓存",
+                                        snapshot.result_count(),
+                                        sources
+                                    )
+                                } else {
+                                    format!(
+                                        "共 {} 个结果 · {} 个源 · 首包 {:.1}s · 全部 {:.1}s",
+                                        snapshot.result_count(),
+                                        sources,
+                                        snapshot.first_ms as f64 / 1000.0,
+                                        snapshot.total_ms as f64 / 1000.0
+                                    )
+                                }
+                            } else {
+                                String::new()
+                            }
+                        }
+                    })
+                    .text_size(px(12.0 * sc))
+                    .text_color(move || theme().muted_foreground),
+                ),
+        )
+        .child(
+            view().flex_1().child(
+                scroll().flex_1().child(
+                    view()
+                        .gap(px(16.0 * sc))
+                        .px(px(16.0 * sc))
+                        .py(px(8.0 * sc))
+                        .pb_8()
+                        .child(when(
+                            {
+                                let state = state.clone();
+                                move || !state.get().error.is_empty()
+                            },
+                            {
+                                let state = state.clone();
+                                let run = run.clone();
+                                move || {
+                                    let message = state.get().error;
+                                    let retry = run.clone();
+                                    view()
+                                        .gap(px(12.0 * sc))
+                                        .items_center()
+                                        .py(px(48.0 * sc))
+                                        .child(
+                                            text(message)
+                                                .text_size(px(14.0 * sc))
+                                                .text_color(move || theme().muted_foreground),
+                                        )
+                                        .child(
+                                            view()
+                                                .px(px(16.0 * sc))
+                                                .py(px(8.0 * sc))
+                                                .rounded(px(8.0 * sc))
+                                                .bg(BRAND)
+                                                .on_press(move || retry())
+                                                .child(
+                                                    text("重试")
+                                                        .text_size(px(14.0 * sc))
+                                                        .text_color(rgb(0xffffff)),
+                                                ),
+                                        )
+                                }
+                            },
+                        ))
+                        .child(when(
+                            {
+                                let state = state.clone();
+                                let running = running.clone();
+                                move || {
+                                    let snapshot = state.get();
+                                    !running.get()
+                                        && snapshot.error.is_empty()
+                                        && snapshot.result_count() == 0
+                                }
+                            },
+                            {
+                                let query = query.clone();
+                                move || {
+                                    let hint = if query.get().trim().is_empty() {
+                                        "输入关键词开始搜索"
+                                    } else {
+                                        "没有找到相关内容，换个关键词试试"
+                                    };
+                                    view()
+                                        .items_center()
+                                        .gap(px(8.0 * sc))
+                                        .py(px(64.0 * sc))
+                                        .child(
+                                            image(ICON_SEARCH)
+                                                .w(px(40.0 * sc))
+                                                .h(px(40.0 * sc))
+                                                .tint_color(move || theme().border),
+                                        )
+                                        .child(
+                                            text(hint)
+                                                .text_size(px(14.0 * sc))
+                                                .text_color(move || theme().muted_foreground),
+                                        )
+                                }
+                            },
+                        ))
+                        .child(each(
+                            move || {
+                                group_state
+                                    .get()
+                                    .groups
+                                    .into_iter()
+                                    .filter(|group| {
+                                        !group.items.is_empty() || group.status != "done"
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                            |group: &search::SearchGroup| group.source.clone(),
+                            {
+                                let site = group_site.clone();
+                                move |group: ReadSignal<search::SearchGroup>, _index| {
+                                    search_group_view(group, port, sc, site.clone())
+                                }
+                            },
+                        )),
+                ),
+            ),
+        )
+}
+
+fn search_group_view(
+    group: ReadSignal<search::SearchGroup>,
+    port: u16,
+    scale: f32,
+    site: String,
+) -> impl IntoElement {
+    view()
+        .gap(px(8.0 * scale))
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    text(move || group.get().name.clone())
+                        .text_size(px(14.0 * scale))
+                        .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
+                )
+                .child(
+                    text(move || {
+                        let value = group.get();
+                        match value.status.as_str() {
+                            "timeout" => "超时".to_owned(),
+                            "error" => "失败".to_owned(),
+                            _ => format!("{} 个", value.items.len()),
+                        }
+                    })
+                    .text_size(px(12.0 * scale))
+                    .text_color(move || theme().muted_foreground),
+                ),
+        )
+        .child(when(
+            {
+                let group = group.clone();
+                move || group.get().status != "done"
+            },
+            {
+                let group = group.clone();
+                move || {
+                    text(group.get().message)
+                        .text_size(px(12.0 * scale))
+                        .text_color(move || theme().muted_foreground)
+                }
+            },
+        ))
+        .child(each(
+            move || group.get().items.clone(),
+            |item: &search::SearchItem| format!("{}:{}", item.source, item.id),
+            {
+                let site = site.clone();
+                move |item: ReadSignal<search::SearchItem>, _index| {
+                    search_item_view(item, port, scale, site.clone())
+                }
+            },
+        ))
+}
+
+fn search_item_view(
+    item: ReadSignal<search::SearchItem>,
+    port: u16,
+    scale: f32,
+    site: String,
+) -> impl IntoElement {
+    let poster_site = site;
+    view()
+        .flex_row()
+        .gap(px(10.0 * scale))
+        .items_center()
+        .child(
+            view()
+                .w(px(56.0 * scale))
+                .h(px(84.0 * scale))
+                .rounded(px(6.0 * scale))
+                .overflow_hidden()
+                .bg(move || theme().muted)
+                .child(
+                    image({
+                        let item = item.clone();
+                        let poster_site = poster_site.clone();
+                        move || image_url(port, &poster_site, &item.get().poster)
+                    })
+                    .w_full()
+                    .h_full(),
+                ),
+        )
+        .child(
+            view()
+                .flex_1()
+                .gap(px(4.0 * scale))
+                .child(
+                    text(move || item.get().title.clone())
+                        .text_size(px(14.0 * scale))
+                        .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                        .number_of_lines(1),
+                )
+                .child(
+                    text(move || {
+                        let value = item.get();
+                        let mut parts: Vec<String> = Vec::new();
+                        if !value.year.is_empty() {
+                            parts.push(value.year.clone());
+                        }
+                        if !value.type_name.is_empty() {
+                            parts.push(value.type_name.clone());
+                        }
+                        if !value.remarks.is_empty() {
+                            parts.push(value.remarks.clone());
+                        }
+                        if !value.source_name.is_empty() {
+                            parts.push(value.source_name.clone());
+                        }
+                        parts.join(" · ")
+                    })
+                    .text_size(px(12.0 * scale))
+                    .text_color(move || theme().muted_foreground)
+                    .number_of_lines(1),
+                ),
+        )
+        .child(
+            image(ICON_CHEVRON)
+                .w(px(16.0 * scale))
+                .h(px(16.0 * scale))
+                .tint_color(move || theme().border),
         )
 }
 

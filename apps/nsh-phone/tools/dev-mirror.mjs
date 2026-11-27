@@ -80,6 +80,20 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  if (process.env.MOCK_SEARCH_EMPTY === "1" && req.url.startsWith("/api/search/ws")) {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write(
+      `data: ${JSON.stringify({ type: "start", query: "", totalSources: 0, timestamp: Date.now() })}
+
+`
+    );
+    res.write(`data: ${JSON.stringify({ type: "complete", totalResults: 0, completedSources: 0, timestamp: Date.now() })}
+
+`);
+    res.end();
+    return;
+  }
+
   if (process.env.MOCK_PUBLIC_401 === "1" && req.url.startsWith("/api/server-config")) {
     res.writeHead(401, { "content-type": "text/plain" });
     res.end("Unauthorized");
