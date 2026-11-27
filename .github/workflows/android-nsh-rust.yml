@@ -1,0 +1,171 @@
+name: Build Android NSH Rust
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'versionName（默认 1.9.21）'
+        required: true
+        default: '1.9.21'
+        type: string
+      version_code:
+        description: 'versionCode（默认 31，必须大于 30）'
+        required: true
+        default: '31'
+        type: string
+
+concurrency:
+  group: android-nsh-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build NSH Rust release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
+
+      - name: Add the Android Rust target
+        run: rustup target add aarch64-linux-android
+
+      - name: Install NSH CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/nsh" --version
+
+      - name: Validate inputs
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){1,3}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version_name 不合法：$VERSION_NAME"; exit 1
+          fi
+          if [[ ! "$VERSION_CODE" =~ ^[0-9]+$ ]] || (( VERSION_CODE < 31 )); then
+            echo "::error::version_code 必须是 >=31 的整数，当前：$VERSION_CODE"; exit 1
+          fi
+          echo "构建 $VERSION_NAME ($VERSION_CODE)"
+
+      - name: Sync version into nsh.json
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os
+          path = 'apps/nsh-rust/nsh.json'
+          data = json.load(open(path, encoding='utf-8'))
+          data['version'] = os.environ['VERSION_NAME']
+          data['build'] = int(os.environ['VERSION_CODE'])
+          data['id'] = 'com.moontvplus.phone'
+          with open(path, 'w', encoding='utf-8') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          print('id', data['id'], 'version', data['version'], 'build', data['build'])
+          PY
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then echo "::error::缺少 ANDROID_KEYSTORE_BASE64"; exit 1; fi
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then echo "::error::缺少 ANDROID_KEYSTORE_PASSWORD"; exit 1; fi
+          if [ -z "$ANDROID_KEY_ALIAS" ]; then echo "::error::缺少 ANDROID_KEY_ALIAS"; exit 1; fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Package the APK
+        working-directory: apps/nsh-rust
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          NSH_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" \
+          nsh package --target android --abi arm64-v8a \
+            --keystore "${{ env.ANDROID_KEYSTORE_PATH }}" \
+            --key-alias "$ANDROID_KEY_ALIAS" \
+            --keystore-password "$ANDROID_KEYSTORE_PASSWORD"
+          ls -lh .nsh/out
+
+      - name: Verify the APK
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          # 1.9.20 的签名证书：包名一致且证书一致才能覆盖升级。
+          EXPECTED_CERT_SHA256: '31cd64c73b826f4cd7be5f9dcec12f9e331aadb4f94841626430d8010b2e7e8d'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          SRC="apps/nsh-rust/.nsh/out/MoonTVPlus Rust.apk"
+          test -s "$SRC"
+          cp "$SRC" dist/app-arm64-v8a-release.apk
+          APK=dist/app-arm64-v8a-release.apk
+          BUILD_TOOLS="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/aapt"
+          test -x "$BUILD_TOOLS/apksigner"
+
+          "$BUILD_TOOLS/aapt" dump badging "$APK" > "$APK.badging.txt"
+          grep -Fq "package: name='com.moontvplus.phone' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$APK.badging.txt"
+          grep -Fq "native-code: 'arm64-v8a'" "$APK.badging.txt"
+          if grep -Fq "application-debuggable" "$APK.badging.txt"; then
+            echo "::error::APK 带有 application-debuggable"; exit 1
+          fi
+          grep -E "^package:|native-code" "$APK.badging.txt"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" > "$APK.verify.txt"
+          cat "$APK.verify.txt"
+          if grep -Fq "CN=Android Debug" "$APK.verify.txt"; then
+            echo "::error::APK 用的是 debug 证书"; exit 1
+          fi
+          CERT_SHA256=$(grep -F "certificate SHA-256 digest:" "$APK.verify.txt" | head -1 | awk '{print $NF}')
+          echo "certificate SHA-256: $CERT_SHA256"
+          if [ "$CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::签名证书与 1.9.20 不一致（$CERT_SHA256），装上无法覆盖升级"; exit 1
+          fi
+
+          cp "$APK.badging.txt" "$APK.verify.txt" dist/
+          (cd dist && sha256sum app-arm64-v8a-release.apk > SHA256SUMS && cat SHA256SUMS)
+          ls -lh dist
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-nsh-${{ inputs.version_name }}-signed
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Android NSH Rust ${{ inputs.version_name }} (${{ inputs.version_code }})"
+            echo
+            if [ -f dist/SHA256SUMS ]; then cat dist/SHA256SUMS; fi
+          } >> "$GITHUB_STEP_SUMMARY"
