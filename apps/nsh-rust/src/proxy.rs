@@ -353,7 +353,23 @@ fn handle(mut stream: TcpStream, config: Arc<ProxyConfig>, port: u16) -> std::io
         let Some(target) = query_value(&request.path, "u").or_else(|| query_value(&request.path, "url")) else {
             return respond(&mut stream, 400, "text/plain", &[], b"missing url");
         };
-        let (status, content_type, content_range, body) = fetch(&target, &config, request.range.as_deref())?;
+        let (mut status, content_type, mut content_range, mut body) =
+            fetch(&target, &config, request.range.as_deref())?;
+        // Some sources wrap every segment in a JPEG header ("image masking"):
+        // the payload is `FFD8 … FFD9` and then plain MPEG-TS packets, which a
+        // strict platform parser rejects. Strip the wrapper before answering.
+        if is_image_masked(&body) {
+            let (whole_status, _, _, whole) = fetch(&target, &config, None)?;
+            let stripped = strip_image_prefix(whole);
+            let asked = request
+                .range
+                .as_deref()
+                .or(if status == 206 { content_range.as_deref() } else { None });
+            let (part, range_header) = slice_range(stripped, asked);
+            body = part;
+            content_range = range_header;
+            status = if status == 206 || content_range.is_some() { 206 } else { whole_status };
+        }
         let segment_type = if content_type.contains("mp4") { "video/mp4" } else { "video/mp2t" };
         let mut extra: Vec<(&str, String)> = vec![("Accept-Ranges", "bytes".to_owned())];
         if let Some(value) = content_range {
@@ -430,6 +446,53 @@ fn fetch_image(target: &str, config: &ProxyConfig) -> Option<(String, Vec<u8>)> 
         return None;
     }
     Some((content_type, body))
+}
+
+/// A segment that starts with a JPEG SOI marker is image-masked.
+fn is_image_masked(body: &[u8]) -> bool {
+    body.len() > 4 && body[0] == 0xFF && body[1] == 0xD8
+}
+
+/// Drops the JPEG wrapper and returns the MPEG-TS payload that follows it.
+fn strip_image_prefix(body: Vec<u8>) -> Vec<u8> {
+    const PACKET: usize = 188;
+    if !is_image_masked(&body) {
+        return body;
+    }
+    let limit = body.len().saturating_sub(PACKET * 2).min(4096);
+    for index in 0..limit {
+        if body[index] == 0x47
+            && body[index + PACKET] == 0x47
+            && body[index + PACKET * 2] == 0x47
+        {
+            return body[index..].to_vec();
+        }
+    }
+    body
+}
+
+/// Applies a `bytes=start-end` range to an already stripped segment.
+fn slice_range(body: Vec<u8>, range: Option<&str>) -> (Vec<u8>, Option<String>) {
+    let Some(header) = range.and_then(|value| value.trim().strip_prefix("bytes=")) else {
+        return (body, None);
+    };
+    let Some((start, end)) = header.split_once('-') else {
+        return (body, None);
+    };
+    let Ok(start) = start.trim().parse::<usize>() else {
+        return (body, None);
+    };
+    let end = end
+        .trim()
+        .parse::<usize>()
+        .map(|value| value.min(body.len().saturating_sub(1)))
+        .unwrap_or_else(|_| body.len().saturating_sub(1));
+    if start >= body.len() || start > end {
+        return (body, None);
+    }
+    let total = body.len();
+    let part = body[start..=end].to_vec();
+    (part, Some(format!("bytes {start}-{end}/{total}")))
 }
 
 fn respond(

@@ -8,18 +8,31 @@ mod playback;
 mod proxy;
 mod search;
 mod update;
+use std::future::Future;
 use std::pin::pin;
 use std::time::Duration;
 
 use futures_util::future::{select, Either};
 use nsh_base::theme;
-use nsh_core::element::input;
+use nsh_core::element::{Owner, input};
 use nsh_core::platform::Appearance;
 use nsh_core::prelude::*;
 use nsh_core::storage::Storage;
 use serde_json::json;
 
 const DEFAULT_SERVER: &str = "https://tv.370125.xyz";
+
+/// Runs `future` as a background task that no page owns.
+///
+/// A task made with `spawn` ends with the owner it was made under, and a page
+/// handler's owner dies with its page: a request started from a button that
+/// then navigates away is dropped before it answers, leaving the screen that
+/// asked for it loading forever. Work that must answer keeps its own owner.
+pub fn bg<F: Future<Output = ()> + 'static>(future: F) {
+    Owner::detached().run(move || {
+        spawn(future);
+    });
+}
 
 const ICON_SEARCH: ImageAsset = asset!("icons/search.svg");
 const ICON_HOME: ImageAsset = asset!("icons/home.svg");
@@ -234,7 +247,7 @@ fn save_play_record(server: &str, token: &str, selection: &detail::Selection, po
     }).to_string();
     let server = server.to_owned();
     let token = token.to_owned();
-    spawn(async move {
+    bg(async move {
         match api(&server, &token, "/api/playrecords", "POST", Some(body), true).await {
             Ok((200..=299, _, Some(next))) => { let _ = Storage::set_item("token", &next); }
             Ok((200..=299, _, None)) => {}
@@ -628,8 +641,7 @@ pub fn App() -> impl IntoElement {
             let message = message.clone();
             let stage_inner = stage.clone();
             let rows_inner = rows.clone();
-            // Keep the task: dropping `Spawned` cancels the load.
-            std::mem::forget(spawn(async move {
+            bg(async move {
                 stage_inner.set("start".to_owned());
                 // Layout settings are optional: a 401 or a closed sync keeps defaults.
                 if let Ok((200, text, _)) =
@@ -769,7 +781,7 @@ pub fn App() -> impl IntoElement {
                     tv_shows.get().len(), variety.get().len(), upcoming.get().len(), history.get().len()
                 ));
                 loading.set(false);
-            }));
+            });
         }
     };
 
@@ -860,7 +872,7 @@ pub fn App() -> impl IntoElement {
             let state = state.clone();
             let running = running.clone();
             let cache_key = value.clone();
-            spawn(async move {
+            bg(async move {
                 loop {
                     timer(Duration::from_millis(120)).await;
                     let messages = handle.drain();
@@ -937,7 +949,7 @@ pub fn App() -> impl IntoElement {
             let message = message.clone();
             let error = error.clone();
             let load = load.clone();
-            spawn(async move {
+            bg(async move {
                 match login(&server_value, &user_value, &password_value).await {
                     Ok(value) => {
                         save_session(&server_value, &user_value, &value);

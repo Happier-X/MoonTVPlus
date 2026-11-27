@@ -186,13 +186,13 @@ impl Download {
     /// Hands the checked file to the system installer; reports a refusal.
     pub fn install(&self, path: String) {
         let this = self.clone();
-        std::mem::forget(spawn(async move {
+        bg(async move {
             if open_path(path).await.is_err() {
                 this.state.set(State::Failed(
                     "系统没有接住安装请求，请到下载页手动安装".to_owned(),
                 ));
             }
-        }));
+        });
     }
 }
 

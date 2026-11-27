@@ -118,7 +118,7 @@ impl Controller {
         let this = self.clone();
         let generation = self.generation.get();
         let title = self.info.get().title;
-        spawn(async move {
+        bg(async move {
             let path = format!("/api/search?q={}", urlencoding::encode(&title));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
             if this.generation.get() != generation { return; }
@@ -168,7 +168,7 @@ impl Controller {
         info.description.clear();
         self.info.set(info);
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let path = format!("/api/detail?source={}&id={}",
                 urlencoding::encode(&item.source), urlencoding::encode(&item.id));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
@@ -184,10 +184,15 @@ impl Controller {
                         return;
                     }
                     let mut info = this.info.get();
-                    if let Some(title) = value["title"].as_str() { info.title = title.to_owned(); }
-                    if let Some(poster) = value["poster"].as_str().filter(|s| !s.is_empty()) { info.poster = poster.to_owned(); }
-                    if let Some(year) = value["year"].as_str() { info.year = year.to_owned(); }
-                    info.description = value["desc"].as_str().unwrap_or_default().to_owned();
+                    // Some sources answer with empty metadata and only a logo as
+                    // the poster; keep what the catalog gave us in that case.
+                    if let Some(title) = value["title"].as_str().filter(|text| !text.is_empty()) { info.title = title.to_owned(); }
+                    if info.poster.is_empty() {
+                        if let Some(poster) = value["poster"].as_str().filter(|text| !text.is_empty()) { info.poster = poster.to_owned(); }
+                    }
+                    if let Some(year) = value["year"].as_str().filter(|text| !text.is_empty()) { info.year = year.to_owned(); }
+                    let description = value["desc"].as_str().unwrap_or_default();
+                    if !description.is_empty() { info.description = description.to_owned(); }
                     info.episodes = strings(&value["episodes"]);
                     info.episode_titles = strings(&value["episodes_titles"]);
                     if info.episodes.is_empty() { this.error.set("该源暂无集数，请重试或换源".to_owned()); }
@@ -216,7 +221,7 @@ impl Controller {
         let key = Self::favorite_key(&self.info.get());
         if key.is_empty() { return; }
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let path = format!("/api/favorites?key={}", urlencoding::encode(&key));
             match api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await {
                 Ok((status, body, next)) => {
@@ -247,7 +252,7 @@ impl Controller {
         self.favorite_busy.set(true);
         self.favorite_error.set(String::new());
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let (path, method, body) = if saved {
                 (format!("/api/favorites?key={}", urlencoding::encode(&key)), "DELETE", None)
             } else {

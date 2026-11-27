@@ -139,7 +139,7 @@ impl Controller {
             self.notice.set("检查中…".to_owned());
         }
         let this = self.clone();
-        std::mem::forget(spawn(async move {
+        bg(async move {
             let url = format!(
                 "{}/downloads/latest.json",
                 this.server.get().trim_end_matches('/')
@@ -190,7 +190,7 @@ impl Controller {
             });
             this.notice.set(String::new());
             this.show.set(true);
-        }));
+        });
     }
 
     /// Opens a link outside the app; reports when the platform refused.
@@ -200,11 +200,11 @@ impl Controller {
         }
         let this = self.clone();
         let url = url.to_owned();
-        std::mem::forget(spawn(async move {
+        bg(async move {
             if !open_url(url).await {
                 this.notice.set("未能打开链接".to_owned());
             }
-        }));
+        });
     }
 
     pub fn open_page(&self) {

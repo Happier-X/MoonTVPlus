@@ -114,10 +114,11 @@ impl Controller {
         let filters = self.filters.get();
         let start = if append { self.next_start.get() } else { 0 };
         let server = self.server.get(); let token = self.token.get();
-        spawn(async move {
+        bg(async move {
             let path = request_path(&filters, start);
-            // Public catalog endpoints do not rotate or clear the user's token.
-            let response = api(&server, &token, &path, "GET", None, false).await;
+            // The site's middleware requires the session for every `/api` path,
+            // the catalog included: without the token these answer 401.
+            let response = api(&server, &token, &path, "GET", None, true).await;
             if this.revision.get() != revision || this.server.get() != server { return; }
             this.loading.set(false); this.appending.set(false);
             let result = match response {

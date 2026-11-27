@@ -209,7 +209,7 @@ impl Controller {
         self.favorites_loading.set(true);
         self.favorites_error.set(String::new());
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let server = this.server.get();
             let token = this.token.get();
             let favorites = api(&server, &token, "/api/favorites", "GET", None, true).await;
@@ -253,7 +253,7 @@ impl Controller {
         self.records_loading.set(true);
         self.records_error.set(String::new());
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let result = api(
                 &this.server.get(),
                 &this.token.get(),
@@ -316,7 +316,7 @@ impl Controller {
                 .collect(),
         );
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let path = format!("/api/favorites?key={}", urlencoding::encode(&key));
             let result = api(
                 &this.server.get(),
@@ -350,7 +350,7 @@ impl Controller {
         self.clearing.set(true);
         self.favorites.set(Vec::new());
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let result = api(
                 &this.server.get(),
                 &this.token.get(),
@@ -390,7 +390,7 @@ impl Controller {
         );
         self.sync_home();
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let path = format!("/api/playrecords?key={}", urlencoding::encode(&key));
             let result = api(
                 &this.server.get(),
@@ -441,7 +441,7 @@ impl Controller {
         self.records.set(Vec::new());
         self.sync_home();
         let this = self.clone();
-        spawn(async move {
+        bg(async move {
             let body = serde_json::json!({ "keys": keys }).to_string();
             let result = api(
                 &this.server.get(),
