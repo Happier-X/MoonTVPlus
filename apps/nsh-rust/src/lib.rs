@@ -1,5 +1,6 @@
 //! MoonTVPlus pure-Rust app: batch 1 (home modules, images, continue watching).
 
+mod detail;
 mod proxy;
 mod search;
 
@@ -15,7 +16,6 @@ use nsh_core::storage::Storage;
 use serde_json::json;
 
 const DEFAULT_SERVER: &str = "https://tv.370125.xyz";
-const REDBULL: &str = "https://hn.bfvvs.com/play/dJ6PoBvd/index.m3u8";
 
 const ICON_SEARCH: ImageAsset = asset!("icons/search.svg");
 const ICON_HOME: ImageAsset = asset!("icons/home.svg");
@@ -469,8 +469,12 @@ pub fn App() -> impl IntoElement {
     let search_running = signal(false);
     let modules = signal(Vec::<(String, bool)>::new());
     let home_loading = signal(false);
-    let current = signal(Movie::default());
+    let details = detail::Controller::new(server.clone(), token.clone(), username.clone(), page.clone(), proxy_port.clone());
+    let detail_origin = signal("home");
     let browse_title = signal(String::new());
+    let browse_items = signal(Vec::<Movie>::new());
+    let browse_error = signal(String::new());
+    let browse_loading = signal(false);
     let stage = signal("idle".to_owned());
     let refreshing = signal(false);
     let rows = signal(Vec::<Row>::new());
@@ -750,21 +754,68 @@ pub fn App() -> impl IntoElement {
     }
 
     let open_detail = {
-        let current = current.clone();
+        let details = details.clone();
         let page = page.clone();
+        let origin = detail_origin.clone();
         move |movie: Movie| {
-            current.set(movie);
-            page.set("detail");
+            origin.set(page.get());
+            details.open(movie, None, Vec::new());
         }
     };
-    let open_browse = {
+    let open_search_detail = {
+        let details = details.clone();
+        let state = search_state.clone();
+        let origin = detail_origin.clone();
+        move |item: search::SearchItem| {
+            origin.set("search");
+            // Preserve all providers behind this aggregated poster without
+            // storing a partial stream under a different cache key.
+            let extra = state.get().groups.into_iter().flat_map(|group| group.items)
+                .filter(|candidate| candidate.title.trim() == item.title.trim()
+                    && (item.year.is_empty() || candidate.year.is_empty() || candidate.year == item.year))
+                .collect();
+            details.open(Movie { title: item.title.clone(), poster: item.poster.clone(),
+                year: item.year.clone(), ..Default::default() }, Some(item), extra);
+        }
+    };
+    let detail_back = {
         let page = page.clone();
-        let browse_title = browse_title.clone();
-        move |title: String| {
-            browse_title.set(title);
-            page.set("browse");
+        let origin = detail_origin.clone();
+        move || page.set(origin.get())
+    };
+    let load_browse = {
+        let site = server.clone(); let token = token.clone();
+        let items = browse_items.clone(); let error = browse_error.clone();
+        let loading = browse_loading.clone(); let title = browse_title.clone();
+        let page = page.clone();
+        move |kind: String| {
+            title.set(kind.clone()); page.set("browse");
+            items.set(Vec::new()); error.set(String::new()); loading.set(true);
+            let path = match kind.as_str() {
+                "tv" | "剧集" | "热门剧集" => "/api/douban/categories?kind=tv&category=最近热门&type=tv&limit=30",
+                "show" | "综艺" | "热门综艺" => "/api/douban/categories?kind=tv&category=最近热门&type=show&limit=30",
+                "anime" | "动漫" | "番剧" | "新番放送" => "/api/bangumi/calendar",
+                "movie" | "电影" | "热门电影" => "/api/douban/categories?kind=movie&category=热门&type=全部&limit=30",
+                _ => { loading.set(false); error.set("此分类尚未接入；本轮仅补详情必需入口".to_owned()); return; }
+            };
+            let site = site.get(); let token = token.get();
+            let items = items.clone(); let error = error.clone();
+            let loading = loading.clone(); let title = title.clone();
+            spawn(async move {
+                // Category endpoints are public; their 401 must not clear a session.
+                let result = api(&site, &token, path, "GET", None, false).await;
+                if title.get() != kind { return; }
+                loading.set(false);
+                match result {
+                    Ok((200, body, _)) => items.set(if path.contains("bangumi") { parse_bangumi(&body) } else { parse_movies(&body) }),
+                    Ok((status, _, _)) => error.set(format!("分类加载失败 HTTP {status}，请重新点击分类重试")),
+                    Err(ApiError::Network(message)) => error.set(message),
+                    Err(ApiError::AuthExpired) => error.set("分类暂不可用".to_owned()),
+                }
+            });
         }
     };
+    let open_browse = load_browse.clone();
     let back_home = {
         let page = page.clone();
         move || page.set("home")
@@ -1210,61 +1261,12 @@ pub fn App() -> impl IntoElement {
                         move || page.get() == "detail"
                     },
                     {
-                        let current = current.clone();
+                        let details = details.clone();
                         let port = port_for_ui.clone();
-                        let back = back_home.clone();
-                        move || {
-                            let movie = current.get();
-                            view()
-                                .flex_1()
-                                .p_4()
-                                .gap_3()
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .gap_2()
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let back = back.clone();
-                                                    move || back()
-                                                })
-                                                .child(text("返回")),
-                                        )
-                                        .child(text("详情").text_size(px(18.0))),
-                                )
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .gap_3()
-                                        .child(
-                                            image(image_url(port.get(), "", &movie.poster))
-                                                .w(px(96.0))
-                                                .aspect_ratio(2.0 / 3.0)
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted),
-                                        )
-                                        .child(
-                                            view()
-                                                .flex_1()
-                                                .gap_1()
-                                                .child(text(movie.title.clone()).text_size(px(18.0)))
-                                                .child(
-                                                    text(format!("{} {}", movie.year, movie.rate))
-                                                        .text_size(px(12.0))
-                                                        .text_color(move || theme().muted_foreground),
-                                                ),
-                                        ),
-                                )
-                                .child(
-                                    text("详情页与选源将在批 4 完成")
-                                        .text_color(move || theme().muted_foreground),
-                                )
-                        }
+                        let site = server.clone();
+                        let scale = scale.clone();
+                        let back = detail_back.clone();
+                        move || detail::view_detail(details.clone(), back.clone(), port.get(), site.get(), scale.get())
                     },
                 ))
                 .child(when(
@@ -1278,6 +1280,7 @@ pub fn App() -> impl IntoElement {
                         let state = search_state.clone();
                         let running = search_running.clone();
                         let run = run_search.clone();
+                        let open = open_search_detail.clone();
                         let port = port_for_ui.clone();
                         let site_signal = server.clone();
                         let scale = scale.clone();
@@ -1292,6 +1295,7 @@ pub fn App() -> impl IntoElement {
                                 port.get(),
                                 site_signal.get(),
                                 sc,
+                                open.clone(),
                             )
                         }
                     },
@@ -1304,6 +1308,13 @@ pub fn App() -> impl IntoElement {
                     {
                         let title = browse_title.clone();
                         let back = back_home.clone();
+                        let items = browse_items.clone();
+                        let loading = browse_loading.clone();
+                        let error = browse_error.clone();
+                        let open = open_detail.clone();
+                        let port = proxy_port.clone();
+                        let site = server.clone();
+                        let scale = scale.clone();
                         move || {
                             view()
                                 .flex_1()
@@ -1330,10 +1341,20 @@ pub fn App() -> impl IntoElement {
                                             move || title.get()
                                         }).text_size(px(18.0))),
                                 )
-                                .child(
-                                    text("分类页将在批 3 完成")
-                                        .text_color(move || theme().muted_foreground),
-                                )
+                                .child(text({ let loading = loading.clone(); move || if loading.get() { "加载中…" } else { "" } }))
+                                .child(text({ let error = error.clone(); move || error.get() }))
+                                .child(scroll().flex_1().child(view().gap_2().child(each(
+                                    { let items = items.clone(); move || items.get().chunks(3).map(|row| row.to_vec()).collect::<Vec<_>>() },
+                                    |row: &Vec<Movie>| row.first().map(|item| item.id.clone()).unwrap_or_default(),
+                                    { let open = open.clone(); let site = site.clone(); let port = port.clone(); let scale = scale.clone();
+                                      move |row: ReadSignal<Vec<Movie>>, _| {
+                                        view().flex_row().gap_2().child(each(move || row.get(), |movie: &Movie| movie.id.clone(), {
+                                            let open = open.clone(); let site = site.clone(); let port = port.clone(); let scale = scale.clone();
+                                            move |movie: ReadSignal<Movie>, _| card(movie.get(), port.get(), scale.get(), site.get(), open.clone())
+                                        }))
+                                      }
+                                    }
+                                ))))
                         }
                     },
                 ))
@@ -1344,7 +1365,9 @@ pub fn App() -> impl IntoElement {
                     },
                     {
                         let port = port_for_ui.clone();
-                        let back = back_home.clone();
+                        let selection = details.selection.clone();
+                        let page = page.clone();
+                        let back = move || page.set("detail");
                         move || {
                             view()
                                 .flex_1()
@@ -1367,8 +1390,8 @@ pub fn App() -> impl IntoElement {
                                         )
                                         .child(
                                             text({
-                                                let port = port.clone();
-                                                move || format!("代理 {}", port.get())
+                                                let selection = selection.clone();
+                                                move || { let selected = selection.get(); format!("{} · {} · 第 {} 集", selected.info.title, selected.info.source_name, selected.index + 1) }
                                             })
                                             .text_color(move || theme().muted_foreground),
                                         ),
@@ -1376,14 +1399,15 @@ pub fn App() -> impl IntoElement {
                                 .child(
                                     video({
                                         let port = port.clone();
+                                        let selection = selection.clone();
                                         move || {
-                                            if port.get() == 0 {
+                                            if port.get() == 0 || selection.get().url.is_empty() {
                                                 String::new()
                                             } else {
                                                 format!(
                                                     "http://127.0.0.1:{}/a.m3u8?u={}",
                                                     port.get(),
-                                                    urlencoding::encode(REDBULL)
+                                                    urlencoding::encode(&selection.get().url)
                                                 )
                                             }
                                         }
@@ -1403,8 +1427,10 @@ pub fn App() -> impl IntoElement {
             {
                 let scale = scale.clone();
                 let page = page.clone();
+                let load = load_browse.clone();
+                let title = browse_title.clone();
                 move || {
-                    let active = match page.get() {
+                    let active = match if page.get() == "browse" { title.get() } else { page.get().to_owned() }.as_str() {
                         "movie" => "movie",
                         "tv" => "tv",
                         "anime" => "anime",
@@ -1413,12 +1439,10 @@ pub fn App() -> impl IntoElement {
                     };
                     bottom_bar(scale.read_only(), active, {
                         let page = page.clone();
+                        let load = load.clone();
                         move |key| {
-                            if key == "home" {
-                                page.set("home");
-                            } else {
-                                page.set("browse");
-                            }
+                            if key == "home" { page.set("home"); }
+                            else { load(key.to_owned()); }
                         }
                     })
                 }
@@ -1559,6 +1583,7 @@ fn search_view(
     port: u16,
     site: String,
     scale: f32,
+    open: impl Fn(search::SearchItem) + Clone + 'static,
 ) -> impl IntoElement {
     let sc = scale;
     // 390dp wide pages: 16dp side padding, three 2:3 posters with 8dp gaps.
@@ -1765,6 +1790,7 @@ fn search_view(
                             },
                             {
                                 let site = rows_site.clone();
+                                let open = open.clone();
                                 move |row: ReadSignal<Vec<search::SearchItem>>, _index| {
                                     view()
                                         .flex_row()
@@ -1777,6 +1803,7 @@ fn search_view(
                                             },
                                             {
                                                 let site = site.clone();
+                                                let open = open.clone();
                                                 move |item: ReadSignal<search::SearchItem>, _index| {
                                                     search_grid_card(
                                                         item,
@@ -1784,6 +1811,7 @@ fn search_view(
                                                         sc,
                                                         card_w,
                                                         site.clone(),
+                                                        open.clone(),
                                                     )
                                                 }
                                             },
@@ -1819,9 +1847,12 @@ fn search_grid_card(
     scale: f32,
     card_w: f32,
     site: String,
+    open: impl Fn(search::SearchItem) + 'static,
 ) -> impl IntoElement {
     let poster_site = site;
+    let selected = item.clone();
     view()
+        .on_press(move || open(selected.get()))
         .w(px(card_w))
         .gap(px(8.0 * scale))
         .child(

@@ -142,7 +142,7 @@ fn clean_name(name: &str) -> String {
     filtered.trim().to_owned()
 }
 
-fn parse_item(value: &Value) -> Option<SearchItem> {
+pub fn parse_item(value: &Value) -> Option<SearchItem> {
     let title = value["title"].as_str().unwrap_or_default().trim().to_owned();
     if title.is_empty() {
         return None;
