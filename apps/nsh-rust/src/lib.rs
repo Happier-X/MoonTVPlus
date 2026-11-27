@@ -24,11 +24,20 @@ const ICON_CAT: ImageAsset = asset!("icons/cat.svg");
 const ICON_CLOVER: ImageAsset = asset!("icons/clover.svg");
 const ICON_MOON: ImageAsset = asset!("icons/moon.svg");
 const ICON_SUN: ImageAsset = asset!("icons/sun.svg");
+const ICON_LINK: ImageAsset = asset!("icons/link.svg");
+const ICON_LIST: ImageAsset = asset!("icons/list.svg");
+const ICON_CHEVRON: ImageAsset = asset!("icons/chevron-right.svg");
 
 /// The web layout is drawn for 390dp; each screen scales from that.
 const BASE_WIDTH: f32 = 390.0;
 /// The web brand green, used for the wordmark, the selected tab and the rating badge.
 const BRAND: AdaptiveColor = AdaptiveColor::rgb(0x22C55E, 0x22C55E);
+/// Rating tiers copied from the web `.mtv-rate` palette (hi / mid / lo).
+const RATE_HI: AdaptiveColor = AdaptiveColor::rgb(0xFF8A3D, 0xFF8A3D);
+const RATE_HI_INK: AdaptiveColor = AdaptiveColor::rgb(0x4A2600, 0x4A2600);
+const RATE_MID: AdaptiveColor = AdaptiveColor::rgb(0xEC4899, 0xEC4899);
+const RATE_LO: AdaptiveColor = AdaptiveColor::rgb(0x9FB0CC, 0x9FB0CC);
+const RATE_LO_INK: AdaptiveColor = AdaptiveColor::rgb(0x20283A, 0x20283A);
 
 #[native_module("moontvplus-rust/native")]
 fn exports(registry: &mut Registry) {
@@ -45,6 +54,10 @@ struct Movie {
     year: String,
     /// Watch progress 0..=1 for continue-watching cards (0 hides the bar).
     progress: f64,
+    /// Source display name (`source_name`) for continue watching.
+    source_name: String,
+    /// Watched time rendered the way the web shows it (e.g. `2分47秒`).
+    elapsed: String,
 }
 
 #[derive(Clone, PartialEq)]
@@ -65,6 +78,7 @@ struct History {
     play_time: f64,
     total_time: f64,
     save_time: f64,
+    source_name: String,
 }
 
 enum ApiError {
@@ -214,6 +228,7 @@ fn parse_movies(text: &str) -> Vec<Movie> {
             rate: item["rate"].as_str().unwrap_or_default().to_owned(),
             year: item["year"].as_str().unwrap_or_default().to_owned(),
             progress: 0.0,
+            ..Movie::default()
         })
         .filter(|movie| !movie.title.is_empty())
         .collect()
@@ -262,6 +277,7 @@ fn parse_bangumi(text: &str) -> Vec<Movie> {
                     .unwrap_or_default(),
                 year: air_date.get(0..4).unwrap_or_default().to_owned(),
                 progress: 0.0,
+                ..Movie::default()
             });
         }
     }
@@ -283,6 +299,7 @@ fn parse_duanju(text: &str) -> Vec<Movie> {
             rate: String::new(),
             year: item["year"].as_str().unwrap_or_default().to_owned(),
             progress: 0.0,
+            ..Movie::default()
         })
         .filter(|movie| !movie.title.is_empty() && !movie.poster.is_empty())
         .collect()
@@ -319,11 +336,32 @@ fn parse_upcoming(text: &str) -> Vec<Movie> {
                     .unwrap_or_default()
                     .to_owned(),
                 progress: 0.0,
+                ..Movie::default()
             })
         })
         .collect();
     movies.sort_by(|a, b| a.year.cmp(&b.year));
     movies
+}
+
+/// Renders a duration the way the web's continue-watching cards do.
+fn human_time(seconds: f64) -> String {
+    let total = seconds.max(0.0) as i64;
+    if total >= 3600 {
+        format!("{}小时{}分", total / 3600, (total % 3600) / 60)
+    } else if total >= 60 {
+        format!("{}分{}秒", total / 60, total % 60)
+    } else {
+        format!("{total}秒")
+    }
+}
+
+fn rating_style(rate: &str) -> (AdaptiveColor, AdaptiveColor) {
+    match rate.parse::<f32>() {
+        Ok(value) if value >= 8.0 => (RATE_HI, RATE_HI_INK),
+        Ok(value) if value >= 6.5 => (RATE_MID, AdaptiveColor::rgb(0xFFFFFF, 0xFFFFFF)),
+        _ => (RATE_LO, RATE_LO_INK),
+    }
 }
 
 fn parse_history(text: &str) -> Vec<History> {
@@ -344,6 +382,7 @@ fn parse_history(text: &str) -> Vec<History> {
             play_time: value["play_time"].as_f64().unwrap_or(0.0),
             total_time: value["total_time"].as_f64().unwrap_or(0.0),
             save_time: value["save_time"].as_f64().unwrap_or(0.0),
+            source_name: value["source_name"].as_str().unwrap_or_default().to_owned(),
         })
         .filter(|item| !item.title.is_empty())
         .collect();
@@ -645,6 +684,9 @@ pub fn App() -> impl IntoElement {
                         } else {
                             0.0
                         },
+                        source_name: item.source_name.clone(),
+                        elapsed: human_time(item.play_time),
+                        ..Movie::default()
                     })
                     .collect();
                 if !history_items.is_empty() {
@@ -722,6 +764,45 @@ pub fn App() -> impl IntoElement {
     let back_home = {
         let page = page.clone();
         move || page.set("home")
+    };
+
+    let clear_records = {
+        let server = server.clone();
+        let token = token.clone();
+        let history_signal = history.clone();
+        let rows_signal = rows.clone();
+        move || {
+            let keys: Vec<String> = history_signal
+                .get()
+                .iter()
+                .map(|item| item.key.clone())
+                .collect();
+            if keys.is_empty() {
+                return;
+            }
+            history_signal.set(Vec::new());
+            rows_signal.set(
+                rows_signal
+                    .get()
+                    .into_iter()
+                    .filter(|row| row.kind != "history")
+                    .collect(),
+            );
+            let server_value = server.get();
+            let token_value = token.get();
+            spawn(async move {
+                let body = serde_json::json!({ "keys": keys }).to_string();
+                let _ = api(
+                    &server_value,
+                    &token_value,
+                    "/api/playrecords",
+                    "DELETE",
+                    Some(body),
+                    true,
+                )
+                .await;
+            });
+        }
     };
 
     let server_input = server.clone();
@@ -932,6 +1013,7 @@ pub fn App() -> impl IntoElement {
                         let open = open_detail.clone();
                         let browse = open_browse.clone();
                         move || {
+                            let sc = scale.get();
                             view()
                                 .flex_1()
                                 .child(
@@ -954,6 +1036,22 @@ pub fn App() -> impl IntoElement {
                                             view()
                                                 .gap_5()
                                                 .pb_8()
+                                                .child(
+                                                    view()
+                                                        .flex_row()
+                                                        .items_center()
+                                                        .justify_end()
+                                                        .gap(px(8.0 * sc))
+                                                        .px(px(12.0 * sc))
+                                                        .child(quick_icon(ICON_LINK, sc, {
+                                                            let page = home_page.clone();
+                                                            move || page.set("play")
+                                                        }))
+                                                        .child(quick_icon(ICON_LIST, sc, {
+                                                            let page = home_page.clone();
+                                                            move || page.set("search")
+                                                        })),
+                                                )
                                                 .child(when(
                                                     {
                                                         let loading = loading.clone();
@@ -994,6 +1092,7 @@ pub fn App() -> impl IntoElement {
                                                         let open = open.clone();
                                                         let browse = browse.clone();
                                                         let site_signal = server_value.clone();
+                                                        let clear_records = clear_records.clone();
                                                         move |row: ReadSignal<Row>, _index| {
                                                             let kind = row.get().title.clone();
                                                             let browse = browse.clone();
@@ -1004,6 +1103,7 @@ pub fn App() -> impl IntoElement {
                                                                 site_signal.get(),
                                                                 open.clone(),
                                                                 move || browse(kind.clone()),
+                                                                clear_records.clone(),
                                                             )
                                                         }
                                                     },
@@ -1245,9 +1345,11 @@ fn row_view(
     scale: f32,
     site: String,
     open: impl Fn(Movie) + Clone + 'static,
-    more: impl Fn() + 'static,
+    more: impl Fn() + Clone + 'static,
+    clear: impl Fn() + Clone + 'static,
 ) -> impl IntoElement {
     let pad = px(16.0 * scale);
+    let kind_row = row.clone();
     view()
         .gap(px(16.0 * scale))
         .child(
@@ -1261,17 +1363,45 @@ fn row_view(
                         .text_size(px(20.0 * scale))
                         .font_weight(nsh_core::element::FontWeight::BOLD),
                 )
-                .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .on_press(more)
-                        .child(
-                            text("查看更多")
-                                .text_size(px(14.0 * scale))
-                                .text_color(move || theme().muted_foreground),
-                        )
-                ),
+                .child(when(
+                    move || kind_row.get().kind == "history",
+                    {
+                        let clear_outer = clear.clone();
+                        move || {
+                            let clear = clear_outer.clone();
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(4.0 * scale))
+                                .on_press(move || clear())
+                                .child(
+                                    text("清空")
+                                        .text_size(px(14.0 * scale))
+                                        .text_color(move || theme().muted_foreground),
+                                )
+                                .child(
+                                    image(ICON_CHEVRON)
+                                        .w(px(16.0 * scale))
+                                        .h(px(16.0 * scale))
+                                        .tint_color(move || theme().muted_foreground),
+                                )
+                        }
+                    },
+                ))
+                .child(when(
+                    move || kind_row.get().kind != "history",
+                    {
+                        let more_outer = more.clone();
+                        move || {
+                            let more = more_outer.clone();
+                            view().flex_row().items_center().on_press(move || more()).child(
+                                text("查看更多")
+                                    .text_size(px(14.0 * scale))
+                                    .text_color(move || theme().muted_foreground),
+                            )
+                        }
+                    },
+                )),
         )
         .child(
             scroll().horizontal().child(
@@ -1284,19 +1414,71 @@ fn row_view(
                         |movie: &Movie| movie.id.clone(),
                         {
                             let site = site.clone();
+                            let kind_row = kind_row.clone();
                             move |movie: ReadSignal<Movie>, _index| {
                                 let open = open.clone();
-                                card(
-                                    movie.get(),
-                                    port,
-                                    scale,
-                                    site.clone(),
-                                    move |value| open(value),
+                                let watch = open.clone();
+                                let movie = movie.get();
+                                let kind_row = kind_row.clone();
+                                view().child(
+                                    when(
+                                        move || kind_row.get().kind == "history",
+                                        {
+                                            let movie = movie.clone();
+                                            let site = site.clone();
+                                            let watch_outer = watch.clone();
+                                            move || {
+                                                let watch = watch_outer.clone();
+                                                history_card(
+                                                    movie.clone(),
+                                                    port,
+                                                    scale,
+                                                    site.clone(),
+                                                    move |value| watch(value),
+                                                )
+                                            }
+                                        },
+                                    )
+                                    .otherwise({
+                                        let movie = movie.clone();
+                                        let site = site.clone();
+                                        let open_outer = open.clone();
+                                        move || {
+                                            let open = open_outer.clone();
+                                            card(
+                                                movie.clone(),
+                                                port,
+                                                scale,
+                                                site.clone(),
+                                                move |value| open(value),
+                                            )
+                                        }
+                                    }),
                                 )
                             }
                         },
                     )),
             ),
+        )
+}
+
+fn quick_icon(
+    icon: ImageAsset,
+    scale: f32,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .w(px(36.0 * scale))
+        .h(px(36.0 * scale))
+        .rounded(px(8.0 * scale))
+        .items_center()
+        .justify_center()
+        .on_press(on_press)
+        .child(
+            image(icon)
+                .w(px(20.0 * scale))
+                .h(px(20.0 * scale))
+                .tint_color(move || theme().foreground),
         )
 }
 
@@ -1345,18 +1527,21 @@ fn card(
                         {
                             let rate = rate.clone();
                             move || {
+                                let value = rate.clone();
+                                let (background, ink) = rating_style(&value);
                                 view()
                                     .absolute()
                                     .top(px(6.0 * scale))
                                     .left(px(6.0 * scale))
                                     .px(px(5.0 * scale))
                                     .py(px(2.0 * scale))
-                                    .bg(BRAND)
+                                    .bg(background)
                                     .rounded(px(4.0 * scale))
                                     .child(
-                                        text(rate.clone())
+                                        text(value)
                                             .text_size(px(11.0 * scale))
-                                            .text_color(rgb(0xffffff)),
+                                            .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                                            .text_color(ink),
                                     )
                             }
                         },
@@ -1381,6 +1566,94 @@ fn card(
                 .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
                 .line_height(px(20.0 * scale))
                 .number_of_lines(1),
+        )
+}
+
+/// The web's continue-watching card: a 180x120 still with an information bar.
+fn history_card(
+    movie: Movie,
+    port: u16,
+    scale: f32,
+    site: String,
+    on_press: impl Fn(Movie) + 'static,
+) -> impl IntoElement {
+    let poster = movie.poster.clone();
+    let progress = movie.progress as f32;
+    let width = px(180.0 * scale);
+    view()
+        .w(width)
+        .on_press({
+            let movie = movie.clone();
+            move || on_press(movie.clone())
+        })
+        .child(
+            view()
+                .w(width)
+                .aspect_ratio(3.0 / 2.0)
+                .rounded(px(8.0 * scale))
+                .overflow_hidden()
+                .bg(move || theme().muted)
+                .child(
+                    image(image_url(port, &site, &poster))
+                        .absolute()
+                        .inset_0()
+                        .w_full()
+                        .h_full(),
+                )
+                .child(
+                    view()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .w_full()
+                        .bg(rgba(0x000000A6))
+                        .px(px(6.0 * scale))
+                        .pt(px(14.0 * scale))
+                        .pb(px(5.0 * scale))
+                        .gap(px(2.0 * scale))
+                        .child(
+                            text(movie.title.clone())
+                                .text_size(px(12.0 * scale))
+                                .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                                .text_color(rgb(0xffffff))
+                                .number_of_lines(1),
+                        )
+                        .child(
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    text(movie.elapsed.clone())
+                                        .text_size(px(10.0 * scale))
+                                        .text_color(rgba(0xFFFFFFB3)),
+                                )
+                                .child(
+                                    view()
+                                        .px(px(3.0 * scale))
+                                        .rounded(px(2.0 * scale))
+                                        .border(px(1.0))
+                                        .border_color(rgba(0xFFFFFF80))
+                                        .child(
+                                            text(movie.source_name.clone())
+                                                .text_size(px(10.0 * scale))
+                                                .text_color(rgba(0xFFFFFFD9)),
+                                        ),
+                                ),
+                        ),
+                )
+                .child(when(
+                    move || progress > 0.0,
+                    move || {
+                        view()
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .w(px(180.0 * scale * progress))
+                            .h(px(2.0 * scale))
+                            .bg(BRAND)
+                    },
+                )),
         )
 }
 
