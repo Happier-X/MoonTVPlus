@@ -12,6 +12,11 @@
       ]
     },
     "audio": true,
+    "openUrl": {
+      "schemes": [
+        "https"
+      ]
+    },
     "fs": {
       "read": [
         "${dataDir}"

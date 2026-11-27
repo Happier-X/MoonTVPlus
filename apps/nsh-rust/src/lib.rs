@@ -1,4 +1,4 @@
-//! MoonTVPlus pure-Rust app: batch 1–6 (native playback, favorites and play history).
+//! MoonTVPlus pure-Rust app: batches 1–8 (playback, library, settings and updates).
 
 mod browse;
 mod detail;
@@ -6,6 +6,7 @@ mod library;
 mod playback;
 mod proxy;
 mod search;
+mod update;
 use std::pin::pin;
 use std::time::Duration;
 
@@ -528,6 +529,8 @@ pub fn App() -> impl IntoElement {
         rows.clone(),
         confirm.clone(),
     );
+    let update_notice = signal(String::new());
+    let update = update::Controller::new(server.clone(), update_notice.clone());
     let scale = signal(1.0_f32);
     effect(move || {
         let width = window().width.0;
@@ -565,6 +568,18 @@ pub fn App() -> impl IntoElement {
         if let Ok(port) = proxy::ensure(proxy_watch_server.get(), proxy_watch_token.get()) {
             proxy_watch_port.set(port);
         }
+    });
+
+    // One silent update check per launch, after the first signed-in screen.
+    let update_started = signal(false);
+    let update_watch = update.clone();
+    let update_page = page.clone();
+    effect(move || {
+        if update_started.get() || page_get(&update_page) == "login" {
+            return;
+        }
+        update_started.set(true);
+        update_watch.check_silently();
     });
 
     let load_home = {
@@ -1311,6 +1326,8 @@ pub fn App() -> impl IntoElement {
                         let toggle = toggle_theme.clone();
                         let logout = logout.clone();
                         let page = page.clone();
+                        let update = update.clone();
+                        let notice = update_notice.clone();
                         move || {
                             let back = {
                                 let page = page.clone();
@@ -1322,6 +1339,16 @@ pub fn App() -> impl IntoElement {
                                 server.clone(),
                                 dark.read_only(),
                                 toggle.clone(),
+                                notice.read_only(),
+                                update.checking(),
+                                {
+                                    let update = update.clone();
+                                    move || update.check_now()
+                                },
+                                {
+                                    let update = update.clone();
+                                    move || update.open_link(library::REPO_URL)
+                                },
                                 {
                                     let logout = logout.clone();
                                     move || logout()
@@ -1463,6 +1490,132 @@ pub fn App() -> impl IntoElement {
                 move || kind.set("")
             },
         ))
+        .child(update_dialog(
+            update.show(),
+            update.latest(),
+            scale.read_only(),
+            {
+                let update = update.clone();
+                move || update.open_page()
+            },
+            {
+                let update = update.clone();
+                move || update.close()
+            },
+        ))
+}
+
+
+/// The update dialog: what the site's manifest says, with a download link.
+fn update_dialog(
+    show: Signal<bool>,
+    latest: Signal<update::Latest>,
+    scale: ReadSignal<f32>,
+    open: impl Fn() + Clone + 'static,
+    later: impl Fn() + Clone + 'static,
+) -> impl IntoElement {
+    when(
+        {
+            let show = show.clone();
+            move || show.get()
+        },
+        {
+            let open = open.clone();
+            let later = later.clone();
+            move || {
+                let sc = scale.get();
+                let info = latest.get();
+                let subtitle = match info.version_code {
+                    Some(code) => format!("当前 {} → {}（版本号 {}）", update::local_version(), info.version, code),
+                    None => format!("当前 {} → {}", update::local_version(), info.version),
+                };
+                let notes = if info.notes.is_empty() {
+                    "暂无更新说明".to_owned()
+                } else {
+                    info.notes.clone()
+                };
+                let dismiss = later.clone();
+                let open_page = open.clone();
+                let later_button = later.clone();
+                view()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        view()
+                            .absolute()
+                            .inset_0()
+                            .bg(rgba(0x00000080))
+                            .on_press(move || dismiss()),
+                    )
+                    .child(
+                        view()
+                            .w(px(300.0 * sc))
+                            .rounded(px(14.0 * sc))
+                            .bg(move || theme().background)
+                            .p(px(20.0 * sc))
+                            .gap(px(14.0 * sc))
+                            .child(
+                                text(format!("发现新版本 {}", info.version))
+                                    .text_size(px(16.0 * sc))
+                                    .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
+                            )
+                            .child(
+                                text(subtitle)
+                                    .text_size(px(12.0 * sc))
+                                    .text_color(move || theme().muted_foreground),
+                            )
+                            .child(
+                                scroll().max_h(px(200.0 * sc)).child(
+                                    text(notes)
+                                        .text_size(px(12.0 * sc))
+                                        .line_height(px(19.0 * sc))
+                                        .text_color(move || theme().muted_foreground),
+                                ),
+                            )
+                            .child(
+                                text("需要到下载页手动安装，应用不会自动下载。")
+                                    .text_size(px(11.0 * sc))
+                                    .text_color(move || theme().muted_foreground),
+                            )
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .justify_end()
+                                    .gap(px(10.0 * sc))
+                                    .child(
+                                        view()
+                                            .px(px(16.0 * sc))
+                                            .py(px(8.0 * sc))
+                                            .rounded(px(8.0 * sc))
+                                            .bg(move || theme().muted)
+                                            .on_press(move || later_button())
+                                            .child(
+                                                text("稍后")
+                                                    .text_size(px(14.0 * sc))
+                                                    .text_color(move || theme().foreground),
+                                            ),
+                                    )
+                                    .child(
+                                        view()
+                                            .px(px(16.0 * sc))
+                                            .py(px(8.0 * sc))
+                                            .rounded(px(8.0 * sc))
+                                            .bg(BRAND)
+                                            .on_press(move || open_page())
+                                            .child(
+                                                text("打开下载页")
+                                                    .text_size(px(14.0 * sc))
+                                                    .text_color(rgb(0xffffff)),
+                                            ),
+                                    ),
+                            ),
+                    )
+            }
+        },
+    )
+    .otherwise(|| view())
 }
 
 /// The single confirmation dialog behind every destructive action.

@@ -1040,10 +1040,10 @@ fn record_row(
         )
 }
 
-const REPO_URL: &str = "https://github.com/Happier-X/MoonTVPlus";
+pub(crate) const REPO_URL: &str = "https://github.com/Happier-X/MoonTVPlus";
 
 /// The version comes from the app manifest, not a literal in this file.
-fn app_version() -> String {
+pub(crate) fn app_version() -> String {
     serde_json::from_str::<serde_json::Value>(include_str!("../nsh.json"))
         .ok()
         .and_then(|value| value["version"].as_str().map(str::to_owned))
@@ -1056,6 +1056,10 @@ pub fn me_page(
     server: Signal<String>,
     dark: ReadSignal<bool>,
     toggle_theme: impl Fn() + Clone + 'static,
+    notice: ReadSignal<String>,
+    checking: ReadSignal<bool>,
+    check_update: impl Fn() + Clone + 'static,
+    open_repo: impl Fn() + Clone + 'static,
     ask_logout: impl Fn() + 'static,
     back: impl Fn() + Clone + 'static,
     scale: f32,
@@ -1193,7 +1197,28 @@ pub fn me_page(
             )
             .child(section_title("关于", scale))
             .child(info_row("版本", app_version, scale))
-            .child(info_row("开源地址", || REPO_URL.to_owned(), scale))
+            .child(action_row(
+                "开源地址",
+                move || REPO_URL.to_owned(),
+                open_repo,
+                scale,
+            ))
+            .child(action_row(
+                "检查更新",
+                {
+                    let notice = notice.clone();
+                    let checking = checking.clone();
+                    move || {
+                        if checking.get() {
+                            "检查中…".to_owned()
+                        } else {
+                            notice.get()
+                        }
+                    }
+                },
+                check_update,
+                scale,
+            ))
             .child(
                 view()
                     .mx(px(16.0 * scale))
@@ -1241,6 +1266,42 @@ fn section_title(title: &'static str, scale: f32) -> impl IntoElement {
         .pt(px(8.0 * scale))
         .text_size(px(12.0 * scale))
         .text_color(move || theme().muted_foreground)
+}
+
+/// Like [`info_row`], but the whole row opens something.
+fn action_row(
+    label: &'static str,
+    value: impl Fn() -> String + 'static,
+    open: impl Fn() + Clone + 'static,
+    scale: f32,
+) -> impl IntoElement {
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(12.0 * scale))
+        .mx(px(16.0 * scale))
+        .px(px(14.0 * scale))
+        .py(px(12.0 * scale))
+        .rounded(px(10.0 * scale))
+        .bg(move || theme().muted)
+        .on_press(move || open())
+        .child(
+            text(label)
+                .text_size(px(14.0 * scale))
+                .text_color(move || theme().muted_foreground),
+        )
+        .child(
+            text(value)
+                .flex_1()
+                .text_size(px(14.0 * scale))
+                .number_of_lines(1),
+        )
+        .child(
+            image(ICON_CHEVRON)
+                .w(px(16.0 * scale))
+                .h(px(16.0 * scale))
+                .tint_color(move || theme().muted_foreground),
+        )
 }
 
 fn info_row(
