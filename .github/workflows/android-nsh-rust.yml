@@ -159,7 +159,6 @@ jobs:
             echo "::error::签名证书与 1.9.20 不一致（$CERT_SHA256），装上无法覆盖升级"; exit 1
           fi
 
-          cp "$APK.badging.txt" "$APK.verify.txt" dist/
           (cd dist && sha256sum app-arm64-v8a-release.apk > SHA256SUMS && cat SHA256SUMS)
           ls -lh dist
 
