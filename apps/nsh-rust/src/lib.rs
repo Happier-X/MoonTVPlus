@@ -1,7 +1,8 @@
-//! MoonTVPlus pure-Rust app: batch 1–5 (native Rust playback, resume and HLS quality controls).
+//! MoonTVPlus pure-Rust app: batch 1–6 (native playback, favorites and play history).
 
 mod browse;
 mod detail;
+mod library;
 mod playback;
 mod proxy;
 mod search;
@@ -109,11 +110,19 @@ async fn send(
     let mut last = String::new();
     for attempt in 0..2 {
         let mut request = match method {
+            "GET" => HttpRequest::get(url.clone()),
             "POST" => {
                 let request = HttpRequest::post(url.clone(), body.clone().unwrap_or_default());
                 request.header("Content-Type", "application/json")
             }
-            _ => HttpRequest::get(url.clone()),
+            other => {
+                // DELETE keeps its payload in the body, as the site reads it.
+                let mut request = HttpRequest::new(other, url.clone());
+                if let Some(body) = body.clone() {
+                    request = request.body(body);
+                }
+                request.header("Content-Type", "application/json")
+            }
         };
         request = request.header("Accept", "*/*");
         if auth && !token.is_empty() {
@@ -213,8 +222,9 @@ fn save_play_record(server: &str, token: &str, selection: &detail::Selection, po
         "total_episodes": selection.info.episodes.len(),
         "play_time": position.max(0.0),
         "total_time": duration.max(1.0),
+        // Milliseconds, as the web client writes it, so both sort together.
         "save_time": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .map(|value| value.as_secs_f64()).unwrap_or(0.0),
+            .map(|value| value.as_millis() as f64).unwrap_or(0.0),
     });
     let body = json!({
         "key": format!("{}+{}", selection.info.source, selection.info.id),
@@ -506,6 +516,15 @@ pub fn App() -> impl IntoElement {
     let stage = signal("idle".to_owned());
     let refreshing = signal(false);
     let rows = signal(Vec::<Row>::new());
+    let library = library::Controller::new(
+        server.clone(),
+        token.clone(),
+        username.clone(),
+        page.clone(),
+        proxy_port.clone(),
+        history.clone(),
+        rows.clone(),
+    );
     let scale = signal(1.0_f32);
     effect(move || {
         let width = window().width.0;
@@ -697,41 +716,8 @@ pub fn App() -> impl IntoElement {
                     let _ = message;
                 }
                 let mut list: Vec<Row> = Vec::new();
-                let mut seen_titles: Vec<String> = Vec::new();
-                let history_items: Vec<Movie> = history
-                    .get()
-                    .into_iter()
-                    .filter(|item| {
-                        if seen_titles.iter().any(|title| title == &item.title) {
-                            false
-                        } else {
-                            seen_titles.push(item.title.clone());
-                            true
-                        }
-                    })
-                    .map(|item| Movie {
-                        id: item.key.clone(),
-                        title: item.title.clone(),
-                        poster: item.cover.clone(),
-                        rate: String::new(),
-                        year: item.year.clone(),
-                        progress: if item.total_time > 0.0 {
-                            (item.play_time / item.total_time).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        },
-                        source_name: item.source_name.clone(),
-                        elapsed: human_time(item.play_time),
-                        ..Movie::default()
-                    })
-                    .collect();
-                if !history_items.is_empty() {
-                    list.push(Row {
-                        id: "history".to_owned(),
-                        title: "继续观看".to_owned(),
-                        kind: "history".to_owned(),
-                        items: history_items,
-                    });
+                if let Some(row) = library::history_row(&history.get()) {
+                    list.push(row);
                 }
                 let configured = module_order(&modules.get());
                 let mut candidates = vec![
@@ -822,42 +808,8 @@ pub fn App() -> impl IntoElement {
     };
 
     let clear_records = {
-        let server = server.clone();
-        let token = token.clone();
-        let history_signal = history.clone();
-        let rows_signal = rows.clone();
-        move || {
-            let keys: Vec<String> = history_signal
-                .get()
-                .iter()
-                .map(|item| item.key.clone())
-                .collect();
-            if keys.is_empty() {
-                return;
-            }
-            history_signal.set(Vec::new());
-            rows_signal.set(
-                rows_signal
-                    .get()
-                    .into_iter()
-                    .filter(|row| row.kind != "history")
-                    .collect(),
-            );
-            let server_value = server.get();
-            let token_value = token.get();
-            spawn(async move {
-                let body = serde_json::json!({ "keys": keys }).to_string();
-                let _ = api(
-                    &server_value,
-                    &token_value,
-                    "/api/playrecords",
-                    "DELETE",
-                    Some(body),
-                    true,
-                )
-                .await;
-            });
-        }
+        let library = library.clone();
+        move || library.clear_records()
     };
 
     let run_search = {
@@ -1040,6 +992,7 @@ pub fn App() -> impl IntoElement {
                         let page = page.clone();
                         let username = username.clone();
                         let self_check = self_check.clone();
+                        let library = library.clone();
                         move || {
                             top_bar(
                                 scale.read_only(),
@@ -1048,6 +1001,10 @@ pub fn App() -> impl IntoElement {
                                 page.clone(),
                                 username.clone(),
                                 self_check.clone(),
+                                {
+                                    let library = library.clone();
+                                    move || library.open_me()
+                                },
                             )
                         }
                     },
@@ -1154,6 +1111,7 @@ pub fn App() -> impl IntoElement {
                         let refresh = refresh.clone();
                         let open = open_detail.clone();
                         let browse = open_browse.clone();
+                        let library = library.clone();
                         move || {
                             let sc = scale.get();
                             view()
@@ -1233,18 +1191,26 @@ pub fn App() -> impl IntoElement {
                                                         let scale = scale.clone();
                                                         let open = open.clone();
                                                         let browse = browse.clone();
+                                                        let library = library.clone();
                                                         let site_signal = server_value.clone();
                                                         let clear_records = clear_records.clone();
                                                         move |row: ReadSignal<Row>, _index| {
                                                             let kind = row.get().title.clone();
                                                             let browse = browse.clone();
+                                                            let library = library.clone();
                                                             row_view(
                                                                 row,
                                                                 port.get(),
                                                                 scale.get(),
                                                                 site_signal.get(),
                                                                 open.clone(),
-                                                                move || browse(kind.clone()),
+                                                                move || {
+                                                                    if kind == "继续观看" {
+                                                                        library.open_history();
+                                                                    } else {
+                                                                        browse(kind.clone());
+                                                                    }
+                                                                },
                                                                 clear_records.clone(),
                                                             )
                                                         }
@@ -1314,6 +1280,89 @@ pub fn App() -> impl IntoElement {
                         move || browse::page(browse.clone(), open.clone(), {
                             let back = back_home.clone(); move || back()
                         }, port.get(), site.get(), scale.get())
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = page.clone();
+                        move || page.get() == "me"
+                    },
+                    {
+                        let library = library.clone();
+                        let scale = scale.clone();
+                        let username = username.clone();
+                        let page = page.clone();
+                        move || {
+                            let back = {
+                                let page = page.clone();
+                                move || page.set("home")
+                            };
+                            library::me_page(library.clone(), username.clone(), back, scale.get())
+                        }
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = page.clone();
+                        move || page.get() == "favorites"
+                    },
+                    {
+                        let library = library.clone();
+                        let open = open_detail.clone();
+                        let port = proxy_port.clone();
+                        let site = server.clone();
+                        let scale = scale.clone();
+                        let page = page.clone();
+                        move || {
+                            let back = {
+                                let page = page.clone();
+                                let library = library.clone();
+                                move || {
+                                    let target = library.origin.get();
+                                    page.set(target)
+                                }
+                            };
+                            library::favorites_page(
+                                library.clone(),
+                                back,
+                                open.clone(),
+                                port.get(),
+                                site.get(),
+                                scale.get(),
+                            )
+                        }
+                    },
+                ))
+                .child(when(
+                    {
+                        let page = page.clone();
+                        move || page.get() == "history"
+                    },
+                    {
+                        let library = library.clone();
+                        let open = open_detail.clone();
+                        let port = proxy_port.clone();
+                        let site = server.clone();
+                        let scale = scale.clone();
+                        let page = page.clone();
+                        move || {
+                            let back = {
+                                let page = page.clone();
+                                let library = library.clone();
+                                move || {
+                                    let target = library.origin.get();
+                                    page.set(target)
+                                }
+                            };
+                            library::history_page(
+                                library.clone(),
+                                back,
+                                open.clone(),
+                                port.get(),
+                                site.get(),
+                                scale.get(),
+                            )
+                        }
                     },
                 ))
                 .child(when(
@@ -1391,23 +1440,38 @@ fn row_view(
                     move || kind_row.get().kind == "history",
                     {
                         let clear_outer = clear.clone();
+                        let more_outer = more.clone();
                         move || {
                             let clear = clear_outer.clone();
+                            let more = more_outer.clone();
                             view()
                                 .flex_row()
                                 .items_center()
-                                .gap(px(4.0 * scale))
-                                .on_press(move || clear())
+                                .gap(px(12.0 * scale))
                                 .child(
-                                    text("清空")
-                                        .text_size(px(14.0 * scale))
-                                        .text_color(move || theme().muted_foreground),
+                                    view()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(4.0 * scale))
+                                        .on_press(move || more())
+                                        .child(
+                                            text("全部")
+                                                .text_size(px(14.0 * scale))
+                                                .text_color(move || theme().muted_foreground),
+                                        )
+                                        .child(
+                                            image(ICON_CHEVRON)
+                                                .w(px(16.0 * scale))
+                                                .h(px(16.0 * scale))
+                                                .tint_color(move || theme().muted_foreground),
+                                        ),
                                 )
                                 .child(
-                                    image(ICON_CHEVRON)
-                                        .w(px(16.0 * scale))
-                                        .h(px(16.0 * scale))
-                                        .tint_color(move || theme().muted_foreground),
+                                    view().on_press(move || clear()).child(
+                                        text("清空")
+                                            .text_size(px(14.0 * scale))
+                                            .text_color(move || theme().muted_foreground),
+                                    ),
                                 )
                         }
                     },
@@ -2011,6 +2075,7 @@ fn top_bar(
     page: Signal<&'static str>,
     username: Signal<String>,
     self_check: impl Fn() + 'static,
+    open_me: impl Fn() + 'static,
 ) -> impl IntoElement {
     view()
         .h(move || px(48.0 * scale.get()))
@@ -2072,6 +2137,7 @@ fn top_bar(
                 .items_center()
                 .justify_center()
                 .bg(move || theme().muted)
+                .on_press(open_me)
                 .child(
                     text({
                         let username = username.clone();

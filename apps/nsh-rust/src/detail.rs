@@ -31,6 +31,10 @@ pub struct Controller {
     pub source_error: Signal<String>,
     pub tab: Signal<&'static str>,
     pub selection: Signal<Selection>,
+    /// Site favorite state for the loaded source (`source+id` key).
+    pub favorite: Signal<bool>,
+    pub favorite_busy: Signal<bool>,
+    pub favorite_error: Signal<String>,
     generation: Signal<u64>,
     request: Signal<u64>,
     server: Signal<String>,
@@ -46,7 +50,9 @@ impl Controller {
         Self { info: signal(Info::default()), sources: signal(Vec::new()),
             loading: signal(false), discovering: signal(false), error: signal(String::new()),
             source_error: signal(String::new()), tab: signal("episodes"),
-            selection: signal(Selection::default()), generation: signal(0), request: signal(0),
+            selection: signal(Selection::default()), favorite: signal(false),
+            favorite_busy: signal(false), favorite_error: signal(String::new()),
+            generation: signal(0), request: signal(0),
             server, token, username, page, port }
     }
 
@@ -80,6 +86,9 @@ impl Controller {
         self.sources.set(Vec::new());
         self.error.set(String::new());
         self.source_error.set(String::new());
+        self.favorite.set(false);
+        self.favorite_busy.set(false);
+        self.favorite_error.set(String::new());
         self.loading.set(false);
         self.discovering.set(false);
         self.tab.set("episodes");
@@ -148,6 +157,8 @@ impl Controller {
         let request = self.request.get();
         self.loading.set(true);
         self.error.set(String::new());
+        self.favorite.set(false);
+        self.favorite_error.set(String::new());
         let mut info = self.info.get();
         info.source = item.source.clone();
         info.id = item.id.clone();
@@ -181,6 +192,7 @@ impl Controller {
                     info.episode_titles = strings(&value["episodes_titles"]);
                     if info.episodes.is_empty() { this.error.set("该源暂无集数，请重试或换源".to_owned()); }
                     this.info.set(info);
+                    this.check_favorite();
                 }
                 Err(error) => { let message = this.failure(error); this.error.set(message); }
             }
@@ -192,6 +204,89 @@ impl Controller {
         if let Some(item) = self.sources.get().into_iter()
             .find(|item| item.source == info.source && item.id == info.id) { self.load(item); }
         else { self.discover(); }
+    }
+
+    fn favorite_key(info: &Info) -> String {
+        if info.source.is_empty() || info.id.is_empty() { String::new() }
+        else { format!("{}+{}", info.source, info.id) }
+    }
+
+    /// `GET /api/favorites?key=source+id` shows whether this source is saved.
+    pub fn check_favorite(&self) {
+        let key = Self::favorite_key(&self.info.get());
+        if key.is_empty() { return; }
+        let this = self.clone();
+        spawn(async move {
+            let path = format!("/api/favorites?key={}", urlencoding::encode(&key));
+            match api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await {
+                Ok((status, body, next)) => {
+                    this.accept_token(next);
+                    if status != 200 { return; }
+                    let saved = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value["title"].as_str().map(|title| !title.is_empty()))
+                        .unwrap_or(false);
+                    this.favorite.set(saved);
+                }
+                Err(error) => {
+                    if let ApiError::Network(reason) = error {
+                        eprintln!("favorite check failed: {reason}");
+                    }
+                }
+            }
+        });
+    }
+
+    /// `POST /api/favorites` with `{key, favorite}` adds; `DELETE ?key=` removes.
+    pub fn toggle_favorite(&self) {
+        if self.favorite_busy.get() { return; }
+        let info = self.info.get();
+        let key = Self::favorite_key(&info);
+        if key.is_empty() { return; }
+        let saved = self.favorite.get();
+        self.favorite_busy.set(true);
+        self.favorite_error.set(String::new());
+        let this = self.clone();
+        spawn(async move {
+            let (path, method, body) = if saved {
+                (format!("/api/favorites?key={}", urlencoding::encode(&key)), "DELETE", None)
+            } else {
+                let favorite = serde_json::json!({
+                    "title": info.title,
+                    "source_name": info.source_name,
+                    "year": info.year,
+                    "cover": info.poster,
+                    "total_episodes": info.episodes.len(),
+                    // Milliseconds, as the web client writes it.
+                    "save_time": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|value| value.as_millis() as f64).unwrap_or(0.0),
+                    "search_title": info.title,
+                });
+                let body = serde_json::json!({ "key": key, "favorite": favorite }).to_string();
+                ("/api/favorites".to_owned(), "POST", Some(body))
+            };
+            let result = api(&this.server.get(), &this.token.get(), &path, method, body, true).await;
+            this.favorite_busy.set(false);
+            match result {
+                Ok((200..=299, _, next)) => {
+                    this.accept_token(next);
+                    this.favorite.set(!saved);
+                }
+                Ok((status, text, _)) => {
+                    eprintln!("favorite toggle HTTP {status}: {text}");
+                    this.favorite_error.set(if saved {
+                        format!("取消收藏失败（HTTP {status}）")
+                    } else {
+                        format!("收藏失败（HTTP {status}）")
+                    });
+                }
+                Err(error) => {
+                    let message = this.failure(error);
+                    this.favorite_error.set(message);
+                }
+            }
+        });
     }
 
     pub fn play(&self, index: usize) {
@@ -236,7 +331,28 @@ pub fn view_detail(controller: Controller, back: impl Fn() + Clone + 'static,
             .child(super::view().flex_1().gap_2()
                 .child(text({ let info = controller.info.clone(); move || info.get().title }).text_size(px(20.0 * scale)))
                 .child(text({ let info = controller.info.clone(); move || info.get().year }).text_color(move || theme().muted_foreground))
-                .child(text({ let info = controller.info.clone(); move || info.get().source_name }).text_size(px(12.0 * scale)))))
+                .child(text({ let info = controller.info.clone(); move || info.get().source_name }).text_size(px(12.0 * scale)))
+                .child(when(
+                    { let c = controller.clone(); move || !c.info.get().source.is_empty() },
+                    {
+                        let c = controller.clone();
+                        move || {
+                            let toggle = c.clone();
+                            view().gap(px(4.0 * scale))
+                                .child(view().px(px(10.0 * scale)).py(px(6.0 * scale))
+                                    .rounded(px(8.0 * scale)).bg(move || theme().muted)
+                                    .on_press(move || toggle.toggle_favorite())
+                                    .child(text({ let c = c.clone(); move || {
+                                        if c.favorite_busy.get() { "处理中…".to_owned() }
+                                        else if c.favorite.get() { "已收藏".to_owned() }
+                                        else { "收藏".to_owned() }
+                                    }}).text_size(px(12.0 * scale))))
+                                .child(text({ let c = c.clone(); move || c.favorite_error.get() })
+                                    .text_size(px(11.0 * scale))
+                                    .text_color(rgb(0xcc2222)))
+                        }
+                    },
+                ))))
         .child(text({ let info = controller.info.clone(); move || info.get().description }).text_size(px(14.0 * scale)).number_of_lines(8))
         .child(super::view().flex_row().gap_3()
             .child(super::view().on_press(move || episode_tab.tab.set("episodes")).child(text("选集")))
