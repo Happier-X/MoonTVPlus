@@ -24,7 +24,8 @@
       "write": [
         "${dataDir}"
       ]
-    }
+    },
+    "application": true
   },
   "android": {
     "usesCleartextTraffic": true
