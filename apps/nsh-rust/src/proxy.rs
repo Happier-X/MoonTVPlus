@@ -202,6 +202,58 @@ fn query_value(path: &str, key: &str) -> Option<String> {
     None
 }
 
+fn fetch_playlist(original: &str, config: &ProxyConfig) -> std::io::Result<(u16, String, Vec<u8>)> {
+    let playlist_url = format!(
+        "{}/api/proxy-m3u8?url={}&source=directplay",
+        config.site,
+        encode(original)
+    );
+    let (status, content_type, _range_hint, body) = fetch(&playlist_url, config, None)?;
+    Ok((status, content_type, body))
+}
+
+#[derive(Clone)]
+struct Variant {
+    label: String,
+    height: u32,
+    url: String,
+}
+
+/// Reads the variants of a master playlist, resolving relative URIs against it.
+fn variants(text: &str, original: &str) -> Vec<Variant> {
+    let base = Url::parse(original).ok();
+    let mut out = Vec::new();
+    let mut pending: Option<(String, u32)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(info) = line.strip_prefix("#EXT-X-STREAM-INF:") {
+            let height = info.split(',').find_map(|part| part.strip_prefix("RESOLUTION="))
+                .and_then(|value| value.split('x').nth(1))
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0);
+            let bandwidth = info.split(',').find_map(|part| part.strip_prefix("BANDWIDTH="))
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0);
+            let label = if height > 0 { format!("{height}p") }
+                else if bandwidth > 0 { format!("{}kbps", bandwidth / 1000) } else { "自动".to_owned() };
+            pending = Some((label, height));
+        } else if !line.is_empty() && !line.starts_with('#') {
+            if let Some((label, height)) = pending.take() {
+                let url = match &base {
+                    Some(base) => absolute(line, base),
+                    None => line.to_owned(),
+                };
+                out.push(Variant { label, height, url });
+            }
+        }
+    }
+    out
+}
+
+fn default_variant(list: &[Variant]) -> usize {
+    list.iter().enumerate().max_by_key(|(_, variant)| variant.height).map(|(index, _)| index).unwrap_or(0)
+}
+
 fn handle(mut stream: TcpStream, config: Arc<ProxyConfig>, port: u16) -> std::io::Result<()> {
     let request = read_request(&mut stream)?;
     if request.method != "GET" {
@@ -240,22 +292,53 @@ fn handle(mut stream: TcpStream, config: Arc<ProxyConfig>, port: u16) -> std::io
         };
     }
 
+    if request.path.starts_with("/qualities") {
+        let Some(original) = query_value(&request.path, "u").or_else(|| query_value(&request.path, "url")) else {
+            return respond(&mut stream, 400, "text/plain", &[], b"missing url");
+        };
+        let (status, _content_type, body) = fetch_playlist(&original, &config)?;
+        if status != 200 {
+            return respond(&mut stream, status, "text/plain", &[], &body);
+        }
+        let text = String::from_utf8_lossy(&body);
+        let list = variants(&text, &original);
+        let default = default_variant(&list);
+        let json = serde_json::json!({
+            "default": default,
+            "variants": list.iter().map(|variant| serde_json::json!({
+                "label": variant.label,
+                "height": variant.height,
+            })).collect::<Vec<_>>(),
+        });
+        return respond(&mut stream, 200, "application/json", &[], json.to_string().as_bytes());
+    }
+
     if request.path.starts_with("/a.m3u8") {
         let Some(original) = query_value(&request.path, "u").or_else(|| query_value(&request.path, "url")) else {
             return respond(&mut stream, 400, "text/plain", &[], b"missing url");
         };
-        let playlist_url = format!(
-            "{}/api/proxy-m3u8?url={}&source=directplay",
-            config.site,
-            encode(&original)
-        );
-        let (status, content_type, _range_hint, body) = fetch(&playlist_url, &config, None)?;
+        let (status, content_type, body) = fetch_playlist(&original, &config)?;
         if status != 200 {
             eprintln!("proxy GET {} -> {} {}", request.path, status, body.len());
             return respond(&mut stream, status, &content_type, &[], &body);
         }
-        let text = String::from_utf8_lossy(&body).into_owned();
-        let rewritten = rewrite_playlist(&text, &original, &config.site, port);
+        let mut text = String::from_utf8_lossy(&body).into_owned();
+        let mut base = original.clone();
+        let list = variants(&text, &original);
+        if !list.is_empty() {
+            let picked = query_value(&request.path, "q")
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|index| *index < list.len())
+                .unwrap_or_else(|| default_variant(&list));
+            base = list[picked].url.clone();
+            let (status, content_type, body) = fetch_playlist(&base, &config)?;
+            if status != 200 {
+                eprintln!("proxy GET {} variant {} -> {} {}", request.path, picked, status, body.len());
+                return respond(&mut stream, status, &content_type, &[], &body);
+            }
+            text = String::from_utf8_lossy(&body).into_owned();
+        }
+        let rewritten = rewrite_playlist(&text, &base, &config.site, port);
         eprintln!("proxy GET {} -> 200 {}", request.path, rewritten.len());
         return respond(
             &mut stream,
@@ -324,6 +407,11 @@ fn fetch_image(target: &str, config: &ProxyConfig) -> Option<(String, Vec<u8>)> 
     if target.starts_with(&config.site) {
         request = request.set("Authorization", &format!("Bearer {}", config.token));
     }
+    let referer = referer_for_image(target);
+    if !referer.is_empty() {
+        request = request.set("Referer", &referer);
+    }
+
     let response = match request.call() {
         Ok(response) => response,
         Err(ureq::Error::Status(_, response)) => response,
@@ -438,9 +526,47 @@ fn rewrite_playlist(text: &str, original: &str, _site: &str, port: u16) -> Strin
     output.join("\n")
 }
 
+/// Picks the Referer an image host expects: Douban CDNs want
+/// movie.douban.com, Bangumi wants bgm.tv, everything else its own origin.
+fn referer_for_image(target: &str) -> String {
+    let url = match Url::parse(target) {
+        Ok(url) => url,
+        Err(_) => return String::new(),
+    };
+    let host = url.host_str().unwrap_or("");
+    if host.contains("douban") {
+        return "https://movie.douban.com/".to_owned();
+    }
+    if host.contains("bgm.tv") || host.contains("bangumi") {
+        return "https://bgm.tv/".to_owned();
+    }
+    let origin = url.origin().ascii_serialization();
+    if origin == "null" {
+        String::new()
+    } else {
+        format!("{}/", origin)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::rewrite_playlist;
+    use super::{referer_for_image, rewrite_playlist};
+
+    #[test]
+    fn referer_matches_source_host() {
+        assert_eq!(
+            referer_for_image("https://img9.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg"),
+            "https://movie.douban.com/"
+        );
+        assert_eq!(
+            referer_for_image("https://lain.bgm.tv/pic/cover/l/1.jpg"),
+            "https://bgm.tv/"
+        );
+        assert_eq!(
+            referer_for_image("https://cdn.example.com/poster/x.jpg"),
+            "https://cdn.example.com/"
+        );
+    }
 
     #[test]
     fn rewrites_plain_and_tag_uris() {

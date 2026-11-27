@@ -1,10 +1,10 @@
-//! MoonTVPlus pure-Rust app: batch 1 (home modules, images, continue watching).
+//! MoonTVPlus pure-Rust app: batch 1–5 (native Rust playback, resume and HLS quality controls).
 
 mod browse;
 mod detail;
+mod playback;
 mod proxy;
 mod search;
-
 use std::pin::pin;
 use std::time::Duration;
 
@@ -201,6 +201,36 @@ async fn login(server: &str, user: &str, password: &str) -> Result<String, Strin
         .or_else(|| json["error"].as_str())
         .unwrap_or("登录失败")
         .to_owned())
+}
+
+fn save_play_record(server: &str, token: &str, selection: &detail::Selection, position: f64, duration: f64) {
+    let record = json!({
+        "title": selection.info.title,
+        "source_name": selection.info.source_name,
+        "year": selection.info.year,
+        "cover": selection.info.poster,
+        "index": selection.index + 1,
+        "total_episodes": selection.info.episodes.len(),
+        "play_time": position.max(0.0),
+        "total_time": duration.max(1.0),
+        "save_time": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_secs_f64()).unwrap_or(0.0),
+    });
+    let body = json!({
+        "key": format!("{}+{}", selection.info.source, selection.info.id),
+        "record": record,
+    }).to_string();
+    let server = server.to_owned();
+    let token = token.to_owned();
+    spawn(async move {
+        match api(&server, &token, "/api/playrecords", "POST", Some(body), true).await {
+            Ok((200..=299, _, Some(next))) => { let _ = Storage::set_item("token", &next); }
+            Ok((200..=299, _, None)) => {}
+            Ok((status, text, _)) => eprintln!("play record HTTP {status}: {text}"),
+            Err(ApiError::AuthExpired) => eprintln!("play record: session expired"),
+            Err(ApiError::Network(error)) => eprintln!("play record failed: {error}"),
+        }
+    });
 }
 
 fn save_session(server: &str, user: &str, token: &str) {
@@ -1292,58 +1322,13 @@ pub fn App() -> impl IntoElement {
                         move || page.get() == "play"
                     },
                     {
-                        let port = port_for_ui.clone();
+                        let port = proxy_port.clone();
+                        let server = server.clone();
+                        let token = token.clone();
                         let selection = details.selection.clone();
                         let page = page.clone();
                         let back = move || page.set("detail");
-                        move || {
-                            view()
-                                .flex_1()
-                                .gap_2()
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .gap_2()
-                                        .child(
-                                            view()
-                                                .px_3()
-                                                .py_2()
-                                                .rounded(px(8.0))
-                                                .bg(move || theme().muted)
-                                                .on_press({
-                                                    let back = back.clone();
-                                                    move || back()
-                                                })
-                                                .child(text("返回")),
-                                        )
-                                        .child(
-                                            text({
-                                                let selection = selection.clone();
-                                                move || { let selected = selection.get(); format!("{} · {} · 第 {} 集", selected.info.title, selected.info.source_name, selected.index + 1) }
-                                            })
-                                            .text_color(move || theme().muted_foreground),
-                                        ),
-                                )
-                                .child(
-                                    video({
-                                        let port = port.clone();
-                                        let selection = selection.clone();
-                                        move || {
-                                            if port.get() == 0 || selection.get().url.is_empty() {
-                                                String::new()
-                                            } else {
-                                                format!(
-                                                    "http://127.0.0.1:{}/a.m3u8?u={}",
-                                                    port.get(),
-                                                    urlencoding::encode(&selection.get().url)
-                                                )
-                                            }
-                                        }
-                                    })
-                                    .flex_1()
-                                    .controls(true),
-                                )
-                        }
+                        move || playback::page(port.clone(), server.clone(), token.clone(), selection.clone(), back.clone())
                     },
                 )),
         )
