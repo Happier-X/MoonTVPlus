@@ -87,8 +87,9 @@ pub struct Controller {
     pub favorites_error: Signal<String>,
     pub records_error: Signal<String>,
     pub clearing: Signal<bool>,
-    /// Confirmation step for "clear all"; reset whenever a page opens.
-    pub confirm_clear: Signal<bool>,
+    /// Shared confirmation dialog the app renders: "", "favorites",
+    /// "records" or "logout".
+    pub confirm: Signal<&'static str>,
     /// Page the favorites/history screens were opened from.
     pub origin: Signal<&'static str>,
     server: Signal<String>,
@@ -110,6 +111,7 @@ impl Controller {
         port: Signal<u16>,
         home_history: Signal<Vec<History>>,
         home_rows: Signal<Vec<Row>>,
+        confirm: Signal<&'static str>,
     ) -> Self {
         Self {
             favorites: signal(Vec::new()),
@@ -119,7 +121,7 @@ impl Controller {
             favorites_error: signal(String::new()),
             records_error: signal(String::new()),
             clearing: signal(false),
-            confirm_clear: signal(false),
+            confirm,
             origin: signal("home"),
             server,
             token,
@@ -156,9 +158,27 @@ impl Controller {
 
     pub fn open_me(&self) {
         self.page.set("me");
-        self.confirm_clear.set(false);
+        self.confirm.set("");
         self.load_favorites(None);
         self.load_records(None);
+    }
+
+    /// Opens the shared confirmation dialog for a clear action.
+    pub fn request_clear(&self, kind: &'static str) {
+        self.confirm.set(kind);
+    }
+
+    /// Drops per-account data, for logout.
+    pub fn reset(&self) {
+        self.favorites.set(Vec::new());
+        self.records.set(Vec::new());
+        self.favorites_error.set(String::new());
+        self.records_error.set(String::new());
+        self.confirm.set("");
+        self.origin.set("home");
+        self.home_history.set(Vec::new());
+        self.home_rows
+            .set(self.home_rows.get().into_iter().filter(|row| row.kind != "history").collect());
     }
 
     fn remember_origin(&self) {
@@ -169,14 +189,14 @@ impl Controller {
     pub fn open_favorites(&self) {
         self.remember_origin();
         self.page.set("favorites");
-        self.confirm_clear.set(false);
+        self.confirm.set("");
         self.load_favorites(None);
     }
 
     pub fn open_history(&self) {
         self.remember_origin();
         self.page.set("history");
-        self.confirm_clear.set(false);
+        self.confirm.set("");
         self.load_records(None);
     }
 
@@ -288,7 +308,6 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
-        self.confirm_clear.set(false);
         self.favorites.set(
             self.favorites
                 .get()
@@ -325,7 +344,6 @@ impl Controller {
 
     /// `DELETE /api/favorites` with no key clears everything.
     pub fn clear_favorites(&self) {
-        self.confirm_clear.set(false);
         if self.favorites.get().is_empty() || self.clearing.get() {
             return;
         }
@@ -363,7 +381,6 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
-        self.confirm_clear.set(false);
         self.records.set(
             self.records
                 .get()
@@ -401,7 +418,6 @@ impl Controller {
 
     /// `DELETE /api/playrecords` with the visible keys, as the site does.
     pub fn clear_records(&self) {
-        self.confirm_clear.set(false);
         if self.clearing.get() {
             return;
         }
@@ -541,81 +557,19 @@ fn retry_button(run: impl Fn() + Clone + 'static, scale: f32) -> impl IntoElemen
         )
 }
 
-/// Two-step "clear all": the first press asks, the second runs `clear`.
-fn clear_action(
-    controller: &Controller,
-    clear: impl Fn() + Clone + 'static,
-    scale: f32,
-) -> impl IntoElement {
-    let confirm = controller.confirm_clear.clone();
-    let open_confirm = confirm.clone();
-    let cancel_confirm = confirm.clone();
-    let run_clear = clear.clone();
+/// "清空" opens the app-wide confirmation dialog; the dialog runs the clear.
+fn clear_button(kind: &'static str, controller: &Controller, scale: f32) -> impl IntoElement {
+    let c = controller.clone();
     view()
-        .flex_row()
-        .items_center()
-        .gap(px(8.0 * scale))
-        .child(when(
-            {
-                let confirm = confirm.clone();
-                move || confirm.get()
-            },
-            {
-                let run_clear = run_clear.clone();
-                move || {
-                    let cancel_confirm = cancel_confirm.clone();
-                    let run_clear = run_clear.clone();
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.0 * scale))
-                        .child(
-                            view()
-                                .px(px(10.0 * scale))
-                                .py(px(6.0 * scale))
-                                .rounded(px(8.0 * scale))
-                                .on_press(move || cancel_confirm.set(false))
-                                .child(
-                                    text("取消")
-                                        .text_size(px(13.0 * scale))
-                                        .text_color(move || theme().muted_foreground),
-                                ),
-                        )
-                        .child(
-                            view()
-                                .px(px(10.0 * scale))
-                                .py(px(6.0 * scale))
-                                .rounded(px(8.0 * scale))
-                                .bg(rgb(0xCC2222))
-                                .on_press(move || run_clear())
-                                .child(
-                                    text("确认清空")
-                                        .text_size(px(13.0 * scale))
-                                        .text_color(rgb(0xffffff)),
-                                ),
-                        )
-                }
-            },
-        ))
-        .child(when(
-            {
-                let confirm = confirm.clone();
-                move || !confirm.get()
-            },
-            move || {
-                let open_confirm = open_confirm.clone();
-                view()
-                    .px(px(10.0 * scale))
-                    .py(px(6.0 * scale))
-                    .rounded(px(8.0 * scale))
-                    .on_press(move || open_confirm.set(true))
-                    .child(
-                        text("清空")
-                            .text_size(px(13.0 * scale))
-                            .text_color(move || theme().muted_foreground),
-                    )
-            },
-        ))
+        .px(px(10.0 * scale))
+        .py(px(6.0 * scale))
+        .rounded(px(8.0 * scale))
+        .on_press(move || c.request_clear(kind))
+        .child(
+            text("清空")
+                .text_size(px(13.0 * scale))
+                .text_color(move || theme().muted_foreground),
+        )
 }
 
 pub fn favorites_page(
@@ -632,10 +586,6 @@ pub fn favorites_page(
     let loading = controller.favorites_loading.clone();
     let error = controller.favorites_error.clone();
     let retry = controller.clone();
-    let clear = {
-        let c = controller.clone();
-        move || c.clear_favorites()
-    };
     scroll().flex_1().child(
         view()
             .gap(px(4.0 * scale))
@@ -647,7 +597,7 @@ pub fn favorites_page(
                     .items_center()
                     .justify_end()
                     .px(px(12.0 * scale))
-                    .child(clear_action(&controller, clear, scale)),
+                    .child(clear_button("favorites", &controller, scale)),
             )
             .child(when(
                 {
@@ -877,10 +827,6 @@ pub fn history_page(
     let loading = controller.records_loading.clone();
     let error = controller.records_error.clone();
     let retry = controller.clone();
-    let clear = {
-        let c = controller.clone();
-        move || c.clear_records()
-    };
     scroll().flex_1().child(
         view()
             .gap(px(4.0 * scale))
@@ -892,7 +838,7 @@ pub fn history_page(
                     .items_center()
                     .justify_end()
                     .px(px(12.0 * scale))
-                    .child(clear_action(&controller, clear, scale)),
+                    .child(clear_button("records", &controller, scale)),
             )
             .child(when(
                 {
@@ -1094,9 +1040,23 @@ fn record_row(
         )
 }
 
+const REPO_URL: &str = "https://github.com/Happier-X/MoonTVPlus";
+
+/// The version comes from the app manifest, not a literal in this file.
+fn app_version() -> String {
+    serde_json::from_str::<serde_json::Value>(include_str!("../nsh.json"))
+        .ok()
+        .and_then(|value| value["version"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| "未知".to_owned())
+}
+
 pub fn me_page(
     controller: Controller,
     username: Signal<String>,
+    server: Signal<String>,
+    dark: ReadSignal<bool>,
+    toggle_theme: impl Fn() + Clone + 'static,
+    ask_logout: impl Fn() + 'static,
     back: impl Fn() + Clone + 'static,
     scale: f32,
 ) -> impl IntoElement {
@@ -1106,7 +1066,7 @@ pub fn me_page(
     let open_history = controller.clone();
     scroll().flex_1().child(
         view()
-            .gap(px(12.0 * scale))
+            .gap(px(10.0 * scale))
             .pb(px(24.0 * scale))
             .child(page_header("我的", back, scale))
             .child(
@@ -1149,6 +1109,24 @@ pub fn me_page(
                         .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
                     ),
             )
+            .child(section_title("账号", scale))
+            .child(info_row(
+                "用户名",
+                {
+                    let username = username.clone();
+                    move || username.get()
+                },
+                scale,
+            ))
+            .child(info_row(
+                "服务器",
+                {
+                    let server = server.clone();
+                    move || server.get()
+                },
+                scale,
+            ))
+            .child(section_title("内容", scale))
             .child(me_entry(
                 ICON_LIST,
                 "我的收藏",
@@ -1174,8 +1152,122 @@ pub fn me_page(
                     move || c.open_history()
                 },
                 scale,
-            )),
+            ))
+            .child(section_title("外观", scale))
+            .child(
+                view()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(12.0 * scale))
+                    .mx(px(16.0 * scale))
+                    .px(px(14.0 * scale))
+                    .py(px(12.0 * scale))
+                    .rounded(px(10.0 * scale))
+                    .bg(move || theme().muted)
+                    .on_press({
+                        let toggle = toggle_theme.clone();
+                        move || toggle()
+                    })
+                    .child(
+                        image(move || if dark.get() { ICON_SUN } else { ICON_MOON })
+                            .w(px(20.0 * scale))
+                            .h(px(20.0 * scale))
+                            .tint_color(move || theme().foreground),
+                    )
+                    .child(
+                        text("深色模式")
+                            .flex_1()
+                            .text_size(px(15.0 * scale))
+                            .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        when(
+                            {
+                                let dark = dark.clone();
+                                move || dark.get()
+                            },
+                            move || switch_pill(true, scale),
+                        )
+                        .otherwise(move || switch_pill(false, scale)),
+                    ),
+            )
+            .child(section_title("关于", scale))
+            .child(info_row("版本", app_version, scale))
+            .child(info_row("开源地址", || REPO_URL.to_owned(), scale))
+            .child(
+                view()
+                    .mx(px(16.0 * scale))
+                    .mt(px(12.0 * scale))
+                    .py(px(12.0 * scale))
+                    .rounded(px(10.0 * scale))
+                    .items_center()
+                    .bg(move || theme().muted)
+                    .on_press(move || ask_logout())
+                    .child(
+                        text("退出登录")
+                            .text_size(px(15.0 * scale))
+                            .font_weight(nsh_core::element::FontWeight::SEMIBOLD)
+                            .text_color(rgb(0xCC2222)),
+                    ),
+            ),
     )
+}
+
+fn switch_pill(on: bool, scale: f32) -> impl IntoElement {
+    let pill = view()
+        .w(px(44.0 * scale))
+        .h(px(24.0 * scale))
+        .rounded(px(12.0 * scale))
+        .p(px(2.0 * scale))
+        .flex_row()
+        .items_center();
+    let pill = if on {
+        pill.bg(BRAND).justify_end()
+    } else {
+        pill.bg(move || theme().border).justify_start()
+    };
+    pill.child(
+        view()
+            .w(px(20.0 * scale))
+            .h(px(20.0 * scale))
+            .rounded(px(10.0 * scale))
+            .bg(rgb(0xffffff)),
+    )
+}
+
+fn section_title(title: &'static str, scale: f32) -> impl IntoElement {
+    text(title)
+        .px(px(16.0 * scale))
+        .pt(px(8.0 * scale))
+        .text_size(px(12.0 * scale))
+        .text_color(move || theme().muted_foreground)
+}
+
+fn info_row(
+    label: &'static str,
+    value: impl Fn() -> String + 'static,
+    scale: f32,
+) -> impl IntoElement {
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(12.0 * scale))
+        .mx(px(16.0 * scale))
+        .px(px(14.0 * scale))
+        .py(px(12.0 * scale))
+        .rounded(px(10.0 * scale))
+        .bg(move || theme().muted)
+        .child(
+            text(label)
+                .text_size(px(14.0 * scale))
+                .text_color(move || theme().muted_foreground),
+        )
+        .child(
+            text(value)
+                .flex_1()
+                .text_size(px(14.0 * scale))
+                .number_of_lines(1),
+        )
 }
 
 fn me_entry(
@@ -1191,7 +1283,7 @@ fn me_entry(
         .gap(px(12.0 * scale))
         .mx(px(16.0 * scale))
         .px(px(14.0 * scale))
-        .py(px(14.0 * scale))
+        .py(px(12.0 * scale))
         .rounded(px(10.0 * scale))
         .bg(move || theme().muted)
         .on_press(move || open())

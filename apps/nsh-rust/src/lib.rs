@@ -516,6 +516,8 @@ pub fn App() -> impl IntoElement {
     let stage = signal("idle".to_owned());
     let refreshing = signal(false);
     let rows = signal(Vec::<Row>::new());
+    // One confirmation dialog for every destructive action.
+    let confirm = signal("");
     let library = library::Controller::new(
         server.clone(),
         token.clone(),
@@ -524,6 +526,7 @@ pub fn App() -> impl IntoElement {
         proxy_port.clone(),
         history.clone(),
         rows.clone(),
+        confirm.clone(),
     );
     let scale = signal(1.0_f32);
     effect(move || {
@@ -809,7 +812,7 @@ pub fn App() -> impl IntoElement {
 
     let clear_records = {
         let library = library.clone();
-        move || library.clear_records()
+        move || library.request_clear("records")
     };
 
     let run_search = {
@@ -900,6 +903,7 @@ pub fn App() -> impl IntoElement {
         let busy = busy.clone();
         let message = message.clone();
         let error = error.clone();
+        let load = load_home.clone();
         move || {
             if busy.get() {
                 return;
@@ -915,6 +919,7 @@ pub fn App() -> impl IntoElement {
             let busy = busy.clone();
             let message = message.clone();
             let error = error.clone();
+            let load = load.clone();
             spawn(async move {
                 match login(&server_value, &user_value, &password_value).await {
                     Ok(value) => {
@@ -922,6 +927,8 @@ pub fn App() -> impl IntoElement {
                         token.set(value);
                         page.set("home");
                         message.set("登录成功".to_owned());
+                        // Load the home modules again after a logout/login.
+                        load();
                     }
                     Err(reason) => {
                         error.set(reason);
@@ -954,12 +961,19 @@ pub fn App() -> impl IntoElement {
         let message = message.clone();
         let proxy_port = proxy_port.clone();
         let modules = modules.clone();
+        let rows = rows.clone();
+        let library = library.clone();
         move || {
+            // clear_session stops the proxy and drops token/username.
             clear_session();
             token.set(String::new());
+            // Leave the login page first, so the proxy effect cannot restart
+            // with the empty token.
+            page.set("login");
             proxy_port.set(0);
             modules.set(Vec::new());
-            page.set("login");
+            rows.set(Vec::new());
+            library.reset();
             message.set("已退出登录".to_owned());
         }
     };
@@ -974,6 +988,7 @@ pub fn App() -> impl IntoElement {
 
     view()
         .flex_1()
+        .relative()
         .bg(move || theme().background)
         .text_color(move || theme().foreground)
         .p_safe_area()
@@ -1291,13 +1306,29 @@ pub fn App() -> impl IntoElement {
                         let library = library.clone();
                         let scale = scale.clone();
                         let username = username.clone();
+                        let server = server.clone();
+                        let dark = dark_for_ui.clone();
+                        let toggle = toggle_theme.clone();
+                        let logout = logout.clone();
                         let page = page.clone();
                         move || {
                             let back = {
                                 let page = page.clone();
                                 move || page.set("home")
                             };
-                            library::me_page(library.clone(), username.clone(), back, scale.get())
+                            library::me_page(
+                                library.clone(),
+                                username.clone(),
+                                server.clone(),
+                                dark.read_only(),
+                                toggle.clone(),
+                                {
+                                    let logout = logout.clone();
+                                    move || logout()
+                                },
+                                back,
+                                scale.get(),
+                            )
                         }
                     },
                 ))
@@ -1410,6 +1441,116 @@ pub fn App() -> impl IntoElement {
                 }
             },
         ))
+        .child(confirm_dialog(
+            confirm.clone(),
+            scale.read_only(),
+            {
+                let kind = confirm.clone();
+                let library = library.clone();
+                let logout = logout.clone();
+                move || {
+                    match kind.get() {
+                        "favorites" => library.clear_favorites(),
+                        "records" => library.clear_records(),
+                        "logout" => logout(),
+                        _ => {}
+                    }
+                    kind.set("");
+                }
+            },
+            {
+                let kind = confirm.clone();
+                move || kind.set("")
+            },
+        ))
+}
+
+/// The single confirmation dialog behind every destructive action.
+fn confirm_dialog(
+    kind: Signal<&'static str>,
+    scale: ReadSignal<f32>,
+    run: impl Fn() + Clone + 'static,
+    cancel: impl Fn() + Clone + 'static,
+) -> impl IntoElement {
+    let show = kind.clone();
+    when(
+        move || !show.get().is_empty(),
+        {
+            let run = run.clone();
+            let cancel = cancel.clone();
+            let kind = kind.clone();
+            move || {
+                let message = match kind.get() {
+                    "favorites" => "确定清空全部收藏？",
+                    "records" => "确定清空全部播放记录？",
+                    "logout" => "确定退出登录？",
+                    _ => "",
+                };
+                let sc = scale.get();
+                let dismiss = cancel.clone();
+                let dismiss_button = cancel.clone();
+                let run = run.clone();
+                view()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        view()
+                            .absolute()
+                            .inset_0()
+                            .bg(rgba(0x00000080))
+                            .on_press(move || dismiss()),
+                    )
+                    .child(
+                        view()
+                            .w(px(280.0 * sc))
+                            .rounded(px(14.0 * sc))
+                            .bg(move || theme().background)
+                            .p(px(20.0 * sc))
+                            .gap(px(18.0 * sc))
+                            .child(
+                                text(message.to_owned())
+                                    .text_size(px(15.0 * sc))
+                                    .font_weight(nsh_core::element::FontWeight::SEMIBOLD),
+                            )
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .justify_end()
+                                    .gap(px(10.0 * sc))
+                                    .child(
+                                        view()
+                                            .px(px(16.0 * sc))
+                                            .py(px(8.0 * sc))
+                                            .rounded(px(8.0 * sc))
+                                            .bg(move || theme().muted)
+                                            .on_press(move || dismiss_button())
+                                            .child(
+                                                text("取消")
+                                                    .text_size(px(14.0 * sc))
+                                                    .text_color(move || theme().foreground),
+                                            ),
+                                    )
+                                    .child(
+                                        view()
+                                            .px(px(16.0 * sc))
+                                            .py(px(8.0 * sc))
+                                            .rounded(px(8.0 * sc))
+                                            .bg(rgb(0xCC2222))
+                                            .on_press(move || run())
+                                            .child(
+                                                text("确认")
+                                                    .text_size(px(14.0 * sc))
+                                                    .text_color(rgb(0xffffff)),
+                                            ),
+                                    ),
+                            ),
+                    )
+            }
+        },
+    )
+    .otherwise(|| view())
 }
 
 fn row_view(
