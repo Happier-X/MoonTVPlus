@@ -1,8 +1,8 @@
 {
   "name": "MoonTVPlus Rust",
-  "id": "com.example.moontvplusrust",
-  "version": "1.0.0",
-  "build": 1,
+  "id": "com.moontvplus.phone",
+  "version": "1.9.21",
+  "build": 31,
   "rust": ".",
   "root": "App",
   "capabilities": {
