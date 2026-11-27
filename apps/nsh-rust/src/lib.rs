@@ -2,6 +2,7 @@
 
 mod browse;
 mod detail;
+mod install;
 mod library;
 mod playback;
 mod proxy;
@@ -531,6 +532,7 @@ pub fn App() -> impl IntoElement {
     );
     let update_notice = signal(String::new());
     let update = update::Controller::new(server.clone(), update_notice.clone());
+    let download = install::Download::new();
     let scale = signal(1.0_f32);
     effect(move || {
         let width = window().width.0;
@@ -1493,6 +1495,7 @@ pub fn App() -> impl IntoElement {
         .child(update_dialog(
             update.show(),
             update.latest(),
+            download.clone(),
             scale.read_only(),
             {
                 let update = update.clone();
@@ -1500,16 +1503,22 @@ pub fn App() -> impl IntoElement {
             },
             {
                 let update = update.clone();
-                move || update.close()
+                let download = download.clone();
+                move || {
+                    download.reset();
+                    update.close()
+                }
             },
         ))
 }
 
 
-/// The update dialog: what the site's manifest says, with a download link.
+/// The update dialog: what the site's manifest says, and the download that
+/// hands the APK to the system installer.
 fn update_dialog(
     show: Signal<bool>,
     latest: Signal<update::Latest>,
+    download: install::Download,
     scale: ReadSignal<f32>,
     open: impl Fn() + Clone + 'static,
     later: impl Fn() + Clone + 'static,
@@ -1574,48 +1583,154 @@ fn update_dialog(
                                         .text_color(move || theme().muted_foreground),
                                 ),
                             )
-                            .child(
-                                text("需要到下载页手动安装，应用不会自动下载。")
-                                    .text_size(px(11.0 * sc))
-                                    .text_color(move || theme().muted_foreground),
-                            )
-                            .child(
-                                view()
-                                    .flex_row()
-                                    .justify_end()
-                                    .gap(px(10.0 * sc))
-                                    .child(
-                                        view()
-                                            .px(px(16.0 * sc))
-                                            .py(px(8.0 * sc))
-                                            .rounded(px(8.0 * sc))
-                                            .bg(move || theme().muted)
-                                            .on_press(move || later_button())
-                                            .child(
-                                                text("稍后")
-                                                    .text_size(px(14.0 * sc))
-                                                    .text_color(move || theme().foreground),
-                                            ),
-                                    )
-                                    .child(
-                                        view()
-                                            .px(px(16.0 * sc))
-                                            .py(px(8.0 * sc))
-                                            .rounded(px(8.0 * sc))
-                                            .bg(BRAND)
-                                            .on_press(move || open_page())
-                                            .child(
-                                                text("打开下载页")
-                                                    .text_size(px(14.0 * sc))
-                                                    .text_color(rgb(0xffffff)),
-                                            ),
-                                    ),
-                            ),
+                            .child(dynamic({
+                                let state = download.state();
+                                let size = info.apk_size;
+                                move || {
+                                    let (line, fraction) = install_status(&state.get(), size);
+                                    view()
+                                        .gap(px(6.0 * sc))
+                                        .child(
+                                            text(line)
+                                                .text_size(px(11.0 * sc))
+                                                .line_height(px(17.0 * sc))
+                                                .text_color(move || theme().muted_foreground),
+                                        )
+                                        .child(when(
+                                            move || fraction > 0.0,
+                                            move || {
+                                                view()
+                                                    .h(px(4.0 * sc))
+                                                    .rounded(px(2.0 * sc))
+                                                    .bg(move || theme().muted)
+                                                    .child(
+                                                        view()
+                                                            .w(px(260.0 * sc * fraction))
+                                                            .h(px(4.0 * sc))
+                                                            .rounded(px(2.0 * sc))
+                                                            .bg(BRAND),
+                                                    )
+                                            },
+                                        ))
+                                }
+                            }))
+                            .child(dynamic({
+                                let state = download.state();
+                                let download = download.clone();
+                                let start = info.clone();
+                                let open_page = open_page.clone();
+                                let later_button = later_button.clone();
+                                move || {
+                                    let row = view().flex_row().justify_end().gap(px(10.0 * sc));
+                                    match state.get() {
+                                        install::State::Running { .. } | install::State::Verifying => {
+                                            let download = download.clone();
+                                            row.child(plain_button("取消", sc, move || download.cancel()))
+                                        }
+                                        install::State::Ready(path) => {
+                                            let dismiss = later_button.clone();
+                                            let install = download.clone();
+                                            row.child(plain_button("稍后", sc, move || dismiss()))
+                                                .child(primary_button("安装", sc, move || install.install(path.clone())))
+                                        }
+                                        install::State::Failed(_) | install::State::Cancelled => {
+                                            let dismiss = later_button.clone();
+                                            let page = open_page.clone();
+                                            row.child(plain_button("关闭", sc, move || dismiss()))
+                                                .child(plain_button("打开下载页", sc, move || page()))
+                                        }
+                                        install::State::Idle => {
+                                            let dismiss = later_button.clone();
+                                            let install = download.clone();
+                                            let start = start.clone();
+                                            row.child(plain_button("稍后", sc, move || dismiss()))
+                                                .child(primary_button("下载并安装", sc, move || {
+                                                    install.start(
+                                                        start.version.clone(),
+                                                        start.page.clone(),
+                                                        start.apk_size,
+                                                        start.apk_sha256.clone(),
+                                                        start.version_code,
+                                                    )
+                                                }))
+                                        }
+                                    }
+                                }
+                            })),
                     )
             }
         },
     )
     .otherwise(|| view())
+}
+
+/// What the download line says, and how full its bar is (0 hides it).
+fn install_status(state: &install::State, size: Option<u64>) -> (String, f32) {
+    match state {
+        install::State::Idle => (
+            match size {
+                Some(size) => format!(
+                    "更新包 {}，下载后校验通过再交给系统安装器。",
+                    install::human(size)
+                ),
+                None => "下载后校验通过再交给系统安装器。".to_owned(),
+            },
+            0.0,
+        ),
+        install::State::Running { done, total } => {
+            let total = if *total == 0 { *done } else { *total };
+            let fraction = if total == 0 {
+                0.0
+            } else {
+                *done as f32 / total as f32
+            };
+            (
+                format!(
+                    "正在下载 {} / {}（{}%）",
+                    install::human(*done),
+                    install::human(total),
+                    (fraction * 100.0).round() as i32
+                ),
+                fraction,
+            )
+        }
+        install::State::Verifying => ("正在校验 SHA-256…".to_owned(), 1.0),
+        install::State::Ready(_) => (
+            "已下载并通过校验。若系统提示禁止安装，请在设置的「安装未知应用」里允许本应用，再点「安装」。"
+                .to_owned(),
+            1.0,
+        ),
+        install::State::Failed(message) => (message.clone(), 0.0),
+        install::State::Cancelled => ("已取消下载，临时文件已删除。".to_owned(), 0.0),
+    }
+}
+
+fn plain_button(label: &'static str, sc: f32, press: impl Fn() + 'static) -> impl IntoElement {
+    view()
+        .px(px(16.0 * sc))
+        .py(px(8.0 * sc))
+        .rounded(px(8.0 * sc))
+        .bg(move || theme().muted)
+        .on_press(press)
+        .child(
+            text(label)
+                .text_size(px(14.0 * sc))
+                .text_color(move || theme().foreground),
+        )
+}
+
+fn primary_button(label: &'static str, sc: f32, press: impl Fn() + 'static) -> impl IntoElement {
+    view()
+        .px(px(16.0 * sc))
+        .py(px(8.0 * sc))
+        .rounded(px(8.0 * sc))
+        .bg(BRAND)
+        .on_press(press)
+        .child(
+            text(label)
+                .text_size(px(14.0 * sc))
+                .text_color(rgb(0xffffff)),
+        )
 }
 
 /// The single confirmation dialog behind every destructive action.

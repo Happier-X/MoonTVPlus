@@ -1,8 +1,10 @@
-//! Batch 8: the site's `/downloads/latest.json` update check.
+//! Batch 8: the site's `/downloads/latest.json` update check; batch 10 adds
+//! the download itself ([`install`]).
 //!
 //! The Cloudflare deploy workflow writes that file with `version`,
-//! `versionCode`, `notes` and `apk { name, url, size, sha256 }`. Nothing is
-//! downloaded or installed here: the dialog only offers the download page.
+//! `versionCode`, `notes` and `apk { name, url, size, sha256 }`. `apk.url`
+//! serves the signed APK itself, so it is both the download and the manual
+//! fallback.
 use super::*;
 
 /// Fields of `/downloads/latest.json` the app uses.
@@ -11,13 +13,26 @@ pub struct Latest {
     pub version: String,
     pub version_code: Option<i64>,
     pub notes: String,
-    /// Download page to open (`apk.url`), empty when the manifest has none.
+    /// `apk.url`: the signed APK, and the page to open when a download is
+    /// refused. Empty when the manifest has none.
     pub page: String,
+    /// `apk.size` and `apk.sha256`: what the downloaded file must be.
+    pub apk_size: Option<u64>,
+    pub apk_sha256: String,
 }
 
 /// The app's own version from `nsh.json`, read at compile time.
 pub fn local_version() -> String {
     library::app_version()
+}
+
+/// The app's own build number (`nsh.json` `build`), for the "not newer"
+/// check before a download starts.
+pub fn local_build() -> i64 {
+    serde_json::from_str::<serde_json::Value>(include_str!("../nsh.json"))
+        .ok()
+        .and_then(|value| value["build"].as_i64())
+        .unwrap_or(0)
 }
 
 /// Splits a version at its first `-`/`+`: the numeric parts and the
@@ -170,6 +185,8 @@ impl Controller {
                 version_code: value["versionCode"].as_i64(),
                 notes: plain_notes(notes),
                 page: value["apk"]["url"].as_str().unwrap_or_default().to_owned(),
+                apk_size: value["apk"]["size"].as_u64(),
+                apk_sha256: value["apk"]["sha256"].as_str().unwrap_or_default().to_owned(),
             });
             this.notice.set(String::new());
             this.show.set(true);

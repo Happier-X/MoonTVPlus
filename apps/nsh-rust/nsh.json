@@ -28,6 +28,9 @@
     "application": true
   },
   "android": {
-    "usesCleartextTraffic": true
+    "usesCleartextTraffic": true,
+    "permissions": [
+      "REQUEST_INSTALL_PACKAGES"
+    ]
   }
 }
