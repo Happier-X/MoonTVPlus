@@ -26,6 +26,27 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let seek_issued = signal(false);
     let manual_seek = signal(false);
     let restore_pending = signal(initial.resume.is_none());
+    let restore_failed = signal(false);
+    let seek_generation = signal(0_u64);
+    // Each target change owns a deadline; obsolete deadlines cannot fail a newer seek.
+    effect({
+        let target = seek_target.clone(); let error = error.clone();
+        move || {
+            let pending = target.get();
+            let generation = seek_generation.get_untracked() + 1;
+            seek_generation.set(generation);
+            if pending.is_none() { return; }
+            let target = target.clone(); let error = error.clone();
+            let task = spawn(async move {
+                timer(PAGE_TIMEOUT).await;
+                if seek_generation.get() == generation && target.get().is_some() {
+                    restore_failed.set(true);
+                    error.set("恢复播放位置超时，原记录已保留，请重试".to_owned());
+                }
+            });
+            std::mem::forget(task);
+        }
+    });
     let ref_handle = nsh_core::element::element_ref();
 
     // Restore the active episode from the authenticated site's exact record key.
@@ -56,9 +77,11 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         let manual_seek = manual_seek.clone();
         let restore_pending = restore_pending.clone();
         let seek_issued = seek_issued.clone();
+        let resume_error = error.clone();
         let task = spawn(async move {
-            match api(&server, &token, "/api/playrecords", "GET", None, true).await {
-                Ok((200, text, _)) => {
+            let result = bounded(api(&server, &token, "/api/playrecords", "GET", None, true), timer(PAGE_TIMEOUT)).await;
+            match result {
+                Ok(Ok((200, text, _))) => {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                         let record = &json[&key];
                         let watched = record["play_time"].as_f64().unwrap_or(0.0);
@@ -74,9 +97,11 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                         }
                     }
                 }
-                Ok((status, _, _)) => eprintln!("resume record HTTP {status}"),
-                Err(ApiError::AuthExpired) => eprintln!("resume record: session expired"),
-                Err(ApiError::Network(error)) => eprintln!("resume record failed: {error}"),
+                _ => {
+                    restore_failed.set(true);
+                    resume_error.set("读取续播记录失败或超时，原记录已保留；请返回后重试".to_owned());
+                }
+
             }
             restore_pending.set(false);
         });
@@ -146,7 +171,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         move |force: bool| {
         let selected = save_selection.get();
         if selected.url.is_empty() { return; }
-        if restore_pending.get() || save_target.get().is_some() || !save_loaded.get() || save_position.get() <= 0.5 { return; }
+        if restore_failed.get() || restore_pending.get() || save_target.get().is_some() || !save_loaded.get() || save_position.get() <= 0.5 { return; }
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|value| value.as_secs_f64()).unwrap_or(0.0);
             let mut last = last_saved.lock().unwrap_or_else(|error| error.into_inner());
@@ -193,6 +218,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                         if !issued.get() || !current.is_finite() || (current - expected).abs() > 2.0 { return; }
                         target.set(None);
                         issued.set(false);
+                        restore_failed.set(false);
                     }
                     if current.is_finite() && current >= 0.0 { position.set(current); }
                     save(false);
