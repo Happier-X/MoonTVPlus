@@ -4,15 +4,24 @@ use detail::Selection;
 
 pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, selection: Signal<Selection>, back: impl Fn() + Clone + 'static) -> impl IntoElement {
     let paused = signal(false);
-    let position = signal(0.0_f64);
-    let duration = signal(0.0_f64);
+    let initial = selection.get();
+    let carried = initial.resume.as_ref().filter(|record| {
+        record.key == format!("{}+{}", initial.info.source, initial.info.id)
+            && record.index == (initial.index + 1) as f64
+            && record.total_time.is_finite() && record.total_time > 0.0
+            && record.play_time.is_finite() && record.play_time >= 0.0
+    });
+    let initial_total = carried.map(|record| record.total_time).unwrap_or(0.0);
+    let initial_position = carried.map(|record| record.play_time.clamp(0.0, record.total_time)).unwrap_or(0.0);
+    let position = signal(initial_position);
+    let duration = signal(initial_total);
     let loaded = signal(false);
     let error = signal(String::new());
     let qualities = signal(Vec::<String>::new());
     let quality = signal(0_usize);
     let bar_width = signal(0.0_f32);
     let drag_start = signal(0.0_f32);
-    let seek_target = signal(None::<f64>);
+    let seek_target = signal(if initial_position > 0.0 { Some(initial_position) } else { None::<f64> });
     let ref_handle = nsh_core::element::element_ref();
 
     // Restore the active episode from the authenticated site's exact record key.
@@ -27,6 +36,9 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let restart_attempt = signal(0_u64);
     effect(move || {
         let selected = resume_selection.get();
+        // A carried record initializes state before Video mounts: no late GET
+        // may overwrite the user's subsequent seek or newly saved position.
+        if selected.resume.is_some() { return; }
         let key = format!("{}+{}", selected.info.source, selected.info.id);
         if key.is_empty() { return; }
         let server = resume_server.get();
@@ -119,13 +131,14 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let save_server = server.clone();
     let save_token = token.clone();
     let save_loaded = loaded.clone();
+    let save_target = seek_target.clone();
     let last_saved = std::sync::Arc::new(std::sync::Mutex::new(0.0_f64));
     let save_progress = {
         let last_saved = last_saved.clone();
         move |force: bool| {
         let selected = save_selection.get();
         if selected.url.is_empty() { return; }
-        if !save_loaded.get() || save_position.get() <= 0.5 { return; }
+        if save_target.get().is_some() || !save_loaded.get() || save_position.get() <= 0.5 { return; }
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|value| value.as_secs_f64()).unwrap_or(0.0);
             let mut last = last_saved.lock().unwrap_or_else(|error| error.into_inner());

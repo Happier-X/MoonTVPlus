@@ -19,6 +19,7 @@ pub struct Selection {
     pub info: Info,
     pub index: usize,
     pub url: String,
+    pub resume: Option<History>,
 }
 
 #[derive(Clone)]
@@ -357,8 +358,9 @@ impl Controller {
             self.error.set("该集不是可交给现有播放器的 HTTP(S) 地址，请换源".to_owned());
             return;
         }
+        let resume = self.pending_resume.get();
         self.pending_resume.set(None);
-        self.selection.set(Selection { info, index, url });
+        self.selection.set(Selection { info, index, url, resume });
         self.page.set("play");
     }
 }
