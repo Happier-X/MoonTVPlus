@@ -5,6 +5,18 @@ use detail::Selection;
 pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, selection: Signal<Selection>, back: impl Fn() + Clone + 'static) -> impl IntoElement {
     let paused = signal(false);
     let initial = selection.get();
+    let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    nsh_core::element::reactive::cleanup({
+        let alive = alive.clone();
+        move || alive.store(false, std::sync::atomic::Ordering::Release)
+    });
+    let current_instance = {
+        let alive = alive.clone(); let selection = selection.clone();
+        let server = server.clone(); let token = token.clone();
+        let identity = initial.clone(); let site = server.get(); let session = token.get();
+        move || alive.load(std::sync::atomic::Ordering::Acquire)
+            && selection.get() == identity && server.get() == site && token.get() == session
+    };
     let carried = initial.resume.as_ref().filter(|record| {
         record.key == format!("{}+{}", initial.info.source, initial.info.id)
             && record.index == (initial.index + 1) as f64
@@ -59,6 +71,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let resume_loaded = loaded.clone();
     let resume_handle = ref_handle.clone();
     let restart_attempt = signal(0_u64);
+    let resume_instance = current_instance.clone();
     effect(move || {
         let selected = resume_selection.get();
         // A carried record initializes state before Video mounts: no late GET
@@ -78,8 +91,10 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         let restore_pending = restore_pending.clone();
         let seek_issued = seek_issued.clone();
         let resume_error = error.clone();
+        let current_instance = resume_instance.clone();
         let task = spawn(async move {
             let result = bounded(api(&server, &token, "/api/playrecords", "GET", None, true), timer(PAGE_TIMEOUT)).await;
+            if !current_instance() { return; }
             match result {
                 Ok(Ok((200, text, _))) => {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
@@ -167,8 +182,10 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let save_target = seek_target.clone();
     let last_saved = std::sync::Arc::new(std::sync::Mutex::new(0.0_f64));
     let save_progress = {
+        let current_instance = current_instance.clone();
         let last_saved = last_saved.clone();
         move |force: bool| {
+        if !current_instance() { return; }
         let selected = save_selection.get();
         if selected.url.is_empty() { return; }
         if restore_failed.get() || restore_pending.get() || save_target.get().is_some() || !save_loaded.get() || save_position.get() <= 0.5 { return; }
@@ -200,16 +217,18 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             format!("http://127.0.0.1:{}/a.m3u8?u={}&q={}&r={attempt}", make_source_port.get(), urlencoding::encode(&selected.url), video_quality.get())
         }).flex_1().controls(false).paused(paused.clone())
             .element_ref(&ref_handle)
-            .on_load({ let seek_issued = seek_issued.clone(); let duration = duration.clone(); let loaded = loaded.clone(); let target = seek_target.clone(); let handle = ref_handle.clone();
+            .on_load({ let valid = current_instance.clone(); let seek_issued = seek_issued.clone(); let duration = duration.clone(); let loaded = loaded.clone(); let target = seek_target.clone(); let handle = ref_handle.clone();
                 move |info: &nsh_core::element::VideoInfo| {
+                    if !valid() { return; }
                     let total = info.duration as f64;
                     if total.is_finite() && total > 0.0 { duration.set(total); }
                     loaded.set(true);
                     if let Some(seconds) = target.get() { handle.seek(seconds); seek_issued.set(true); }
                 }
             })
-            .on_progress({ let target = seek_target.clone(); let issued = seek_issued.clone(); let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
+            .on_progress({ let valid = current_instance.clone(); let target = seek_target.clone(); let issued = seek_issued.clone(); let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
                 move |info: &nsh_core::element::VideoProgress| {
+                    if !valid() { return; }
                     let total = info.duration as f64;
                     let current = info.current_time as f64;
                     // Native preparation/seek events may report an unknown total (0).
