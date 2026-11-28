@@ -191,11 +191,16 @@ impl Controller {
         self.info.set(info);
         let this = self.clone();
         let timeout = self.clone();
+        let request_server = self.server.get();
+        let request_token = self.token.get();
+        let request_username = self.username.get();
         bg_bounded(async move {
             let path = format!("/api/detail?source={}&id={}",
                 urlencoding::encode(&item.source), urlencoding::encode(&item.id));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
-            if this.request.get() != request || this.page.get() != "detail" { return; }
+            if this.request.get() != request || this.page.get() != "detail"
+                || this.server.get() != request_server || this.token.get() != request_token
+                || this.username.get() != request_username { return; }
             this.loading.set(false);
             match result {
                 Ok((status, body, next)) => {
