@@ -105,7 +105,17 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             match result {
                 Ok(Ok((200, text, _))) => {
                     restore_failed.set(false);
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let json = match serde_json::from_str::<serde_json::Value>(&text) {
+                        Ok(json) if json.is_object() => json,
+                        _ => {
+                            record_failed.set(true);
+                            restore_failed.set(true);
+                            restore_pending.set(false);
+                            resume_error.set("续播记录响应格式错误，原记录已保留，请重试".to_owned());
+                            return;
+                        }
+                    };
+                    {
                         let record = &json[&key];
                         let watched = record["play_time"].as_f64().unwrap_or(0.0);
                         let total = record["total_time"].as_f64().unwrap_or(0.0);
@@ -142,7 +152,12 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let switch_loaded = loaded.clone();
     let switch_handle = ref_handle.clone();
     let switch_restart = restart_attempt.clone();
+    let quality_revision = signal(0_u64);
+    let quality_instance = current_instance.clone();
     effect(move || {
+        let revision = quality_revision.get_untracked() + 1;
+        quality_revision.set(revision);
+        let media_generation = restart_attempt.get_untracked();
         let selected = quality_selected.get();
         let quality_key = format!("{}+{}", selected.info.source, selected.info.id);
         if quality_key.is_empty() { return; }
@@ -158,8 +173,12 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         let switch_loaded = switch_loaded.clone();
         let switch_handle = switch_handle.clone();
         let switch_restart = switch_restart.clone();
+        let valid = quality_instance.clone();
         let task = spawn(async move {
             if let Ok(response) = fetch(HttpRequest::get(url)).await {
+                if !valid() || quality_revision.get() != revision
+                    || restart_attempt.get() != media_generation
+                    || quality_port.get() != quality_request_port { return; }
                 if response.status() == 200 {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response.text()) {
                         if let Some(items) = json["variants"].as_array() {
