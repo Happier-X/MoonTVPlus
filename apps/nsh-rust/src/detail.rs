@@ -195,7 +195,7 @@ impl Controller {
             let path = format!("/api/detail?source={}&id={}",
                 urlencoding::encode(&item.source), urlencoding::encode(&item.id));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
-            if this.request.get() != request { return; }
+            if this.request.get() != request || this.page.get() != "detail" { return; }
             this.loading.set(false);
             match result {
                 Ok((status, body, next)) => {
