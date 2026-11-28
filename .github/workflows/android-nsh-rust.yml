@@ -134,8 +134,8 @@ jobs:
           mkdir -p dist
           SRC="apps/nsh-rust/.nsh/out/MoonTVPlus Rust.apk"
           test -s "$SRC"
-          cp "$SRC" dist/app-arm64-v8a-release.apk
-          APK=dist/app-arm64-v8a-release.apk
+          APK="dist/moontvplus-phone-${VERSION_NAME}-release-signed.apk"
+          cp "$SRC" "$APK"
           BUILD_TOOLS="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/35.0.0"
           test -x "$BUILD_TOOLS/aapt"
           test -x "$BUILD_TOOLS/apksigner"
@@ -159,7 +159,7 @@ jobs:
             echo "::error::签名证书与 1.9.20 不一致（$CERT_SHA256），装上无法覆盖升级"; exit 1
           fi
 
-          (cd dist && sha256sum app-arm64-v8a-release.apk > SHA256SUMS && cat SHA256SUMS)
+          (cd dist && sha256sum "$(basename "$APK")" > SHA256SUMS && cat SHA256SUMS)
           ls -lh dist
 
       - name: Upload the APK
