@@ -209,7 +209,8 @@ impl Controller {
         self.favorites_loading.set(true);
         self.favorites_error.set(String::new());
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let server = this.server.get();
             let token = this.token.get();
             let favorites = api(&server, &token, "/api/favorites", "GET", None, true).await;
@@ -242,6 +243,9 @@ impl Controller {
                     this.favorites_error.set(message);
                 }
             }
+        }, move || {
+            timeout.favorites_loading.set(false);
+            timeout.favorites_error.set(format!("加载收藏{TIMEOUT_ERROR}"));
         });
     }
 
@@ -253,7 +257,8 @@ impl Controller {
         self.records_loading.set(true);
         self.records_error.set(String::new());
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let result = api(
                 &this.server.get(),
                 &this.token.get(),
@@ -285,6 +290,9 @@ impl Controller {
                     this.records_error.set(message);
                 }
             }
+        }, move || {
+            timeout.records_loading.set(false);
+            timeout.records_error.set(format!("加载记录{TIMEOUT_ERROR}"));
         });
     }
 
@@ -308,6 +316,7 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
+        let previous = self.favorites.get();
         self.favorites.set(
             self.favorites
                 .get()
@@ -316,7 +325,8 @@ impl Controller {
                 .collect(),
         );
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let path = format!("/api/favorites?key={}", urlencoding::encode(&key));
             let result = api(
                 &this.server.get(),
@@ -339,6 +349,10 @@ impl Controller {
                     this.load_favorites(Some(message));
                 }
             }
+        }, move || {
+            timeout.clearing.set(false);
+            timeout.favorites.set(previous);
+            timeout.favorites_error.set(format!("取消收藏{TIMEOUT_ERROR}；结果未确认，点击重试刷新列表"));
         });
     }
 
@@ -348,9 +362,11 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
+        let previous = self.favorites.get();
         self.favorites.set(Vec::new());
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let result = api(
                 &this.server.get(),
                 &this.token.get(),
@@ -372,6 +388,10 @@ impl Controller {
                     this.load_favorites(Some(message));
                 }
             }
+        }, move || {
+            timeout.clearing.set(false);
+            timeout.favorites.set(previous);
+            timeout.favorites_error.set(format!("清空收藏{TIMEOUT_ERROR}；结果未确认，点击重试刷新列表"));
         });
     }
 
@@ -381,6 +401,9 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
+        let previous = self.records.get();
+        let previous_home = self.home_history.get();
+        let previous_rows = self.home_rows.get();
         self.records.set(
             self.records
                 .get()
@@ -390,7 +413,8 @@ impl Controller {
         );
         self.sync_home();
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let path = format!("/api/playrecords?key={}", urlencoding::encode(&key));
             let result = api(
                 &this.server.get(),
@@ -413,6 +437,12 @@ impl Controller {
                     this.load_records(Some(message));
                 }
             }
+        }, move || {
+            timeout.clearing.set(false);
+            timeout.records.set(previous);
+            timeout.home_history.set(previous_home);
+            timeout.home_rows.set(previous_rows);
+            timeout.records_error.set(format!("删除记录{TIMEOUT_ERROR}；结果未确认，点击重试刷新列表"));
         });
     }
 
@@ -438,10 +468,14 @@ impl Controller {
             return;
         }
         self.clearing.set(true);
+        let previous = self.records.get();
+        let previous_home = self.home_history.get();
+        let previous_rows = self.home_rows.get();
         self.records.set(Vec::new());
         self.sync_home();
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let body = serde_json::json!({ "keys": keys }).to_string();
             let result = api(
                 &this.server.get(),
@@ -464,6 +498,12 @@ impl Controller {
                     this.load_records(Some(message));
                 }
             }
+        }, move || {
+            timeout.clearing.set(false);
+            timeout.records.set(previous);
+            timeout.home_history.set(previous_home);
+            timeout.home_rows.set(previous_rows);
+            timeout.records_error.set(format!("清空记录{TIMEOUT_ERROR}；结果未确认，点击重试刷新列表"));
         });
     }
 }

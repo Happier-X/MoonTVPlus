@@ -34,6 +34,74 @@ pub fn bg<F: Future<Output = ()> + 'static>(future: F) {
     });
 }
 
+const PAGE_TIMEOUT: Duration = Duration::from_secs(30);
+const TIMEOUT_ERROR: &str = "操作超时（30 秒），请检查网络后重试";
+
+/// The losing future is dropped *inside* this helper, before cleanup can write
+/// signals. A timed-out operation is never left running in another task.
+async fn bounded<F: Future>(future: F, deadline: impl Future<Output = ()>) -> Result<F::Output, ()> {
+    let future = pin!(future);
+    let deadline = pin!(deadline);
+    match select(future, deadline).await {
+        Either::Left((value, _)) => Ok(value),
+        Either::Right(_) => Err(()),
+    }
+}
+
+fn bg_bounded(future: impl Future<Output = ()> + 'static, on_timeout: impl FnOnce() + 'static) {
+    bg(async move {
+        if bounded(future, timer(PAGE_TIMEOUT)).await.is_err() {
+            on_timeout();
+        }
+    });
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::bounded;
+    use std::{cell::Cell, future::{pending, ready, Future}, rc::Rc, task::{Context, Poll}};
+
+    #[test]
+    fn timeout_drops_operation_before_cleanup_and_retry() {
+        struct Dropped(Rc<Cell<bool>>);
+        impl Drop for Dropped {
+            fn drop(&mut self) { self.0.set(true); }
+        }
+        let dropped = Rc::new(Cell::new(false));
+        let late_write = Rc::new(Cell::new(false));
+        let guard = Dropped(dropped.clone());
+        let operation_late_write = late_write.clone();
+        let operation = async move {
+            let _guard = guard;
+            pending::<()>().await;
+            operation_late_write.set(true);
+        };
+        let mut task = std::pin::pin!(bounded(operation, ready(())));
+        let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
+        assert!(matches!(task.as_mut().poll(&mut cx), Poll::Ready(Err(()))));
+        // The wrapper is still alive: cleanup can already observe cancellation.
+        assert!(dropped.get());
+        assert!(!late_write.get());
+        let mut retry = std::pin::pin!(bounded(ready(42), pending()));
+        assert!(matches!(retry.as_mut().poll(&mut cx), Poll::Ready(Ok(42))));
+    }
+
+    #[test]
+    fn one_deadline_covers_sequential_work() {
+        let completed = Cell::new(0);
+        let operation = async {
+            ready(()).await;
+            completed.set(1);
+            pending::<()>().await;
+            completed.set(2);
+        };
+        let mut task = std::pin::pin!(bounded(operation, ready(())));
+        let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
+        assert!(matches!(task.as_mut().poll(&mut cx), Poll::Ready(Err(()))));
+        assert_eq!(completed.get(), 1);
+    }
+}
+
 const ICON_SEARCH: ImageAsset = asset!("icons/search.svg");
 const ICON_HOME: ImageAsset = asset!("icons/home.svg");
 const ICON_FILM: ImageAsset = asset!("icons/film.svg");
@@ -641,7 +709,10 @@ pub fn App() -> impl IntoElement {
             let message = message.clone();
             let stage_inner = stage.clone();
             let rows_inner = rows.clone();
-            bg(async move {
+            let timeout_loading = loading.clone();
+            let timeout_error = error.clone();
+            let timeout_stage = stage_inner.clone();
+            bg_bounded(async move {
                 stage_inner.set("start".to_owned());
                 // Layout settings are optional: a 401 or a closed sync keeps defaults.
                 if let Ok((200, text, _)) =
@@ -781,6 +852,10 @@ pub fn App() -> impl IntoElement {
                     tv_shows.get().len(), variety.get().len(), upcoming.get().len(), history.get().len()
                 ));
                 loading.set(false);
+            }, move || {
+                timeout_loading.set(false);
+                timeout_error.set(format!("首页{TIMEOUT_ERROR}，点击刷新重试"));
+                timeout_stage.set("timed out".to_owned());
             });
         }
     };
@@ -844,7 +919,9 @@ pub fn App() -> impl IntoElement {
         move || library.request_clear("records")
     };
 
+    let search_revision = signal(0u64);
     let run_search = {
+        let revision = search_revision.clone();
         let server = server.clone();
         let token = token.clone();
         let query = search_query.clone();
@@ -855,6 +932,8 @@ pub fn App() -> impl IntoElement {
             if value.is_empty() {
                 return;
             }
+            revision.set(revision.get() + 1);
+            let request = revision.get();
             let _ = Storage::set_item("last_search", &value);
             if let Some(mut snapshot) = search::cache_get(&value) {
                 snapshot.cached = true;
@@ -872,12 +951,16 @@ pub fn App() -> impl IntoElement {
             let state = state.clone();
             let running = running.clone();
             let cache_key = value.clone();
-            bg(async move {
+            let timeout_state = state.clone();
+            let timeout_running = running.clone();
+            let timeout_revision = revision.clone();
+            let revision = revision.clone();
+            bg_bounded(async move {
                 loop {
                     timer(Duration::from_millis(120)).await;
                     let messages = handle.drain();
                     let mut snapshot = state.get();
-                    if snapshot.query != cache_key {
+                    if revision.get() != request || snapshot.query != cache_key {
                         break;
                     }
                     let mut finished = false;
@@ -907,10 +990,20 @@ pub fn App() -> impl IntoElement {
                     state.set(snapshot.clone());
                     if finished {
                         running.set(false);
-                        search::cache_put(&cache_key, &snapshot);
+                        if snapshot.error.is_empty() {
+                            search::cache_put(&cache_key, &snapshot);
+                        }
                         break;
                     }
                 }
+            }, move || {
+                if timeout_revision.get() != request { return; }
+                let mut snapshot = timeout_state.get();
+                snapshot.error = format!("搜索{TIMEOUT_ERROR}，点击搜索重试");
+                snapshot.complete = true;
+                snapshot.total_ms = started.elapsed().as_millis() as u64;
+                timeout_state.set(snapshot);
+                timeout_running.set(false);
             });
         }
     };
@@ -949,7 +1042,10 @@ pub fn App() -> impl IntoElement {
             let message = message.clone();
             let error = error.clone();
             let load = load.clone();
-            bg(async move {
+            let timeout_busy = busy.clone();
+            let timeout_message = message.clone();
+            let timeout_error = error.clone();
+            bg_bounded(async move {
                 match login(&server_value, &user_value, &password_value).await {
                     Ok(value) => {
                         save_session(&server_value, &user_value, &value);
@@ -965,6 +1061,10 @@ pub fn App() -> impl IntoElement {
                     }
                 }
                 busy.set(false);
+            }, move || {
+                timeout_busy.set(false);
+                timeout_message.set(String::new());
+                timeout_error.set(format!("登录{TIMEOUT_ERROR}，点击登录重试"));
             });
         }
     };
@@ -1214,13 +1314,15 @@ pub fn App() -> impl IntoElement {
                                                     },
                                                     {
                                                         let error = error.clone();
+                                                        let retry = refresh.clone();
                                                         move || {
-                                                            text({
-                                                                let error = error.clone();
-                                                                move || error.get()
-                                                            })
-                                                            .px_4()
-                                                            .text_color(rgb(0xcc2222))
+                                                            let retry = retry.clone();
+                                                            view().gap_2()
+                                                                .child(text({
+                                                                    let error = error.clone();
+                                                                    move || error.get()
+                                                                }).px_4().text_color(rgb(0xcc2222)))
+                                                                .child(view().p_3().on_press(move || retry()).child(text("刷新重试")))
                                                         }
                                                     },
                                                 ))

@@ -114,7 +114,9 @@ impl Controller {
         let filters = self.filters.get();
         let start = if append { self.next_start.get() } else { 0 };
         let server = self.server.get(); let token = self.token.get();
-        bg(async move {
+        let timeout = self.clone();
+        let timeout_server = server.clone();
+        bg_bounded(async move {
             let path = request_path(&filters, start);
             // The site's middleware requires the session for every `/api` path,
             // the catalog included: without the token these answer 401.
@@ -146,6 +148,11 @@ impl Controller {
                     else { this.error.set(message); }
                 }
             }
+        }, move || {
+            if timeout.revision.get() != revision || timeout.server.get() != timeout_server { return; }
+            timeout.loading.set(false); timeout.appending.set(false);
+            if append { timeout.append_error.set(TIMEOUT_ERROR.to_owned()); }
+            else { timeout.error.set(TIMEOUT_ERROR.to_owned()); }
         });
     }
 }

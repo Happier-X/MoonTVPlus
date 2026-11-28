@@ -118,7 +118,8 @@ impl Controller {
         let this = self.clone();
         let generation = self.generation.get();
         let title = self.info.get().title;
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let path = format!("/api/search?q={}", urlencoding::encode(&title));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
             if this.generation.get() != generation { return; }
@@ -149,6 +150,10 @@ impl Controller {
                 }
                 Err(error) => { let message = this.failure(error); this.source_error.set(message); }
             }
+        }, move || {
+            if timeout.generation.get() != generation { return; }
+            timeout.discovering.set(false);
+            timeout.source_error.set(format!("查找片源{TIMEOUT_ERROR}"));
         });
     }
 
@@ -158,6 +163,7 @@ impl Controller {
         self.loading.set(true);
         self.error.set(String::new());
         self.favorite.set(false);
+        self.favorite_busy.set(false);
         self.favorite_error.set(String::new());
         let mut info = self.info.get();
         info.source = item.source.clone();
@@ -168,7 +174,8 @@ impl Controller {
         info.description.clear();
         self.info.set(info);
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let path = format!("/api/detail?source={}&id={}",
                 urlencoding::encode(&item.source), urlencoding::encode(&item.id));
             let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
@@ -201,6 +208,10 @@ impl Controller {
                 }
                 Err(error) => { let message = this.failure(error); this.error.set(message); }
             }
+        }, move || {
+            if timeout.request.get() != request { return; }
+            timeout.loading.set(false);
+            timeout.error.set(format!("加载片源{TIMEOUT_ERROR}，或切换片源"));
         });
     }
 
@@ -219,14 +230,24 @@ impl Controller {
     /// `GET /api/favorites?key=source+id` shows whether this source is saved.
     pub fn check_favorite(&self) {
         let key = Self::favorite_key(&self.info.get());
-        if key.is_empty() { return; }
+        if key.is_empty() || self.favorite_busy.get() { return; }
+        self.favorite_busy.set(true);
+        self.favorite_error.set(String::new());
+        let request = self.request.get();
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let path = format!("/api/favorites?key={}", urlencoding::encode(&key));
-            match api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await {
+            let result = api(&this.server.get(), &this.token.get(), &path, "GET", None, true).await;
+            if this.request.get() != request { return; }
+            this.favorite_busy.set(false);
+            match result {
                 Ok((status, body, next)) => {
                     this.accept_token(next);
-                    if status != 200 { return; }
+                    if status != 200 {
+                        this.favorite_error.set(format!("读取收藏失败（HTTP {status}），请刷新收藏状态"));
+                        return;
+                    }
                     let saved = serde_json::from_str::<serde_json::Value>(&body)
                         .ok()
                         .and_then(|value| value["title"].as_str().map(|title| !title.is_empty()))
@@ -234,11 +255,14 @@ impl Controller {
                     this.favorite.set(saved);
                 }
                 Err(error) => {
-                    if let ApiError::Network(reason) = error {
-                        eprintln!("favorite check failed: {reason}");
-                    }
+                    let message = this.failure(error);
+                    this.favorite_error.set(message);
                 }
             }
+        }, move || {
+            if timeout.request.get() != request { return; }
+            timeout.favorite_busy.set(false);
+            timeout.favorite_error.set(format!("读取收藏{TIMEOUT_ERROR}，请刷新收藏状态"));
         });
     }
 
@@ -251,8 +275,10 @@ impl Controller {
         let saved = self.favorite.get();
         self.favorite_busy.set(true);
         self.favorite_error.set(String::new());
+        let request = self.request.get();
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let (path, method, body) = if saved {
                 (format!("/api/favorites?key={}", urlencoding::encode(&key)), "DELETE", None)
             } else {
@@ -272,6 +298,7 @@ impl Controller {
                 ("/api/favorites".to_owned(), "POST", Some(body))
             };
             let result = api(&this.server.get(), &this.token.get(), &path, method, body, true).await;
+            if this.request.get() != request { return; }
             this.favorite_busy.set(false);
             match result {
                 Ok((200..=299, _, next)) => {
@@ -291,6 +318,10 @@ impl Controller {
                     this.favorite_error.set(message);
                 }
             }
+        }, move || {
+            if timeout.request.get() != request { return; }
+            timeout.favorite_busy.set(false);
+            timeout.favorite_error.set(format!("收藏{TIMEOUT_ERROR}；结果未确认，请刷新收藏状态"));
         });
     }
 
@@ -355,6 +386,12 @@ pub fn view_detail(controller: Controller, back: impl Fn() + Clone + 'static,
                                 .child(text({ let c = c.clone(); move || c.favorite_error.get() })
                                     .text_size(px(11.0 * scale))
                                     .text_color(rgb(0xcc2222)))
+                                .child(when({ let c = c.clone(); move || !c.favorite_error.get().is_empty() },
+                                    { let c = c.clone(); move || {
+                                        let c = c.clone();
+                                        super::view().p_2().on_press(move || c.check_favorite())
+                                            .child(text("刷新收藏状态"))
+                                    }}))
                         }
                     },
                 ))))

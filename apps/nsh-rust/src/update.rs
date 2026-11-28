@@ -139,7 +139,8 @@ impl Controller {
             self.notice.set("检查中…".to_owned());
         }
         let this = self.clone();
-        bg(async move {
+        let timeout = self.clone();
+        bg_bounded(async move {
             let url = format!(
                 "{}/downloads/latest.json",
                 this.server.get().trim_end_matches('/')
@@ -190,6 +191,11 @@ impl Controller {
             });
             this.notice.set(String::new());
             this.show.set(true);
+        }, move || {
+            timeout.checking.set(false);
+            if manual {
+                timeout.notice.set(format!("检查更新{TIMEOUT_ERROR}，再次点击检查更新"));
+            }
         });
     }
 
