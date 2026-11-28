@@ -13,11 +13,16 @@ pub struct Filters {
     pub category: String,
     pub type_value: String,
     pub weekday: String,
+    pub region: String,
+    pub year: String,
+    pub platform: String,
+    pub sort: String,
 }
 
 impl Default for Filters {
     fn default() -> Self {
-        Self { kind: "movie".into(), category: "热门".into(), type_value: "全部".into(), weekday: "Mon".into() }
+        Self { kind: "movie".into(), category: "热门".into(), type_value: "全部".into(), weekday: "Mon".into(),
+            region: "all".into(), year: "all".into(), platform: "all".into(), sort: "T".into() }
     }
 }
 
@@ -75,7 +80,7 @@ impl Controller {
             "show" => ("最近热门", "show"), _ => ("每日放送", "all"),
         };
         self.filters.set(Filters { kind: kind.into(), category: category.into(),
-            type_value: type_value.into(), weekday: today() });
+            type_value: type_value.into(), weekday: today(), ..Filters::default() });
         self.site.set(self.server.get());
         self.initialized.set(true);
         self.reload();
@@ -91,6 +96,19 @@ impl Controller {
         if let Some(value) = type_value { filters.type_value = value; }
         if let Some(value) = weekday { filters.weekday = value; }
         if filters == self.filters.get() { return; }
+        self.filters.set(filters);
+        self.reload();
+    }
+
+    pub fn choose_extra(&self, field: &str, value: String) {
+        let mut filters = self.filters.get();
+        let target = match field {
+            "region" => &mut filters.region, "year" => &mut filters.year,
+            "platform" => &mut filters.platform, "sort" => &mut filters.sort,
+            _ => return,
+        };
+        if *target == value { return; }
+        *target = value;
         self.filters.set(filters);
         self.reload();
     }
@@ -121,7 +139,7 @@ impl Controller {
             // The site's middleware requires the session for every `/api` path,
             // the catalog included: without the token these answer 401.
             let response = api(&server, &token, &path, "GET", None, true).await;
-            if this.revision.get() != revision || this.server.get() != server { return; }
+            if this.revision.get() != revision || this.server.get() != server || this.token.get() != token { return; }
             this.loading.set(false); this.appending.set(false);
             let result = match response {
                 Ok((200, body, _)) => decode(&filters, &body),
@@ -172,7 +190,7 @@ fn request_path(filters: &Filters, start: usize) -> String {
         let format = match filters.kind.as_str() { "tv" => "电视剧", "show" => "综艺",
             "anime" if filters.category == "番剧" => "电视剧", _ => "" };
         let mut params = vec![("kind", kind), ("category", if filters.kind == "anime" { "动画" } else if filters.category == "全部" { &filters.type_value } else { "" }),
-            ("format", format), ("region", "all"), ("year", "all"), ("platform", "all"), ("sort", "T"), ("label", "all")];
+            ("format", format), ("region", &filters.region), ("year", &filters.year), ("platform", &filters.platform), ("sort", &filters.sort), ("label", "all")];
         if filters.kind == "tv" { params[1].1 = if filters.type_value == "all" { "" } else { &filters.type_value }; }
         params
     } else {
@@ -224,6 +242,53 @@ fn secondary(filters: &Filters) -> Vec<OptionItem> {
     }
 }
 
+fn extra_options(field: &str, filters: &Filters) -> Vec<(String, String)> {
+    let options = match field {
+        "sort" => vec![("综合排序", "T"), ("近期热度", "U"), (if filters.kind == "tv" || filters.kind == "show" { "首播时间" } else { "首映时间" }, "R"), ("高分优先", "S")],
+        "platform" => vec![("全部", "all"), ("腾讯视频", "tencent"), ("爱奇艺", "iqiyi"), ("优酷", "youku"), ("湖南卫视", "hunan_tv"), ("Netflix", "netflix"), ("HBO", "hbo"), ("BBC", "bbc"), ("NHK", "nhk"), ("CBS", "cbs"), ("NBC", "nbc"), ("tvN", "tvn")],
+        "region" => {
+            let movie = filters.kind == "movie" || filters.category == "剧场版";
+            let mut items = vec![("全部", "all"), ("华语", "chinese"), ("欧美", "western")];
+            if !movie { items.push(("国外", "foreign")); }
+            items.extend(vec![("韩国", "korean"), ("日本", "japanese"), ("中国大陆", "mainland_china"), ("美国", "usa"), ("中国香港", "hong_kong"), ("中国台湾", "taiwan"), ("英国", "uk"), ("法国", "france"), ("德国", "germany"), ("意大利", "italy"), ("西班牙", "spain"), ("印度", "india"), ("泰国", "thailand"), ("俄罗斯", "russia"), ("加拿大", "canada"), ("澳大利亚", "australia"), ("爱尔兰", "ireland"), ("瑞典", "sweden"), ("巴西", "brazil"), ("丹麦", "denmark")]);
+            items
+        }
+        _ => Vec::new(),
+    };
+    if field != "year" { return options.into_iter().map(|(label, value)| (label.into(), value.into())).collect(); }
+    // Gregorian year from Unix days, avoiding a new date/time dependency.
+    let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() / 86400;
+    let z = days as i64 + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    if mp >= 10 { year += 1; }
+    let decade = year / 10 * 10;
+    let mut result = vec![("全部".into(), "all".into()), (format!("{decade}年代"), format!("{decade}s"))];
+    for value in (decade..=year).rev() { result.push((value.to_string(), value.to_string())); }
+    for value in (196..decade / 10).rev().map(|value| value * 10) { result.push((format!("{value}年代"), format!("{value}s"))); }
+    result.push(("更早".into(), "earlier".into()));
+    result
+}
+
+fn extra_filter(c: Controller, field: &'static str, label: &'static str, scale: f32) -> impl IntoElement {
+    let filters = c.filters.get();
+    let selected = match field { "region" => filters.region.clone(), "year" => filters.year.clone(), "platform" => filters.platform.clone(), _ => filters.sort.clone() };
+    view().child(text(label).text_size(px(13.0 * scale)).text_color(move || theme().muted_foreground))
+        .child(scroll().horizontal().h(px(44.0 * scale)).child(view().flex_row().gap_2().children(
+            extra_options(field, &filters).into_iter().map(move |(label, value)| {
+                let c = c.clone(); let active = selected == value;
+                view().px_3().py_2().rounded(px(16.0 * scale))
+                    .bg(move || if active { BRAND } else { theme().muted })
+                    .on_press(move || c.choose_extra(field, value.clone()))
+                    .child(text(label).text_size(px(14.0 * scale)))
+            })
+        )))
+}
+
 fn pills(options: Vec<OptionItem>, selected: String, scale: f32,
     choose: impl Fn(String) + Clone + 'static) -> impl IntoElement {
     scroll().horizontal().h(px(44.0 * scale)).child(view().flex_row().gap(px(8.0 * scale))
@@ -257,10 +322,22 @@ pub fn page(controller: Controller, open: impl Fn(Movie) + Clone + 'static,
             view().flex_1().gap_2()
                 .child(pills(primary(&filters.kind), filters.category.clone(), scale, move |value| category.choose(Some(value), None, None)))
                 .child(pills(secondary(&filters), filters.type_value.clone(), scale, move |value| type_value.choose(None, Some(value), None)))
-                .child(when(move || filters.kind == "anime" && filters.category == "每日放送", move || {
+                .child(when({ let f = filters.clone(); move || f.kind == "anime" && f.category == "每日放送" }, move || {
                     let c = weekday.clone();
                     pills(vec![("周一", "Mon"), ("周二", "Tue"), ("周三", "Wed"), ("周四", "Thu"), ("周五", "Fri"), ("周六", "Sat"), ("周日", "Sun")], c.filters.get().weekday, scale,
                         move |value| c.choose(None, None, Some(value)))
+                }))
+                .child(when({ let f = filters.clone(); move || f.category == "全部" || (f.kind == "anime" && f.category != "每日放送") }, {
+                    let c = c.clone();
+                    move || {
+                        let f = c.filters.get();
+                        let platform = f.kind == "tv" || f.kind == "show" || (f.kind == "anime" && f.category == "番剧");
+                        view().gap_1().px_4()
+                            .child(extra_filter(c.clone(), "region", "地区", scale))
+                            .child(extra_filter(c.clone(), "year", "年代", scale))
+                            .child(when(move || platform, { let c = c.clone(); move || extra_filter(c.clone(), "platform", "平台", scale) }))
+                            .child(extra_filter(c.clone(), "sort", "排序", scale))
+                    }
                 }))
                 .child(scroll().flex_1().content_offset(point(px(0.0), px(c.offset.get())))
                     .event_throttle(100.0)
