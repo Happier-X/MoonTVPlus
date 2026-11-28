@@ -227,6 +227,11 @@ impl Controller {
                             this.error.set("记录中的集数已不可用，请手动选集".to_owned());
                             return;
                         }
+                        if !record.total_time.is_finite() || record.total_time <= 0.0
+                            || !record.play_time.is_finite() || record.play_time < 0.0 {
+                            this.error.set("记录中的播放时长无效，无法自动续播；可手动选集从头播放".to_owned());
+                            return;
+                        }
                         this.play(record.index as usize - 1);
                     }
                 }
