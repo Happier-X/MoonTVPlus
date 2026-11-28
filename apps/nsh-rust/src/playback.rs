@@ -40,18 +40,24 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let restore_pending = signal(initial.resume.is_none());
     let restore_failed = signal(false);
     let seek_generation = signal(0_u64);
+    let restart_attempt = signal(0_u64);
+    let record_retry = signal(0_u64);
+    let record_failed = signal(false);
     // Each target change owns a deadline; obsolete deadlines cannot fail a newer seek.
     effect({
         let target = seek_target.clone(); let error = error.clone();
+        let current_instance = current_instance.clone();
         move || {
             let pending = target.get();
+            let _attempt = restart_attempt.get();
             let generation = seek_generation.get_untracked() + 1;
             seek_generation.set(generation);
             if pending.is_none() { return; }
             let target = target.clone(); let error = error.clone();
+            let valid = current_instance.clone();
             let task = spawn(async move {
                 timer(PAGE_TIMEOUT).await;
-                if seek_generation.get() == generation && target.get().is_some() {
+                if valid() && seek_generation.get() == generation && target.get().is_some() {
                     restore_failed.set(true);
                     error.set("恢复播放位置超时，原记录已保留，请重试".to_owned());
                 }
@@ -60,6 +66,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         }
     });
     let ref_handle = nsh_core::element::element_ref();
+    let active_handle = signal(ref_handle);
 
     // Restore the active episode from the authenticated site's exact record key.
     let resume_selection = selection.clone();
@@ -69,14 +76,15 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let resume_position = position.clone();
     let resume_target = seek_target.clone();
     let resume_loaded = loaded.clone();
-    let resume_handle = ref_handle.clone();
-    let restart_attempt = signal(0_u64);
     let resume_instance = current_instance.clone();
     effect(move || {
+        let retry = record_retry.get();
         let selected = resume_selection.get();
         // A carried record initializes state before Video mounts: no late GET
         // may overwrite the user's subsequent seek or newly saved position.
         if selected.resume.is_some() { return; }
+        restore_pending.set(true);
+        record_failed.set(false);
         let key = format!("{}+{}", selected.info.source, selected.info.id);
         if key.is_empty() { return; }
         let server = resume_server.get();
@@ -85,7 +93,6 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         let resume_position = resume_position.clone();
         let resume_target = resume_target.clone();
         let resume_loaded = resume_loaded.clone();
-        let resume_handle = resume_handle.clone();
         let resume_index = selected.index + 1;
         let manual_seek = manual_seek.clone();
         let restore_pending = restore_pending.clone();
@@ -94,9 +101,10 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         let current_instance = resume_instance.clone();
         let task = spawn(async move {
             let result = bounded(api(&server, &token, "/api/playrecords", "GET", None, true), timer(PAGE_TIMEOUT)).await;
-            if !current_instance() { return; }
+            if !current_instance() || record_retry.get() != retry { return; }
             match result {
                 Ok(Ok((200, text, _))) => {
+                    restore_failed.set(false);
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                         let record = &json[&key];
                         let watched = record["play_time"].as_f64().unwrap_or(0.0);
@@ -108,11 +116,12 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                             resume_duration.set(total);
                             resume_position.set(watched);
                             resume_target.set(Some(watched));
-                            if resume_loaded.get() { resume_handle.seek(watched); seek_issued.set(true); }
+                            if resume_loaded.get() { active_handle.get().seek(watched); seek_issued.set(true); }
                         }
                     }
                 }
                 _ => {
+                    record_failed.set(true);
                     restore_failed.set(true);
                     resume_error.set("读取续播记录失败或超时，原记录已保留；请返回后重试".to_owned());
                 }
@@ -211,13 +220,22 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             .child(text({ let selection = selection.clone(); move || {
                 let item = selection.get(); format!("{} · {} · 第 {} 集", item.info.title, item.info.source_name, item.index + 1)
             }}).text_color(move || theme().muted_foreground)))
-        .child(video(move || {
+        .child(each(move || vec![video_restart.get()], |attempt: &u64| *attempt, {
+            let save_progress = save_progress.clone(); let current_instance = current_instance.clone();
+            move |attempt: ReadSignal<u64>, _| {
+            let generation = attempt.get();
+            let valid = { let identity = current_instance.clone(); move || identity() && restart_attempt.get() == generation };
+            let ref_handle = nsh_core::element::element_ref();
+            active_handle.set(ref_handle);
+            loaded.set(false);
+            seek_issued.set(false);
+            video(move || {
             let selected = make_source_selection.get();
-            let attempt = video_restart.get();
+            let attempt = generation;
             format!("http://127.0.0.1:{}/a.m3u8?u={}&q={}&r={attempt}", make_source_port.get(), urlencoding::encode(&selected.url), video_quality.get())
         }).flex_1().controls(false).paused(paused.clone())
             .element_ref(&ref_handle)
-            .on_load({ let valid = current_instance.clone(); let seek_issued = seek_issued.clone(); let duration = duration.clone(); let loaded = loaded.clone(); let target = seek_target.clone(); let handle = ref_handle.clone();
+            .on_load({ let valid = valid.clone(); let seek_issued = seek_issued.clone(); let duration = duration.clone(); let loaded = loaded.clone(); let target = seek_target.clone(); let handle = ref_handle.clone();
                 move |info: &nsh_core::element::VideoInfo| {
                     if !valid() { return; }
                     let total = info.duration as f64;
@@ -226,7 +244,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                     if let Some(seconds) = target.get() { handle.seek(seconds); seek_issued.set(true); }
                 }
             })
-            .on_progress({ let valid = current_instance.clone(); let target = seek_target.clone(); let issued = seek_issued.clone(); let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
+            .on_progress({ let valid = valid.clone(); let target = seek_target.clone(); let issued = seek_issued.clone(); let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
                 move |info: &nsh_core::element::VideoProgress| {
                     if !valid() { return; }
                     let total = info.duration as f64;
@@ -238,15 +256,18 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                         target.set(None);
                         issued.set(false);
                         restore_failed.set(false);
+                        error.set(String::new());
                     }
                     if current.is_finite() && current >= 0.0 { position.set(current); }
                     save(false);
                 }
             })
-            .on_end({ let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
-                move || { position.set(duration.get()); save(true); }
+            .on_end({ let valid = valid.clone(); let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
+                move || { if !valid() { return; } position.set(duration.get()); save(true); }
             })
-            .on_error({ let error = error.clone(); move |message: &str| error.set(if message.is_empty() { "播放失败".to_owned() } else { message.to_owned() }) }))
+            .on_error({ let valid = valid.clone(); let error = error.clone(); move |message: &str| { if valid() { error.set(if message.is_empty() { "播放失败".to_owned() } else { message.to_owned() }); } } })
+            }
+        }))
         .child(view().flex_row().items_center().gap_3()
             .child(view().px_4().py_2().rounded(px(8.0)).bg(move || theme().muted)
                 .on_press({ let paused = paused.clone(); let save = save_progress.clone(); move || {
@@ -264,23 +285,21 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             .child(view().absolute().top_0().h(px(28.0)).w(px(14.0)).rounded(px(4.0)).bg(move || theme().foreground)
                 .left(move || px((bar_width.get() * ratio(position.get(), duration.get()) - 7.0).max(0.0))))
             .on_press_down({ let drag_start = drag_start.clone(); move |event: &nsh_core::PressEvent| drag_start.set(event.position.x.0) })
-            .on_press({ let width = bar_width.clone(); let duration = duration.clone();
-                let handle = ref_handle.clone(); let position = position.clone(); let save = save_progress.clone();
+            .on_press({ let width = bar_width.clone(); let duration = duration.clone(); let position = position.clone(); let save = save_progress.clone();
                 move |event: &nsh_core::PressEvent| {
                     if !duration.get().is_finite() || duration.get() <= 0.0 { return; }
                     let seconds = (event.position.x.0 / width.get().max(1.0)).clamp(0.0, 1.0) as f64 * duration.get();
                     manual_seek.set(true); seek_target.set(Some(seconds)); seek_issued.set(true);
-                    handle.seek(seconds); position.set(seconds); save(true);
+                    active_handle.get().seek(seconds); position.set(seconds); save(true);
                 }
             })
-            .on_pan_end({ let width = bar_width.clone(); let duration = duration.clone(); let start = drag_start.clone();
-                let handle = ref_handle.clone(); let position = position.clone(); let save = save_progress.clone();
+            .on_pan_end({ let width = bar_width.clone(); let duration = duration.clone(); let start = drag_start.clone(); let position = position.clone(); let save = save_progress.clone();
                 move |event: &nsh_core::element::PanEvent| {
                     if event.cancelled || !duration.get().is_finite() || duration.get() <= 0.0 { return; }
                     let x = start.get() + event.translation.x.0;
                     let seconds = (x / width.get().max(1.0)).clamp(0.0, 1.0) as f64 * duration.get();
                     manual_seek.set(true); seek_target.set(Some(seconds)); seek_issued.set(true);
-                    handle.seek(seconds); position.set(seconds); save(true);
+                    active_handle.get().seek(seconds); position.set(seconds); save(true);
                 }
             }))
         .child(when({ let error = error.clone(); move || !error.get().is_empty() }, move || {
@@ -288,14 +307,20 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             view().gap_2().child(text({ let error = error.clone(); move || error.get() }).text_color(move || theme().muted_foreground))
                 .child(view().px_3().py_2().rounded(px(8.0)).bg(move || theme().muted)
                     .on_press({ let error = error.clone(); let restart = restart_attempt.clone();
-                        let handle = ref_handle.clone(); let position = position.clone(); let target = target.clone();
+                        let position = position.clone(); let target = target.clone();
                         let paused = paused.clone();
                         move || {
-                            let now = position.get();
                             error.set(String::new());
+                            if record_failed.get() {
+                                record_retry.set(record_retry.get() + 1);
+                                return;
+                            }
+                            let now = target.get().unwrap_or(position.get());
                             paused.set(false);
+                            restore_failed.set(false);
+                            loaded.set(false);
+                            seek_issued.set(false);
                             target.set(Some(now));
-                            handle.seek(now);
                             restart.set(restart.get() + 1);
                         }
                     }).child(text("重试")))
