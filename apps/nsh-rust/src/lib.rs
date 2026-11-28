@@ -296,6 +296,9 @@ async fn login(server: &str, user: &str, password: &str) -> Result<String, Strin
 }
 
 fn save_play_record(server: &str, token: &str, selection: &detail::Selection, position: f64, duration: f64) {
+    // Unknown native duration must never overwrite a valid site record with 1 second.
+    if !position.is_finite() || !duration.is_finite()
+        || position < 0.0 || duration <= 0.0 || position > duration { return; }
     let record = json!({
         "title": selection.info.title,
         "source_name": selection.info.source_name,
@@ -304,7 +307,7 @@ fn save_play_record(server: &str, token: &str, selection: &detail::Selection, po
         "index": selection.index + 1,
         "total_episodes": selection.info.episodes.len(),
         "play_time": position.max(0.0),
-        "total_time": duration.max(1.0),
+        "total_time": duration,
         // Milliseconds, as the web client writes it, so both sort together.
         "save_time": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .map(|value| value.as_millis() as f64).unwrap_or(0.0),

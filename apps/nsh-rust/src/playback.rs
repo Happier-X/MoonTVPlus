@@ -19,6 +19,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
     let resume_selection = selection.clone();
     let resume_server = server.clone();
     let resume_token = token.clone();
+    let resume_duration = duration.clone();
     let resume_position = position.clone();
     let resume_target = seek_target.clone();
     let resume_loaded = loaded.clone();
@@ -30,6 +31,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
         if key.is_empty() { return; }
         let server = resume_server.get();
         let token = resume_token.get();
+        let resume_duration = resume_duration.clone();
         let resume_position = resume_position.clone();
         let resume_target = resume_target.clone();
         let resume_loaded = resume_loaded.clone();
@@ -43,7 +45,10 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
                         let watched = record["play_time"].as_f64().unwrap_or(0.0);
                         let total = record["total_time"].as_f64().unwrap_or(0.0);
                         let saved_index = record["index"].as_u64().unwrap_or(0) as usize;
-                        if saved_index == resume_index && watched > 0.0 && (total <= 0.0 || watched < total - 15.0) {
+                        if saved_index == resume_index && watched.is_finite() && watched > 0.0
+                            && total.is_finite() && total > watched + 15.0 {
+                            // Retain the last known total while the native player prepares.
+                            resume_duration.set(total);
                             resume_position.set(watched);
                             if resume_loaded.get() { resume_handle.seek(watched); }
                             else { resume_target.set(Some(watched)); }
@@ -151,13 +156,21 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             .element_ref(&ref_handle)
             .on_load({ let duration = duration.clone(); let loaded = loaded.clone(); let target = seek_target.clone(); let handle = ref_handle.clone();
                 move |info: &nsh_core::element::VideoInfo| {
-                    duration.set(info.duration as f64);
+                    let total = info.duration as f64;
+                    if total.is_finite() && total > 0.0 { duration.set(total); }
                     loaded.set(true);
                     if let Some(seconds) = target.get() { handle.seek(seconds); target.set(None); }
                 }
             })
             .on_progress({ let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
-                move |info: &nsh_core::element::VideoProgress| { position.set(info.current_time as f64); duration.set(info.duration as f64); save(false); }
+                move |info: &nsh_core::element::VideoProgress| {
+                    let total = info.duration as f64;
+                    let current = info.current_time as f64;
+                    // Native preparation/seek events may report an unknown total (0).
+                    if total.is_finite() && total > 0.0 { duration.set(total); }
+                    if current.is_finite() && current >= 0.0 { position.set(current); }
+                    save(false);
+                }
             })
             .on_end({ let position = position.clone(); let duration = duration.clone(); let save = save_progress.clone();
                 move || { position.set(duration.get()); save(true); }
@@ -183,6 +196,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             .on_press({ let width = bar_width.clone(); let duration = duration.clone();
                 let handle = ref_handle.clone(); let position = position.clone(); let save = save_progress.clone();
                 move |event: &nsh_core::PressEvent| {
+                    if !duration.get().is_finite() || duration.get() <= 0.0 { return; }
                     let seconds = (event.position.x.0 / width.get().max(1.0)).clamp(0.0, 1.0) as f64 * duration.get();
                     handle.seek(seconds); position.set(seconds); save(true);
                 }
@@ -190,7 +204,7 @@ pub fn page(port: Signal<u16>, server: Signal<String>, token: Signal<String>, se
             .on_pan_end({ let width = bar_width.clone(); let duration = duration.clone(); let start = drag_start.clone();
                 let handle = ref_handle.clone(); let position = position.clone(); let save = save_progress.clone();
                 move |event: &nsh_core::element::PanEvent| {
-                    if event.cancelled { return; }
+                    if event.cancelled || !duration.get().is_finite() || duration.get() <= 0.0 { return; }
                     let x = start.get() + event.translation.x.0;
                     let seconds = (x / width.get().max(1.0)).clamp(0.0, 1.0) as f64 * duration.get();
                     handle.seek(seconds); position.set(seconds); save(true);
