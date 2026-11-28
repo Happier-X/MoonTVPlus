@@ -37,6 +37,7 @@ pub struct Controller {
     pub favorite_error: Signal<String>,
     generation: Signal<u64>,
     request: Signal<u64>,
+    pending_resume: Signal<Option<History>>,
     server: Signal<String>,
     token: Signal<String>,
     username: Signal<String>,
@@ -52,7 +53,7 @@ impl Controller {
             source_error: signal(String::new()), tab: signal("episodes"),
             selection: signal(Selection::default()), favorite: signal(false),
             favorite_busy: signal(false), favorite_error: signal(String::new()),
-            generation: signal(0), request: signal(0),
+            generation: signal(0), request: signal(0), pending_resume: signal(None),
             server, token, username, page, port }
     }
 
@@ -93,6 +94,20 @@ impl Controller {
         self.discovering.set(false);
         self.tab.set("episodes");
         self.page.set("detail");
+        self.pending_resume.set(movie.resume.clone());
+        if let Some(record) = movie.resume {
+            let Some((source, id)) = record.key.split_once('+').filter(|(source, id)| !source.is_empty() && !id.is_empty()) else {
+                self.error.set("播放记录缺少有效片源标识，无法继续播放".to_owned());
+                return;
+            };
+            let item = search::SearchItem {
+                source: source.to_owned(), id: id.to_owned(), title: record.title,
+                source_name: record.source_name, ..Default::default()
+            };
+            self.sources.set(vec![item.clone()]);
+            self.load(item);
+            return;
+        }
         let mut candidates = search::cache_get(&movie.title).map(|snapshot| {
             snapshot.groups.into_iter().flat_map(|group| group.items).filter(|item| {
                 item.title.trim() == movie.title.trim()
@@ -205,6 +220,14 @@ impl Controller {
                     if info.episodes.is_empty() { this.error.set("该源暂无集数，请重试或换源".to_owned()); }
                     this.info.set(info);
                     this.check_favorite();
+                    if let Some(record) = this.pending_resume.get() {
+                        if !record.index.is_finite() || record.index < 1.0 || record.index.fract() != 0.0
+                            || record.index > this.info.get().episodes.len() as f64 {
+                            this.error.set("记录中的集数已不可用，请手动选集".to_owned());
+                            return;
+                        }
+                        this.play(record.index as usize - 1);
+                    }
                 }
                 Err(error) => { let message = this.failure(error); this.error.set(message); }
             }
@@ -334,6 +357,7 @@ impl Controller {
             self.error.set("该集不是可交给现有播放器的 HTTP(S) 地址，请换源".to_owned());
             return;
         }
+        self.pending_resume.set(None);
         self.selection.set(Selection { info, index, url });
         self.page.set("play");
     }

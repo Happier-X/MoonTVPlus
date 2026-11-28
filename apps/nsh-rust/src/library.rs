@@ -54,6 +54,7 @@ pub fn history_row(records: &[History]) -> Option<Row> {
             },
             source_name: item.source_name.clone(),
             elapsed: human_time(item.play_time),
+            resume: Some(item.clone()),
         })
         .collect();
     if items.is_empty() {
@@ -70,6 +71,7 @@ pub fn history_row(records: &[History]) -> Option<Row> {
 
 fn record_movie(item: &History) -> Movie {
     Movie {
+        resume: Some(item.clone()),
         id: item.key.clone(),
         title: item.title.clone(),
         poster: item.cover.clone(),

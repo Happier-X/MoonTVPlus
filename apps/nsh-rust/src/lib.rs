@@ -144,6 +144,8 @@ struct Movie {
     source_name: String,
     /// Watched time rendered the way the web shows it (e.g. `2分47秒`).
     elapsed: String,
+    /// Exact authenticated record for the continue-watching handoff.
+    resume: Option<History>,
 }
 
 #[derive(Clone, PartialEq)]
